@@ -50,7 +50,13 @@ dependencies:
   path: ^1.8.3
   local_auth: ^2.2.0
   
-  # NEW: Face recognition dependencies
+  # Firebase dependencies
+  firebase_core: ^2.24.2
+  firebase_analytics: ^10.8.0
+  firebase_messaging: ^14.7.10
+  firebase_crashlytics: ^3.0.18
+  
+  # Face recognition dependencies
   google_ml_kit: ^0.16.3
   tflite_flutter: ^0.10.4
 

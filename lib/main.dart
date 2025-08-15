@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:provider/provider.dart';
 import 'login_screen.dart';
 import 'admin_dashboard_screen.dart';
@@ -39,7 +40,7 @@ class MyApp extends StatelessWidget {
         title: 'Nishali - Employee Management123',
         initialRoute: '/',
         routes: {
-          '/': (context) => const LandingScreen(),
+          '/': (context) => kIsWeb ? const LoginScreen() : const LandingScreen(),
           '/admin-dashboard': (context) => const AdminDashboardScreen(userName: 'Admin'),
         },
         debugShowCheckedModeBanner: false,
