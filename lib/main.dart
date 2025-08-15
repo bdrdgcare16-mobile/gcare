@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'login_screen.dart';
+import 'admin_dashboard_screen.dart';
 import 'services/user_session.dart';
 import 'providers/realtime_provider.dart';
 import 'providers/reports_provider.dart';
+import 'landing_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,8 +36,12 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ReportsProvider()),
       ],
       child: MaterialApp(
-        title: 'Nishali - Employee Management',
-        home: const LoginScreen(),
+        title: 'Nishali - Employee Management123',
+        initialRoute: '/',
+        routes: {
+          '/': (context) => const LandingScreen(),
+          '/admin-dashboard': (context) => const AdminDashboardScreen(userName: 'Admin'),
+        },
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           primarySwatch: Colors.blue,

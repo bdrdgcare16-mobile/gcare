@@ -48,6 +48,7 @@ dependencies:
   image: ^4.1.7
   path_provider: ^2.1.2
   path: ^1.8.3
+  local_auth: ^2.2.0
   
   # NEW: Face recognition dependencies
   google_ml_kit: ^0.16.3
