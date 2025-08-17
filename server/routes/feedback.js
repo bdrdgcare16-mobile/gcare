@@ -1,0 +1,177 @@
+// const express = require('express');
+// const router = express.Router();
+// const ctrl = require('../controllers/feedbackController');
+
+// /**
+//  * @swagger
+//  * tags:
+//  *   - name: Feedback
+//  *     description: User feedback management
+//  */
+
+// /**
+//  * @swagger
+//  * components:
+//  *   schemas:
+//  *     Feedback:
+//  *       type: object
+//  *       properties:
+//  *         empid:
+//  *           type: string
+//  *         name:
+//  *           type: string
+//  *         message:
+//  *           type: string
+//  *         date:
+//  *           type: string
+//  *           format: date-time
+//  *         response:
+//  *           type: string
+//  */
+
+// module.exports = (db) => {
+//   router.use((req, res, next) => {
+//     req.app.locals.db = db;
+//     next();
+//   });
+
+//   /**
+//    * @swagger
+//    * /api/feedback:
+//    *   post:
+//    *     summary: Submit feedback (user)
+//    *     tags: [Feedback]
+//    *     parameters:
+//    *       - in: header
+//    *         name: x-user-id
+//    *         required: true
+//    *         schema:
+//    *           type: string
+//    *         description: User document ID
+//    *     requestBody:
+//    *       required: true
+//    *       content:
+//    *         application/json:
+//    *           schema:
+//    *             type: object
+//    *             properties:
+//    *               message:
+//    *                 type: string
+//    *     responses:
+//    *       201:
+//    *         description: Feedback created
+//    */
+//   router.post('/', ctrl.createFeedback);
+
+//   /**
+//    * @swagger
+//    * /api/feedback:
+//    *   get:
+//    *     summary: Get all feedbacks (admin)
+//    *     tags: [Feedback]
+//    *     responses:
+//    *       200:
+//    *         description: List of feedbacks
+//    *         content:
+//    *           application/json:
+//    *             schema:
+//    *               type: array
+//    *               items:
+//    *                 $ref: '#/components/schemas/Feedback'
+//    */
+//   router.get('/', ctrl.getAllFeedback);
+
+//   return router;
+// };
+const express = require('express');
+const router = express.Router();
+const ctrl = require('../controllers/feedbackController');
+
+/**
+ * @openapi
+ * tags:
+ *   - name: Feedback
+ *     description: User feedback management
+ */
+
+/**
+ * @openapi
+ * components:
+ *   schemas:
+ *     FeedbackOut:
+ *       type: object
+ *       properties:
+ *         id:        { type: string }
+ *         empid:     { type: string }
+ *         name:      { type: string }
+ *         message:   { type: string }
+ *         response:  { type: string }
+ *         visibility:
+ *           type: array
+ *           items: { type: string }
+ *         date:
+ *           type: string
+ *           format: date-time
+ */
+
+module.exports = (db) => {
+  // inject Firestore
+  router.use((req, _res, next) => { req.app.locals.db = db; next(); });
+
+  /**
+   * @openapi
+   * /api/feedback:
+   *   post:
+   *     summary: Submit feedback (user)
+   *     tags: [Feedback]
+   *     description: |
+   *       Provide **either**:
+   *       - `x-user-id` (users doc id, server resolves empid/name), **or**
+   *       - `x-empid` **and** `x-name` directly.
+   *     parameters:
+   *       - in: header
+   *         name: x-user-id
+   *         required: false
+   *         schema: { type: string }
+   *         description: Firestore `users` document ID
+   *       - in: header
+   *         name: x-empid
+   *         required: false
+   *         schema: { type: string }
+   *       - in: header
+   *         name: x-name
+   *         required: false
+   *         schema: { type: string }
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               message: { type: string }
+   *     responses:
+   *       201: { description: Feedback created }
+   *       400: { description: Missing user meta or message }
+   */
+  router.post('/', ctrl.createFeedback);
+
+  /**
+   * @openapi
+   * /api/feedback:
+   *   get:
+   *     summary: Get all feedbacks (admin)
+   *     tags: [Feedback]
+   *     responses:
+   *       200:
+   *         description: List of feedbacks
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: array
+   *               items: { $ref: '#/components/schemas/FeedbackOut' }
+   */
+  router.get('/', ctrl.getAllFeedback);
+
+  return router;
+};
