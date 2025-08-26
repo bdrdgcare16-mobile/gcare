@@ -1,5 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:local_auth_android/local_auth_android.dart';
+import 'package:local_auth_ios/local_auth_ios.dart';
 import 'package:flutter/services.dart';
 
 class LandingScreen extends StatefulWidget {
@@ -20,47 +24,82 @@ class _LandingScreenState extends State<LandingScreen> {
     _checkBiometricsAndAuthenticate();
   }
 
-  // Check if device supports biometrics and start authentication
+  // Check if device supports biometric authentication
   Future<void> _checkBiometricsAndAuthenticate() async {
     bool canAuthenticate = false;
     List<BiometricType> availableBiometrics = [];
     
     try {
-      // Check if device supports biometric authentication
-      canAuthenticate = await _localAuth.canCheckBiometrics;
+      // Check if biometric authentication is available
+      canAuthenticate = await _localAuth.canCheckBiometrics || 
+          await _localAuth.isDeviceSupported();
       
       if (!canAuthenticate) {
-        _showError('Biometric authentication not available');
+        _showError('Biometric authentication not available on this device');
         return;
       }
 
       // Get available biometric types
       availableBiometrics = await _localAuth.getAvailableBiometrics();
+      debugPrint('Available biometrics: $availableBiometrics');
       
       if (availableBiometrics.isEmpty) {
-        _showError('No biometric authentication methods available');
+        _showError('No biometric authentication methods enrolled. Please set up face authentication in device settings.');
+        return;
+      }
+      
+      // Check specifically for face authentication
+      final hasFaceAuth = availableBiometrics.contains(BiometricType.face);
+      debugPrint('Face authentication available: $hasFaceAuth');
+
+      if (!hasFaceAuth) {
+        _showError('Face authentication is not available on this device');
         return;
       }
 
       setState(() {
         _isAuthenticating = true;
-        _statusMessage = 'Authenticating...';
+        _statusMessage = 'Looking for face...';
       });
+
+      // Android-specific configuration
+      final androidAuthStrings = AndroidAuthMessages(
+        signInTitle: 'Face Authentication',
+        cancelButton: 'Cancel',
+        biometricHint: 'Verify your identity',
+        biometricNotRecognized: 'Face not recognized. Try again.',
+        biometricRequiredTitle: 'Biometric required',
+        biometricSuccess: 'Authentication successful!',
+        goToSettingsButton: 'Settings',
+        goToSettingsDescription: 'Please set up face authentication',
+      );
 
       // Try to authenticate with biometrics
       final bool didAuthenticate = await _localAuth.authenticate(
-        localizedReason: 'Please authenticate to access the app',
+        localizedReason: 'Authenticate with Face ID to continue',
+        authMessages: [
+          androidAuthStrings,
+          const IOSAuthMessages(
+            cancelButton: 'Cancel',
+            goToSettingsButton: 'Settings',
+            goToSettingsDescription: 'Please enable Face ID',
+            lockOut: 'Face ID is locked. Please try again later.',
+          ),
+        ],
         options: const AuthenticationOptions(
           stickyAuth: true,
-          biometricOnly: true, // Only use biometrics, not device credentials
+          biometricOnly: true,
+          useErrorDialogs: true,
+          sensitiveTransaction: true,
         ),
       );
 
+      // Handle authentication result
       if (didAuthenticate) {
         setState(() {
-        _isAuthenticating = true;
-        _statusMessage = 'Authenticated';
-      });
+          _isAuthenticating = true;
+          _statusMessage = 'Authenticated';
+        });
         // Navigate to admin dashboard on success
         if (mounted) {
           Navigator.of(context).pushReplacementNamed('/admin-dashboard');
