@@ -26,12 +26,9 @@ class _LandingScreenState extends State<LandingScreen> {
 
   // Check if device supports biometric authentication
   Future<void> _checkBiometricsAndAuthenticate() async {
-    bool canAuthenticate = false;
-    List<BiometricType> availableBiometrics = [];
-    
     try {
-      // Check if biometric authentication is available
-      canAuthenticate = await _localAuth.canCheckBiometrics || 
+      // Check if device supports biometric authentication
+      final bool canAuthenticate = await _localAuth.canCheckBiometrics || 
           await _localAuth.isDeviceSupported();
       
       if (!canAuthenticate) {
@@ -40,50 +37,66 @@ class _LandingScreenState extends State<LandingScreen> {
       }
 
       // Get available biometric types
-      availableBiometrics = await _localAuth.getAvailableBiometrics();
+      final List<BiometricType> availableBiometrics = await _localAuth.getAvailableBiometrics();
       debugPrint('Available biometrics: $availableBiometrics');
       
       if (availableBiometrics.isEmpty) {
-        _showError('No biometric authentication methods enrolled. Please set up face authentication in device settings.');
-        return;
-      }
-      
-      // Check specifically for face authentication
-      final hasFaceAuth = availableBiometrics.contains(BiometricType.face);
-      debugPrint('Face authentication available: $hasFaceAuth');
-
-      if (!hasFaceAuth) {
-        _showError('Face authentication is not available on this device');
+        _showError('No biometric authentication methods enabled. Please set up biometric authentication in device settings.');
         return;
       }
 
       setState(() {
         _isAuthenticating = true;
-        _statusMessage = 'Looking for face...';
       });
 
-      // Android-specific configuration
-      final androidAuthStrings = AndroidAuthMessages(
-        signInTitle: 'Face Authentication',
-        cancelButton: 'Cancel',
-        biometricHint: 'Verify your identity',
-        biometricNotRecognized: 'Face not recognized. Try again.',
-        biometricRequiredTitle: 'Biometric required',
-        biometricSuccess: 'Authentication successful!',
-        goToSettingsButton: 'Settings',
-        goToSettingsDescription: 'Please set up face authentication',
-      );
+      // Check for face authentication first
+      if (availableBiometrics.contains(BiometricType.face)) {
+        await _authenticateWithBiometric('face');
+      } 
+      // If face auth not available, try fingerprint
+      else if (availableBiometrics.any((type) => type == BiometricType.fingerprint || type == BiometricType.strong || type == BiometricType.weak)) {
+        await _authenticateWithBiometric('fingerprint');
+      } 
+      // No supported biometrics available
+      else {
+        _showError('No supported biometric authentication methods found');
+      }
+    } on PlatformException catch (e) {
+      _showError('Authentication error: ${e.message}');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isAuthenticating = false;
+        });
+      }
+    }
+  }
 
-      // Try to authenticate with biometrics
+  // Helper method to handle biometric authentication
+  Future<void> _authenticateWithBiometric(String type) async {
+    try {
+      setState(() {
+        _statusMessage = type == 'face' ? 'Looking for face...' : 'Scan your fingerprint...';
+      });
+
       final bool didAuthenticate = await _localAuth.authenticate(
-        localizedReason: 'Authenticate with Face ID to continue',
+        localizedReason: 'Authenticate with ${type == 'face' ? 'Face ID' : 'Fingerprint'} to continue',
         authMessages: [
-          androidAuthStrings,
+          AndroidAuthMessages(
+            signInTitle: '${type == 'face' ? 'Face' : 'Fingerprint'} Authentication',
+            cancelButton: 'Cancel',
+            biometricHint: 'Verify your identity',
+            biometricNotRecognized: type == 'face' ? 'Face not recognized. Try again.' : 'Fingerprint not recognized. Try again.',
+            biometricRequiredTitle: 'Biometric required',
+            biometricSuccess: 'Authentication successful!',
+            goToSettingsButton: 'Settings',
+            goToSettingsDescription: 'Please set up ${type == 'face' ? 'face' : 'fingerprint'} authentication',
+          ),
           const IOSAuthMessages(
             cancelButton: 'Cancel',
             goToSettingsButton: 'Settings',
-            goToSettingsDescription: 'Please enable Face ID',
-            lockOut: 'Face ID is locked. Please try again later.',
+            goToSettingsDescription: 'Please enable biometric authentication',
+            lockOut: 'Biometric is locked. Please try again later.',
           ),
         ],
         options: const AuthenticationOptions(
@@ -94,18 +107,13 @@ class _LandingScreenState extends State<LandingScreen> {
         ),
       );
 
-      // Handle authentication result
-      if (didAuthenticate) {
+      if (didAuthenticate && mounted) {
         setState(() {
-          _isAuthenticating = true;
           _statusMessage = 'Authenticated';
         });
-        // Navigate to admin dashboard on success
-        if (mounted) {
-          Navigator.of(context).pushReplacementNamed('/admin-dashboard');
-        }
-      } else {
-        _showError('Authentication failed');
+        Navigator.of(context).pushReplacementNamed('/admin-dashboard');
+      } else if (!didAuthenticate && mounted) {
+        _showError('${type == 'face' ? 'Face' : 'Fingerprint'} authentication failed');
       }
     } on PlatformException catch (e) {
       _showError('Authentication error: ${e.message}');
