@@ -3181,7 +3181,8 @@
 //   }
 // }
 import 'dart:convert';
-import 'dart:html' as html; // for Flutter Web localStorage
+import 'package:serv_app/html_stub.dart'
+  if (dart.library.html) 'package:serv_app/html_web.dart' as html;// for Flutter Web localStorage
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
@@ -3640,7 +3641,7 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
 
                   // Leave Type (from API)
                   DropdownButtonFormField<String>(
-                    value: selectedLeaveType,
+                    initialValue: selectedLeaveType,
                     decoration: _inputDecorationWithLabel("Leave Type"),
                     items: _typeNames
                         .map((t) => DropdownMenuItem(value: t, child: Text(t)))
@@ -3667,7 +3668,7 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
 
                   if (selectedLeaveType != null && _currentRule != null)
                     DropdownButtonFormField<String>(
-                      value: selectedLeaveDuration,
+                      initialValue: selectedLeaveDuration,
                       decoration: _inputDecorationWithLabel("Leave Duration"),
                       items: durationOptions
                           .map((d) =>
@@ -3686,7 +3687,7 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
                   const SizedBox(height: 16),
 
                   DropdownButtonFormField<String>(
-                    value: selectedShift,
+                    initialValue: selectedShift,
                     decoration: _inputDecorationWithLabel("Shift"),
                     items: shifts
                         .map((shift) =>

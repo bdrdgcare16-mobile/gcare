@@ -2641,7 +2641,8 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 // Only available on web; safely ignored on mobile/desktop.
-import 'dart:html' as html show window;
+import 'package:serv_app/html_stub.dart'
+  if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
 import 'package:excel/excel.dart' as xls;
 import 'package:file_saver/file_saver.dart';

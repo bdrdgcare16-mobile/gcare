@@ -1904,8 +1904,8 @@ import 'report_scheduler_page.dart';
 
 // Use localStorage only when targeting Web
 // ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
-
+import 'package:serv_app/html_stub.dart'
+  if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 // ===== Theme =====
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
@@ -2452,7 +2452,7 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: DropdownButtonFormField<String>(
-        value: shiftgroup.text.isNotEmpty ? shiftgroup.text : null,
+        initialValue: shiftgroup.text.isNotEmpty ? shiftgroup.text : null,
         items: shiftOptions.map((value) => DropdownMenuItem<String>(value: value, child: Text(value))).toList(),
         onChanged: (value) => setState(() => shiftgroup.text = value ?? ''),
         validator: (value) => value == null || value.isEmpty ? 'Required' : null,

@@ -241,12 +241,12 @@
 //   }
 // }
 import 'dart:convert';
-import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 // Web-only localStorage (safe to import; it’s ignored on mobile/desktop)
-import 'dart:html' as html show window;
+import 'package:serv_app/html_stub.dart'
+  if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);

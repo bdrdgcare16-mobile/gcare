@@ -162,7 +162,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'dart:html' as html; // for Flutter Web localStorage
+import 'package:serv_app/html_stub.dart'
+  if (dart.library.html) 'package:serv_app/html_web.dart' as html; // for Flutter Web localStorage
 import 'package:serv_app/models/company_data.dart';
 
 // Colors (unchanged)
@@ -368,7 +369,7 @@ class _HalfDayTimePageState extends State<HalfDayTimePage> {
             // Session
             DropdownButtonFormField<String>(
               decoration: buildInputDecoration("Select Session"),
-              value: selectedSession,
+              initialValue: selectedSession,
               items: sessions
                   .map(
                     (s) => DropdownMenuItem<String>(value: s, child: Text(s)),

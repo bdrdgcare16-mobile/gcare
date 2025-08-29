@@ -2306,7 +2306,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:file_picker/file_picker.dart';
 import 'package:open_filex/open_filex.dart';
-import 'dart:html' as html; // Web open
+import 'package:serv_app/html_stub.dart'
+  if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
@@ -2331,7 +2332,7 @@ class _MyTasksPageState extends State<MyTasksPage> {
   List<Map<String, dynamic>> dailyUpdates = [];
   bool isLoadingUpdates = false;
 
-  bool _isUploading = false;
+  final bool _isUploading = false;
 
   @override
   void initState() {

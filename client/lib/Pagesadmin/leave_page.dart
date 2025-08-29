@@ -554,7 +554,8 @@
 //   }
 // }
 import 'dart:convert';
-import 'dart:html' as html; // Web: localStorage/sessionStorage
+import 'package:serv_app/html_stub.dart'
+  if (dart.library.html) 'package:serv_app/html_web.dart' as html;// Web: localStorage/sessionStorage
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';

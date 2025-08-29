@@ -430,7 +430,7 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
             children: [
               DropdownButtonFormField<String>(
                 isExpanded: true,
-                value: selectedTable,
+                initialValue: selectedTable,
                 hint: const Text("Choose Table"),
                 items: tableOptions.map((table) {
                   return DropdownMenuItem(value: table, child: Text(table));

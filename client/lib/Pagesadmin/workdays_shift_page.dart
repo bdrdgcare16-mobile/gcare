@@ -624,7 +624,8 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 // Web localStorage (ignored on mobile/desktop builds)
-import 'dart:html' as html show window;
+import 'package:serv_app/html_stub.dart'
+  if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
 import 'create_shift_page.dart';
 import 'shift_permission_page.dart';

@@ -364,7 +364,8 @@
 //   }
 // }
 import 'dart:convert';
-import 'dart:html' as html; // token from localStorage on web
+import 'package:serv_app/html_stub.dart'
+  if (dart.library.html) 'package:serv_app/html_web.dart' as html; // token from localStorage on web
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';

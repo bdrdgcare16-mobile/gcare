@@ -1408,8 +1408,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 // web localStorage (ignored on mobile/desktop)
-import 'dart:html' as html show window;
-
+import 'package:serv_app/html_stub.dart'
+  if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 import 'package:serv_app/Pagesadmin/attendance_report_screen_page.dart';
 
 import 'package:excel/excel.dart' as xls;

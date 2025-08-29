@@ -158,7 +158,7 @@ class _OrganizationQrPageState extends State<OrganizationQrPage> {
                         isDense: true,
                         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       ),
-                      value: _selectedLocation.isNotEmpty ? _selectedLocation : null,
+                      initialValue: _selectedLocation.isNotEmpty ? _selectedLocation : null,
                       items: _locations
                           .map((loc) => DropdownMenuItem(value: loc, child: Text(loc)))
                           .toList(),
@@ -178,7 +178,7 @@ class _OrganizationQrPageState extends State<OrganizationQrPage> {
                         isDense: true,
                         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       ),
-                      value: _selectedType.isNotEmpty ? _selectedType : null,
+                      initialValue: _selectedType.isNotEmpty ? _selectedType : null,
                       items: _qrTypes
                           .map((type) => DropdownMenuItem(value: type, child: Text(type)))
                           .toList(),

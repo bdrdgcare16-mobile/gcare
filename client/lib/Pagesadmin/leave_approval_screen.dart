@@ -1903,13 +1903,17 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     final t = selectedTab.toLowerCase();
     if (t == 'late check in' || t == 'early check out') return 'attendance';
     if (t == 'leave type' || t == 'permission' || t == 'over time' ||
-        t == 'half day leave' || t == 'comp off') return 'leaves';
+        t == 'half day leave' || t == 'comp off') {
+      return 'leaves';
+    }
 
     // If "All", infer by item fields/type
     final typeStr = (item['type'] ?? item['category'] ?? '').toString().toLowerCase();
     if (typeStr.contains('late') || typeStr.contains('early') || typeStr.contains('attend')) return 'attendance';
     if (typeStr.contains('leave') || typeStr.contains('permission') || typeStr.contains('overtime') ||
-        typeStr.contains('halfday') || typeStr.contains('comp')) return 'leaves';
+        typeStr.contains('halfday') || typeStr.contains('comp')) {
+      return 'leaves';
+    }
 
     if (item.containsKey('checkIn') || item.containsKey('checkOut') || item.containsKey('requestTime')) {
       return 'attendance';

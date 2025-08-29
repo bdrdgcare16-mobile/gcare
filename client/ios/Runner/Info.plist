@@ -45,8 +45,8 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
-	<key>NSCameraUsageDescription</key>
-	<string>We need camera access to detect your face for check-in.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>We need Face ID to verify your identity for secure login</string>
 
 	<key>NSCameraUsageDescription</key>
 	<string>Need camera access to take pictures</string>

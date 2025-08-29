@@ -225,7 +225,7 @@ class _ShiftPermissionPageState extends State<ShiftPermissionPage> {
       const SizedBox(height: 12),
 
       DropdownButtonFormField<String>(
-        value: _selectedEligibility,
+        initialValue: _selectedEligibility,
         decoration: const InputDecoration(
           labelText: "Eligibility",
           border: OutlineInputBorder(),

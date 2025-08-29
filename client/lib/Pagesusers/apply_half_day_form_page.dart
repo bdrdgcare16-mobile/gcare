@@ -981,7 +981,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'dart:html' as html; // for Flutter Web localStorage
+import 'package:serv_app/html_stub.dart'
+  if (dart.library.html) 'package:serv_app/html_web.dart' as html;// for Flutter Web localStorage
 import 'package:serv_app/models/company_data.dart';
 
 // 🎨 Your Color Constants
@@ -1179,7 +1180,7 @@ class _ApplyHalfDayFormState extends State<ApplyHalfDayForm> {
                 // Shift
                 DropdownButtonFormField<String>(
                   decoration: buildInputDecoration("Shift", isRequired: true),
-                  value: selectedShift,
+                  initialValue: selectedShift,
                   items: shifts
                       .map(
                         (shift) =>

@@ -923,15 +923,16 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
         setState(() {
           userName = (data['name'] ?? profile['name'] ?? "") as String;
-          userId   = (data['empid'] ?? profile['empid'] ?? "") as String;
+          userId = (data['empid'] ?? profile['empid'] ?? "") as String;
 
           // dept & location typically live under employeeProfile
-          dept     = (profile['dept'] ?? data['dept'] ?? "") as String;
+          dept = (profile['dept'] ?? data['dept'] ?? "") as String;
           location = (profile['location'] ?? data['location'] ?? "") as String;
 
           // shiftGroup typically lives under employeeProfile
-          selectedShift =
-              (profile['shiftGroup'] ?? data['shiftGroup'] ?? "Shift") as String;
+          selectedShift = (profile['shiftGroup'] ??
+              data['shiftGroup'] ??
+              "Shift") as String;
 
           // If we resolved a shift name, mark it selected so the button shows it
           final hasShift = selectedShift.isNotEmpty && selectedShift != "Shift";
@@ -1369,21 +1370,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 const SizedBox(height: 20),
 
                 // CLOCK ICON
-                Container(
+                SizedBox(
                   width: 65,
                   height: 65,
-                  decoration: BoxDecoration(
-                    color: kButtonColor.withOpacity(0.2),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: kButtonColor.withOpacity(0.3),
-                      width: 2,
-                    ),
-                  ),
-                  child: Icon(
-                    isTimerRunning ? Icons.timer : Icons.access_time,
-                    size: 32,
-                    color: kButtonColor,
+                  child: Image.asset(
+                    'assets/images/timer1.png',
+                    fit: BoxFit.contain,
                   ),
                 ),
 

@@ -218,7 +218,8 @@
 //   }
 // }
 import 'dart:convert';
-import 'dart:html' as html; // for Flutter Web localStorage
+import 'package:serv_app/html_stub.dart'
+  if (dart.library.html) 'package:serv_app/html_web.dart' as html;// for Flutter Web localStorage
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 

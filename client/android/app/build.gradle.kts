@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.serv_api_integration1"
+    namespace = "com.example.serv_app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 

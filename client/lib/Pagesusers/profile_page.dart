@@ -199,7 +199,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 // Web localStorage (ignored on mobile/desktop)
-import 'dart:html' as html show window;
+import 'package:serv_app/html_stub.dart'
+  if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
 import 'change_password_page.dart';
 import 'multi_language_page.dart';

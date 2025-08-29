@@ -861,7 +861,8 @@ import 'package:http/http.dart' as http;
 import 'package:serv_app/models/company_data.dart';
 
 // Web only (localStorage)
-import 'dart:html' as html;
+import 'package:serv_app/html_stub.dart'
+  if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
 class ApiService {
   static const String _origin = 'http://localhost:3000';
@@ -935,7 +936,9 @@ class ApiService {
     final t = (item['type'] ?? item['category'] ?? hintTabOrType ?? '').toString().toLowerCase();
     if (t.contains('late') || t.contains('early') || t.contains('attend')) return 'attendance';
     if (t.contains('leave') || t.contains('permission') || t.contains('overtime') ||
-        t.contains('halfday') || t.contains('comp')) return 'leaves';
+        t.contains('halfday') || t.contains('comp')) {
+      return 'leaves';
+    }
 
     // 3) heuristic by known fields
     if (item.containsKey('checkIn') || item.containsKey('checkOut') || item.containsKey('requestTime')) {

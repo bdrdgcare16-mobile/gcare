@@ -1892,7 +1892,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:html' as html; // Web-only APIs (fine for Flutter Web builds)
+import 'package:serv_app/html_stub.dart'
+  if (dart.library.html) 'package:serv_app/html_web.dart' as html;// Web-only APIs (fine for Flutter Web builds)
 
 import 'event_model_page.dart';
 import 'add_event_page.dart';

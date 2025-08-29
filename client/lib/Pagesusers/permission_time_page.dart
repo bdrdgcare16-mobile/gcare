@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'dart:html' as html; // for Flutter Web localStorage
+import 'package:serv_app/html_stub.dart'
+  if (dart.library.html) 'package:serv_app/html_web.dart' as html;// for Flutter Web localStorage
 import 'package:serv_app/models/company_data.dart'; // <-- moved to top with other imports
 
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -364,7 +365,7 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
                   child: Column(
                     children: [
                       DropdownButtonFormField<String>(
-                        value: selectedShift,
+                        initialValue: selectedShift,
                         decoration: inputBoxDecoration('Shift'),
                         items: shifts.map((shift) {
                           return DropdownMenuItem(
@@ -425,7 +426,7 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
                       ),
                       const SizedBox(height: 16),
                       DropdownButtonFormField<String>(
-                        value: selectedReason,
+                        initialValue: selectedReason,
                         decoration: inputBoxDecoration('Reason'),
                         items: reasons.map((reason) {
                           return DropdownMenuItem(

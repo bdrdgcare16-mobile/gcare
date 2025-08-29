@@ -156,7 +156,7 @@ class _MyTrackPageState extends State<MyTrackPage> {
                               borderSide: const BorderSide(color: kButtonColor, width: 2),
                             ),
                           ),
-                          value: selectedShift,
+                          initialValue: selectedShift,
                           items: shiftOptions.map((shift) {
                             return DropdownMenuItem(
                               value: shift,

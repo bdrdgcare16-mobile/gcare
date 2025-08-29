@@ -563,7 +563,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'dart:html' as html; // for Flutter Web localStorage
+import 'package:serv_app/html_stub.dart'
+  if (dart.library.html) 'package:serv_app/html_web.dart' as html; // for Flutter Web localStorage
 import 'package:serv_app/models/company_data.dart';
 
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -806,7 +807,7 @@ class _OverTimePageState extends State<OverTimePage> {
           // Shift dropdown
           DropdownButtonFormField<String>(
             decoration: inputBoxDecoration("Select Shift"),
-            value: selectedShift,
+            initialValue: selectedShift,
             items: shifts
                 .map((s) => DropdownMenuItem(value: s, child: Text(s)))
                 .toList(),
