@@ -872,7 +872,7 @@ class ApiService {
   // -------------------- auth headers --------------------
   static Future<Map<String, String>> _authHeaders({bool json = true}) async {
     String? token = CompanyData.token;
-    if ((token == null || token.isEmpty) && kIsWeb) {
+    if ((token!.isEmpty) && kIsWeb) {
       try {
         final t = html.window.localStorage['token'];
         if (t != null && t.isNotEmpty) token = t;

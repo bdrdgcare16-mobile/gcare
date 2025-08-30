@@ -198,7 +198,7 @@ class _WeekOffPageState extends State<WeekOffPage> {
       DateTime? currentToDate = toDateController.text.isNotEmpty
           ? DateFormat('dd-MM-yyyy').parse(toDateController.text)
           : null;
-      if (currentToDate != null && picked.isAfter(currentToDate)) {
+      if (picked.isAfter(currentToDate!)) {
         toDateController.clear();
       }
     }
