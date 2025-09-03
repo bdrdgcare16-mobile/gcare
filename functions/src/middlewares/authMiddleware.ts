@@ -1,6 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import * as jwt from 'jsonwebtoken';
+import { defineString } from 'firebase-functions/params';
 import { db } from '../config/firebase';
+
+// Define parameters
+const jwtSecret = defineString('JWT_SECRET', { default: 'your-default-jwt-secret' });
 
 // Extend Express Request type to include user
 declare global {
@@ -37,7 +41,7 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
     }
 
     // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key') as JwtPayload;
+    const decoded = jwt.verify(token, jwtSecret.value()) as JwtPayload;
     req.user = {
       userId: decoded.userId,
       email: decoded.email,

@@ -974,7 +974,7 @@
 // // const Color kButtonColor = Color(0xFF655193); // Updated button color
 // // const Color kTextColor = Colors.white;
 
-// // const String _apiBase = 'http://localhost:3000/api';
+// // const String _apiBase = 'https://us-central1-servappbackend.cloudfunctions.net/api';
 
 // // class AttendanceReport extends StatefulWidget {
 // //   const AttendanceReport({super.key});
@@ -1772,7 +1772,7 @@
 // const Color kButtonColor = Color(0xFF655193); // Updated button color
 // const Color kTextColor = Colors.white;
 
-// const String _apiBase = 'http://localhost:3000/api';
+// const String _apiBase = 'https://us-central1-servappbackend.cloudfunctions.net/api';
 
 // class AttendanceReport extends StatefulWidget {
 //   const AttendanceReport({super.key});
@@ -2653,7 +2653,7 @@ const Color kAppBarColor = Color(0xFF8c6eaf);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
-const String _apiBase = 'http://localhost:3000/api';
+const String _apiBase = 'https://us-central1-servappbackend.cloudfunctions.net/api';
 
 class AttendanceReport extends StatefulWidget {
   const AttendanceReport({super.key});

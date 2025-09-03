@@ -167,7 +167,7 @@
 // // const Color kAppBarColor = Color(0xFF8C6EAF);
 
 // // // ---- Backend base URL (must match your Node server) ----
-// // const String apiBase = 'http://localhost:3000/api';
+// // const String apiBase = 'https://us-central1-servappbackend.cloudfunctions.net/api';
 
 // // class FeedbackPage extends StatefulWidget {
 // //   const FeedbackPage({super.key});
@@ -314,7 +314,7 @@
 // const Color kAppBarColor = Color(0xFF8C6EAF);
 
 // // Backend base URL
-// const String apiBase = 'http://localhost:3000/api';
+// const String apiBase = 'https://us-central1-servappbackend.cloudfunctions.net/api';
 
 // class FeedbackPage extends StatefulWidget {
 //   const FeedbackPage({super.key});
@@ -466,7 +466,7 @@ const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
 const Color kAppBarColor = Color(0xFF8C6EAF);
 
 // 👉 Adjust if your backend origin/port is different
-const String _apiBase = 'http://localhost:3000/api';
+const String _apiBase = 'https://us-central1-servappbackend.cloudfunctions.net/api';
 
 class FeedbackPage extends StatefulWidget {
   const FeedbackPage({super.key});

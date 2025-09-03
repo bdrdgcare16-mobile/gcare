@@ -25,7 +25,7 @@
 // const Color kTextColor = Colors.white;
 
 // // Base URL used throughout this file
-// const String _apiBase = 'http://localhost:3000/api';
+// const String _apiBase = 'https://us-central1-servappbackend.cloudfunctions.net/api';
 
 // class LoginPage extends StatefulWidget {
 //   const LoginPage({super.key});
@@ -839,7 +839,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 // ===== API BASE =====
-const String _apiBase = 'http://localhost:3000/api';
+const String _apiBase = 'https://us-central1-servappbackend.cloudfunctions.net/api';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});

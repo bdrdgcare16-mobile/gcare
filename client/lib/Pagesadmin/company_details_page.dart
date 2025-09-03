@@ -523,7 +523,7 @@
 //       final token = CompanyData.token ?? ''; // Must be set earlier
 //       if (token.isEmpty || _logoFile == null) return;
 
-//       var uri = Uri.parse('http://localhost:3000/api/company/profile');
+//       var uri = Uri.parse('https://us-central1-servappbackend.cloudfunctions.net/api/company/profile');
 //       var request = http.MultipartRequest('POST', uri);
 //       request.headers['Authorization'] = 'Bearer $token';
 //       request.files.add(
@@ -788,7 +788,7 @@ class _CompanyDetailsFormPageState extends State<CompanyDetailsFormPage> {
     CompanyData.adminName = _adminNameController.text.trim();
     CompanyData.adminRole = _adminRoleController.text.trim();
 
-    final uri = Uri.parse('http://localhost:3000/api/company/profile');
+    final uri = Uri.parse('https://us-central1-servappbackend.cloudfunctions.net/api/company/profile');
     final request = http.MultipartRequest('POST', uri)
       ..headers['Authorization'] = 'Bearer $token';
 

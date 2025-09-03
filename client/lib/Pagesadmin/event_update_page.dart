@@ -1374,7 +1374,7 @@
 // // const Color kTextColor = Colors.white;
 
 // // // ⬇️ Set your backend base URL here
-// // const String apiBase = 'http://localhost:3000/api';
+// // const String apiBase = 'https://us-central1-servappbackend.cloudfunctions.net/api';
 
 // // class EventUpdatesPage extends StatefulWidget {
 // //   const EventUpdatesPage({super.key});
@@ -1664,7 +1664,7 @@
 // import 'add_event_page.dart';
 
 // // ⬇️ Adjust if your server URL differs
-// const String apiBase = 'http://localhost:3000/api';
+// const String apiBase = 'https://us-central1-servappbackend.cloudfunctions.net/api';
 
 // const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 // const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
@@ -1899,7 +1899,7 @@ import 'event_model_page.dart';
 import 'add_event_page.dart';
 
 // ====== CONFIG ======
-const String apiBase = 'http://localhost:3000/api';
+const String apiBase = 'https://us-central1-servappbackend.cloudfunctions.net/api';
 // Derive the origin (no /api) so we can resolve /uploads/...
 final String _apiOrigin = apiBase.replaceFirst(RegExp(r'/api/?$'), '');
 

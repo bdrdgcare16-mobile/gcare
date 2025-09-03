@@ -1,49 +1,4 @@
-// const multer = require('multer');
-// const path = require('path');
-// const fs = require('fs');
 
-// // Create base "uploads/" folder if it doesn't exist
-// const uploadBasePath = path.join(__dirname, '../uploads');
-// if (!fs.existsSync(uploadBasePath)) {
-//   fs.mkdirSync(uploadBasePath, { recursive: true });
-// }
-
-// // Target subfolder for company logos
-// const logoUploadPath = path.join(uploadBasePath, 'company_logo');
-// if (!fs.existsSync(logoUploadPath)) {
-//   fs.mkdirSync(logoUploadPath, { recursive: true });
-// }
-
-// // Storage Engine
-// const storage = multer.diskStorage({
-//   destination: function (req, file, cb) {
-//     cb(null, 'uploads/');
-//   },
-//   filename: function (req, file, cb) {
-//     const ext = path.extname(file.originalname).toLowerCase();
-//     const filename = `${file.fieldname}-${Date.now()}${ext}`;
-//     cb(null, filename);
-//   }
-// });
-
-// // File Filter
-// const fileFilter = (req, file, cb) => {
-//   const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg'];
-//   if (allowedTypes.includes(file.mimetype)) {
-//     cb(null, true);
-//   } else {
-//     cb(new Error('Only JPEG, PNG images are allowed'), false);
-//   }
-// };
-
-// const upload = multer({
-//   storage: storage,
-//   fileFilter: fileFilter,
-//   limits: { fileSize: 2 * 1024 * 1024 } // Max 2MB
-// });
-
-// module.exports = upload;
-// middlewares/uploadMiddleware.js
 
 const multer = require('multer');
 const path  = require('path');

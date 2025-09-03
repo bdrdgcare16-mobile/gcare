@@ -55,7 +55,7 @@
 // // //       return;
 // // //     }
 
-// // //     final url = Uri.parse('http://localhost:3000/api/apply-compoff');
+// // //     final url = Uri.parse('https://us-central1-servappbackend.cloudfunctions.net/api/apply-compoff');
 
 // // //     final response = await http.post(
 // // //       url,
@@ -304,7 +304,7 @@
 
 // //   Future<void> _submitForm() async {
 // //     if (_formKey.currentState!.validate()) {
-// //       final url = Uri.parse("http://localhost:3000/api/apply-halfday");
+// //       final url = Uri.parse("https://us-central1-servappbackend.cloudfunctions.net/api/apply-halfday");
 
 // //       final body = {
 // //         "date": DateFormat("yyyy-MM-dd").format(selectedDate!),
@@ -529,7 +529,7 @@
 //       return;
 //     }
 
-//     final url = Uri.parse('http://localhost:3000/api/apply-compoff');
+//     final url = Uri.parse('https://us-central1-servappbackend.cloudfunctions.net/api/apply-compoff');
 
 //     final response = await http.post(
 //       url,

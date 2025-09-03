@@ -194,7 +194,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 // If you already declare this elsewhere, you can remove this line.
-const String _apiBase = 'http://localhost:3000/api';
+const String _apiBase = 'https://us-central1-servappbackend.cloudfunctions.net/api';
 
 // Theme Colors
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);

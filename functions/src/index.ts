@@ -97,13 +97,17 @@ app.use((err: AppError, req: Request, res: Response, next: NextFunction) => {
 import { onRequest } from 'firebase-functions/v2/https';
 import { defineString } from 'firebase-functions/params';
 
-// Define environment variables
+// Define parameters
 const region = defineString('REGION', { default: 'us-central1' });
+const nodeEnv = defineString('NODE_ENV', { default: 'development' });
+
+// Configure environment variables
+process.env.NODE_ENV = nodeEnv.value();
 
 // Export the Express app as a Firebase Function
 export const api = onRequest(
   {
-    region: region.value(),
+    region,
     timeoutSeconds: 120, // Increase timeout for file uploads
     memory: '1GiB', // Use GiB for v2 functions
     minInstances: 0, // Allow scaling to zero when not in use

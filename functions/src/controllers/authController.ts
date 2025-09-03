@@ -3,8 +3,13 @@ import * as admin from 'firebase-admin';
 import * as bcrypt from 'bcryptjs';
 import * as jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
+import { defineString } from 'firebase-functions/params';
 
 const db = admin.firestore();
+
+// Define parameters
+const jwtSecret = defineString('JWT_SECRET', { default: 'your-default-jwt-secret' });
+const jwtExpiresIn = defineString('JWT_EXPIRES_IN', { default: '24h' });
 
 interface User {
   id: string;
@@ -48,11 +53,11 @@ export const register = async (req: Request, res: Response): Promise<Response> =
 
     await db.collection('users').doc(userId).set(newUser);
 
-    // Generate JWT
+    // Generate JWT token
     const token = jwt.sign(
       { userId, email, role },
-      process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '24h' }
+      jwtSecret.value(),
+      { expiresIn: jwtExpiresIn.value() } as jwt.SignOptions
     );
 
     // Return user data (excluding password)
@@ -88,11 +93,11 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Generate JWT
+    // Generate JWT token
     const token = jwt.sign(
       { userId: userDoc.id, email: userData.email, role: userData.role },
-      process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '24h' }
+      jwtSecret.value(),
+      { expiresIn: jwtExpiresIn.value() } as jwt.SignOptions
     );
 
     // Return user data (excluding password)

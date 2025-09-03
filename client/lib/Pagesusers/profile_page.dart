@@ -211,7 +211,7 @@ import 'permissions_page.dart';
 import 'log_out_page.dart';
 
 /// ===== API base; adjust if needed =====
-const String _apiBase = 'http://localhost:3000/api';
+const String _apiBase = 'https://us-central1-servappbackend.cloudfunctions.net/api';
 
 /// Order of endpoints to try for the current user's profile.
 /// Keep the path only (we'll prefix with _apiBase).

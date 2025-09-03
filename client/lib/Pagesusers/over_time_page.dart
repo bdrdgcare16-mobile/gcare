@@ -81,7 +81,7 @@
 
 //   Future<void> _submitForm() async {
 //     if (_formKey.currentState!.validate()) {
-//       final url = Uri.parse('http://localhost:3000/api/apply-overtime');
+//       final url = Uri.parse('https://us-central1-servappbackend.cloudfunctions.net/api/apply-overtime');
 
 //       final body = {
 //         "shift": selectedShift,
@@ -360,7 +360,7 @@
 //     if (!_formKey.currentState!.validate()) return;
 
 //     final token = await getAuthToken();
-//     final url = Uri.parse('http://localhost:3000/api/leaves');
+//     final url = Uri.parse('https://us-central1-servappbackend.cloudfunctions.net/api/leaves');
 
 //     final body = {
 //       "type": "Overtime",

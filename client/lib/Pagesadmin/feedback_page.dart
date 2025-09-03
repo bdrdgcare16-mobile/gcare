@@ -254,7 +254,7 @@ const Color kAppBarColor = Color(0xFF8C6EAF);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
-const String _apiBase = 'http://localhost:3000/api';
+const String _apiBase = 'https://us-central1-servappbackend.cloudfunctions.net/api';
 
 class FeedbackPage extends StatefulWidget {
   const FeedbackPage({super.key, required String employeeName, required String employeeId});

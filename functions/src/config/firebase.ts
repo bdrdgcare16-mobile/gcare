@@ -1,4 +1,14 @@
 import * as admin from 'firebase-admin';
+import { defineString } from 'firebase-functions/params';
+
+// Define parameters
+const projectId = defineString('APP_PROJECT_ID', {
+  default: process.env.APP_PROJECT_ID || 'your-project-id'
+});
+
+const storageBucket = defineString('APP_STORAGE_BUCKET', {
+  default: process.env.APP_STORAGE_BUCKET || 'your-project-id.appspot.com'
+});
 
 // Initialize Firebase Admin
 const initializeFirebase = () => {
@@ -13,13 +23,13 @@ const initializeFirebase = () => {
     const serviceAccount = require('../../serviceAccountKey.json');
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount as admin.ServiceAccount),
-      storageBucket: process.env.GOOGLE_CLOUD_PROJECT + '.appspot.com',
+      storageBucket: storageBucket.value(),
     });
   } catch (error) {
     console.warn('Using default credentials for local development');
     admin.initializeApp({
-      projectId: process.env.GOOGLE_CLOUD_PROJECT || 'your-project-id',
-      storageBucket: process.env.GOOGLE_CLOUD_PROJECT + '.appspot.com',
+      projectId: projectId.value(),
+      storageBucket: storageBucket.value(),
     });
   }
 };
