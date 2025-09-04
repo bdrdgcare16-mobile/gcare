@@ -493,7 +493,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 // ==== API ====
-const String _apiBase = 'https://us-central1-servappbackend.cloudfunctions.net/api';
+const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
 
 class CreateShiftPage extends StatefulWidget {
   const CreateShiftPage({super.key});

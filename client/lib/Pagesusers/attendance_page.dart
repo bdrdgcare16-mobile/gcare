@@ -62,7 +62,7 @@
 //   /// 1) Load the employee’s profile from your backend
 //   Future<void> _loadUserInfo() async {
 //     final token = CompanyData.token;
-//     final url = Uri.parse('https://us-central1-servappbackend.cloudfunctions.net/api/auth/me');
+//     final url = Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/auth/me');
 
 //     if (kDebugMode) {
 //       print('[AttendanceScreen] GET $url');
@@ -123,7 +123,7 @@
 //   // Common check-in logic: calls the API, then starts the timer
 //   Future<void> _performCheckIn(String type) async {
 //     final token = CompanyData.token;
-//     final url = Uri.parse('https://us-central1-servappbackend.cloudfunctions.net/api/attendance/check-in');
+//     final url = Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/attendance/check-in');
 //     final body = jsonEncode({
 //       'empid': userId,
 //       'name': userName,
@@ -171,7 +171,7 @@
 //   // Common check-out logic: calls the API, then stops the timer
 //   Future<void> _performCheckOut() async {
 //     final token = CompanyData.token;
-//     final url = Uri.parse('https://us-central1-servappbackend.cloudfunctions.net/api/attendance/check-out');
+//     final url = Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/attendance/check-out');
 //     final body = jsonEncode({'empid': userId, 'location': location});
 
 //     if (kDebugMode) {
@@ -894,7 +894,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   /// 1) Load the employee’s profile from your backend
   Future<void> _loadUserInfo() async {
     final token = CompanyData.token;
-    final url = Uri.parse('https://us-central1-servappbackend.cloudfunctions.net/api/auth/me');
+    final url = Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/auth/me');
 
     if (kDebugMode) {
       print('[AttendanceScreen] GET $url');
@@ -970,7 +970,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   // Common check-in logic: calls the API, then starts the timer
   Future<void> _performCheckIn(String type) async {
     final token = CompanyData.token;
-    final url = Uri.parse('https://us-central1-servappbackend.cloudfunctions.net/api/attendance/check-in');
+    final url = Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/attendance/check-in');
     final body = jsonEncode({
       'empid': userId,
       'name': userName,
@@ -1018,7 +1018,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   // Common check-out logic: calls the API, then stops the timer
   Future<void> _performCheckOut() async {
     final token = CompanyData.token;
-    final url = Uri.parse('https://us-central1-servappbackend.cloudfunctions.net/api/attendance/check-out');
+    final url = Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/attendance/check-out');
     final body = jsonEncode({'empid': userId, 'location': location});
 
     if (kDebugMode) {

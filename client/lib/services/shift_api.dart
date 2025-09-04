@@ -7,7 +7,7 @@ import 'package:serv_app/html_stub.dart'
   if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
 /// Change only this if your API base moves.
-const String kApiBase = 'https://us-central1-servappbackend.cloudfunctions.net/api';
+const String kApiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
 
 class ShiftModel {
   final String id;

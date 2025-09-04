@@ -1,20 +1,30 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import admin from 'firebase-admin';
+import { defineString } from 'firebase-functions/params';
 
 // Initialize Firebase Admin
 admin.initializeApp();
 
-// Import controllers
-import { register, login, getProfile } from './controllers/authController';
-import { uploadSingleFile } from './controllers/uploadController';
+// Import routes
+import authRoutes from './routes/auth';
+import companyRoutes from './routes/company';
+import employeeRoutes from './routes/employees';
+import attendanceRoutes from './routes/attendance';
+import leaveRoutes from './routes/leave';
+import leaveTypeRoutes from './routes/leaveTypes';
+import officeLocationRoutes from './routes/officeLocation';
+import uploadRoutes from './routes/upload';
 
 // Create Express app
 const app = express();
 
+// Define parameters
+const corsOrigin = defineString('CORS_ORIGIN', { default: '*' });
+
 // Enable CORS
 const corsOptions: cors.CorsOptions = {
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: corsOrigin.value(),
   optionsSuccessStatus: 200,
 };
 
@@ -28,13 +38,15 @@ app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Auth routes
-app.post('/api/auth/register', register);
-app.post('/api/auth/login', login);
-app.get('/api/auth/profile', getProfile);
-
-// Upload routes
-app.post('/api/uploads/single', uploadSingleFile);
+// API Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/company', companyRoutes);
+app.use('/api/employees', employeeRoutes);
+app.use('/api/attendance', attendanceRoutes);
+app.use('/api/leaves', leaveRoutes);
+app.use('/api/leave-types', leaveTypeRoutes);
+app.use('/api/office-locations', officeLocationRoutes);
+app.use('/api/uploads', uploadRoutes);
 
 // 404 Handler
 app.use((req, res) => {
@@ -95,7 +107,6 @@ app.use((err: AppError, req: Request, res: Response, next: NextFunction) => {
 
 // Import v2 functions
 import { onRequest } from 'firebase-functions/v2/https';
-import { defineString } from 'firebase-functions/params';
 
 // Define parameters
 const region = defineString('REGION', { default: 'us-central1' });

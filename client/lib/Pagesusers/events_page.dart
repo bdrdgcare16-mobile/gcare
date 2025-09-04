@@ -269,7 +269,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 // ------- API base (must match your backend) -------
-const String apiBase = 'https://us-central1-servappbackend.cloudfunctions.net/api';
+const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
 // To resolve /uploads/... into a full URL
 final String _apiOrigin = apiBase.replaceFirst(RegExp(r'/api/?$'), '');
 

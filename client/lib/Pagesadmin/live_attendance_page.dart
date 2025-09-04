@@ -627,7 +627,7 @@
 // // //   }
 
 // // //   Future<void> _fetchLiveAttendance() async {
-// // //     final url = Uri.parse('https://us-central1-servappbackend.cloudfunctions.net/api/attendance/live');
+// // //     final url = Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/attendance/live');
 // // //     try {
 // // //       final resp = await http.get(
 // // //         url,
@@ -1128,7 +1128,7 @@
 // //   }
 
 // //   Future<void> _fetchLiveAttendance() async {
-// //     final url = Uri.parse('https://us-central1-servappbackend.cloudfunctions.net/api/attendance/live');
+// //     final url = Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/attendance/live');
 // //     try {
 // //       final resp = await http.get(
 // //         url,

@@ -552,7 +552,7 @@
 // // const Color kTextColor = Colors.white;
 
 // // // Same base URL used in the list page
-// // const String apiBase = 'https://us-central1-servappbackend.cloudfunctions.net/api';
+// // const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
 
 // // class EventUploadPage extends StatefulWidget {
 // //   const EventUploadPage({super.key});
@@ -840,7 +840,7 @@
 // import 'package:intl/intl.dart';
 
 // // ⬇️ Adjust base URL
-// const String apiBase = 'https://us-central1-servappbackend.cloudfunctions.net/api';
+// const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
 
 // const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 // const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
@@ -1033,7 +1033,7 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
 // ⬇️ Adjust base URL
-const String apiBase = 'https://us-central1-servappbackend.cloudfunctions.net/api';
+const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
 
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);

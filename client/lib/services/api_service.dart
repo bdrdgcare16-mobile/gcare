@@ -12,7 +12,7 @@
 // // // // // // //   /// If you run on Android emulator, http://10.0.2.2 hits your host.
 // // // // // // //   /// On web / desktop it can stay http://localhost.
 // // // // // // //   static final String _base =
-// // // // // // //       kIsWeb ? 'https://us-central1-servappbackend.cloudfunctions.net/api' : 'http://10.0.2.2:3000/api';
+// // // // // // //       kIsWeb ? 'https://api-zmj7dqloiq-uc.a.run.app/api' : 'http://10.0.2.2:3000/api';
 
 // // // // // // //   static String approvalsUrl([Map<String, String>? qp]) {
 // // // // // // //     final b = StringBuffer('$_base/attendance/approvals');

@@ -182,7 +182,7 @@ class MyApp extends StatelessWidget {
       title: 'SERV App',
       debugShowCheckedModeBanner: false,
       theme: myTheme,
-      initialRoute: '/landing',
+      initialRoute: '/',
       routes: {
         '/': (context) => const LoginPage(),
         // Explicit login route (recommended so you can target it by name)

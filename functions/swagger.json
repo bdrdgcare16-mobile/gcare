@@ -11,7 +11,7 @@
       "description": "Local development server"
     },
     {
-      "url": "https://us-central1-servappbackend.cloudfunctions.net/api",
+      "url": "https://api-zmj7dqloiq-uc.a.run.app",
       "description": "Production server"
     }
   ],
