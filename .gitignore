@@ -124,3 +124,4 @@ coverage/
 # Misc
 logs
 *.tgz
+server/config/serviceAccountKey.json

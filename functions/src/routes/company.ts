@@ -6,6 +6,16 @@ import { Request } from 'express';
 
 const router = Router();
 
+// Test endpoint with token verification
+router.get('/profile/check', authMiddleware, (req, res, next) => {
+  // User is already set in req.user by authMiddleware
+  // You can access user details via req.user
+  res.status(200).json({ 
+    test: "test123",
+    user: req.user // Optional: include user info in the response for testing
+  });
+});
+
 // Configure multer for file uploads
 const upload = multer({
   storage: multer.memoryStorage(),

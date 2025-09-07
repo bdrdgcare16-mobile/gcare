@@ -27,34 +27,59 @@ interface JwtPayload {
   exp: number;
 }
 
+function getToken(req: Request): string | null {
+  const h = req.headers.authorization || req.headers.Authorization || '';
+  if (typeof h === 'string') {
+    const [scheme, token] = h.split(' ');
+    if (scheme && token && /^Bearer$/i.test(scheme)) return token.trim();
+  }
+  if (req.headers['x-access-token']) return String(req.headers['x-access-token']).trim();
+  // Note: If you're using cookie-parser in your Firebase Functions, uncomment the following line
+  // if (req.cookies && req.cookies.token) return req.cookies.token;
+  return null;
+}
+
 export const authMiddleware = async (req: Request, res: Response, next: NextFunction): Promise<Response | void> => {
   try {
-    // Get token from header
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'No token provided' });
-    }
-
-    const token = authHeader.split(' ')[1];
+    const token = getToken(req);
     if (!token) {
-      return res.status(401).json({ error: 'No token provided' });
+      return res.status(401).json({ message: 'No token provided' });
     }
 
     // Verify token
-    const decoded = jwt.verify(token, jwtSecret.value()) as JwtPayload;
-    req.user = {
-      userId: decoded.userId,
-      email: decoded.email,
-      role: decoded.role
-    };
-
-    // Check if user still exists
-    const userDoc = await db.collection('users').doc(decoded.userId).get();
-    if (!userDoc.exists) {
-      return res.status(401).json({ error: 'User not found' });
-    }
-
-    next();
+    return new Promise((resolve, reject) => {
+      jwt.verify(token, jwtSecret.value(), async (err, decoded) => {
+        if (err) {
+          res.status(403).json({ message: 'Invalid or expired token' });
+          return resolve();
+        }
+        
+        const jwtPayload = decoded as JwtPayload;
+        
+        try {
+          // Check if user still exists
+          const userDoc = await db.collection('users').doc(jwtPayload.userId).get();
+          if (!userDoc.exists) {
+            res.status(401).json({ message: 'User not found' });
+            return resolve();
+          }
+          
+          // Set user in request
+          req.user = {
+            userId: jwtPayload.userId,
+            email: jwtPayload.email,
+            role: jwtPayload.role
+          };
+          
+          next();
+          resolve();
+        } catch (error) {
+          console.error('Error checking user existence:', error);
+          res.status(500).json({ message: 'Internal server error' });
+          resolve();
+        }
+      });
+    });
   } catch (error) {
     console.error('Auth middleware error:', error);
     res.status(401).json({ error: 'Invalid or expired token' });
