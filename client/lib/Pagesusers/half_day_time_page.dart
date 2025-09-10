@@ -174,7 +174,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 /// Match your Node server port
-const String apiBase = 'http://localhost:3000';
+const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
 
 class HalfDayTimePage extends StatefulWidget {
   final bool isPopup;

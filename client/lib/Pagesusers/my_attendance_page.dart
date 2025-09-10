@@ -1318,7 +1318,7 @@ const Color kWeekOffColor = Colors.purple;
 const Color kHalfDayColor = Color.fromARGB(169, 220, 233, 30);
 
 // ============== API BASE =================
-const String apiBase = 'http://localhost:3000';
+const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
 
 // ====== helpers (top-level so they’re easy to reuse) ======
 bool _looksLikeJwt(String v) =>

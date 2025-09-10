@@ -780,7 +780,7 @@ import 'package:serv_app/models/company_data.dart';
 import 'package:http/http.dart' as http;
 
 /* ================= CONFIG ================= */
-const String _apiBase = 'http://localhost:3000';
+const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
 
 /* ================= THEME ================= */
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);

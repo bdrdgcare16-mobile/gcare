@@ -6,22 +6,45 @@ import { Request } from 'express';
 
 const router = Router();
 
-// Test endpoint with token verification
-router.get('/profile/check', authMiddleware, (req, res, next) => {
-  // User is already set in req.user by authMiddleware
-  // You can access user details via req.user
-  res.status(200).json({ 
-    test: "test123",
-    user: req.user // Optional: include user info in the response for testing
-  });
+// Debug middleware to log requests hitting this router (kept)
+router.use((req, _res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  next();
 });
 
-// Configure multer for file uploads
+/**
+ * NOTE:
+ * Do NOT prefix with /api or /company here.
+ * index.ts mounts this router at `/api/company`, so final paths are:
+ *   GET  /api/company/profile/check
+ *   GET  /api/company/profile
+ *   POST /api/company/profile
+ */
+
+/**
+ * @swagger
+ * /api/company/profile/check:
+ *   get:
+ *     summary: Check if company profile exists for the authenticated admin
+ *     tags: [Company]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Successfully checked company profile status
+ *       400:
+ *         description: Missing or invalid parameters
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/profile/check', authMiddleware, companyController.checkCompanyProfile);
+
+// Configure multer for file uploads (logo is optional)
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
-  },
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
   fileFilter: (req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
     // Accept images only
     if (!file.originalname.match(/\.(jpg|jpeg|png|gif)$/i)) {
@@ -71,12 +94,7 @@ const upload = multer({
  *       500:
  *         description: Internal server error
  */
-router.post(
-  '/profile',
-  authMiddleware,
-  upload.single('logo'),
-  companyController.saveCompanyProfile
-);
+router.post('/profile', authMiddleware, upload.single('logo'), companyController.saveCompanyProfile);
 
 /**
  * @swagger
@@ -89,19 +107,11 @@ router.post(
  *     responses:
  *       200:
  *         description: Company profile retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Company'
  *       404:
  *         description: Company profile not found
  *       500:
  *         description: Internal server error
  */
-router.get(
-  '/profile',
-  authMiddleware,
-  companyController.getCompanyProfile
-);
+router.get('/profile', authMiddleware, companyController.getCompanyProfile);
 
 export default router;

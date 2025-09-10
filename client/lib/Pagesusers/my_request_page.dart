@@ -636,7 +636,7 @@ class _MyRequestPageState extends State<MyRequestPage> {
       final data = await ApiService.fetchMyRequests(
         from: day,
         to: day,
-        status: selectedStatus, start: '', end: '', // "All" → API will omit status param
+        status: selectedStatus, // "All" → API will omit status param
       );
 
       if (!mounted) return;

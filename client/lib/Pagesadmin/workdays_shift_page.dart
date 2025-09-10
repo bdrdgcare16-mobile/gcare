@@ -638,7 +638,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 // ==== API ====
-const String _apiBase = 'http://localhost:3000';
+const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
 
 class WorkdaysShiftPage extends StatefulWidget {
   const WorkdaysShiftPage({super.key});

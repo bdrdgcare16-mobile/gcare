@@ -1,19 +1,45 @@
 import { Router } from 'express';
 import * as authController from '../controllers/authController';
-import { authMiddleware } from '../middlewares/authMiddleware';
+import { authMiddleware, roleMiddleware } from '../middlewares/authMiddleware';
 
 const router = Router();
 
-// Public routes
+/* ================= Public ================= */
 router.post('/register', authController.register);
 router.post('/login', authController.login);
-router.post('/forgot-password', authController.forgotPassword);
-router.post('/reset-password', authController.resetPassword);
 
-// Protected routes
+// Legacy simple reset (direct change) — expects { email, newPassword }
+router.post('/forgot-password', authController.forgotPassword);
+
+// Modern OTP flow
+router.post('/forgot-password/request-otp', authController.requestOtp);
+router.post('/forgot-password/verify-otp',  authController.verifyOtp);
+router.post('/forgot-password/reset',       authController.resetPasswordWithOtp);
+
+/* ================= Protected ================= */
 router.use(authMiddleware);
+
+// This fixes your 404: Flutter calls GET /api/auth/me
+router.get('/me', authController.getMe);
+
+// Optional profile aliases
 router.get('/profile', authController.getProfile);
 router.put('/profile', authController.updateProfile);
+
+// Change password (direct) — expects { email, newPassword }
 router.post('/change-password', authController.changePassword);
+
+/* ================= Admin-only ================= */
+router.post(
+  '/admin/create-employee-login',
+  roleMiddleware(['admin']),
+  authController.createEmployeeLogin
+);
+
+router.post(
+  '/admin/backfill-employee-logins',
+  roleMiddleware(['admin']),
+  authController.backfillEmployeesToUsers
+);
 
 export default router;

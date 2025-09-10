@@ -3,186 +3,201 @@ import * as admin from 'firebase-admin';
 import * as bcrypt from 'bcryptjs';
 import * as jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
-import { defineString } from 'firebase-functions/params';
 
 const db = admin.firestore();
 
-// Define parameters
-const jwtSecret = defineString('JWT_SECRET', { default: 'your-default-jwt-secret' });
-const jwtExpiresIn = defineString('JWT_EXPIRES_IN', { default: '24h' });
+/* ======================= Config ======================= */
+const JWT_SECRET = process.env.JWT_SECRET || 'your-default-jwt-secret';
+const JWT_EXPIRES = process.env.JWT_EXPIRES_IN || '24h';
 
-interface User {
-  id: string;
+const USERS_COL = 'users';
+const EMPS_COL  = 'employees';
+const OTP_COL   = 'password_resets';
+
+/* ======================= Optional mailer ======================= */
+let nodemailer: any = null;
+try { nodemailer = require('nodemailer'); } catch { /* optional */ }
+
+function makeTransport() {
+  if (!nodemailer) return null;
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) return null;
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: false,
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  });
+}
+const mailer = makeTransport();
+
+/* ======================= Helpers ======================= */
+const okRoles = new Set(['employee', 'admin']);
+const normEmail = (e = '') => String(e).trim().toLowerCase();
+
+interface JwtPayload {
+  userId: string;
   email: string;
-  password: string;
-  name: string;
   role: string;
-  createdAt: FirebaseFirestore.Timestamp;
-  updatedAt: FirebaseFirestore.Timestamp;
+  empid?: string | null;
+  [key: string]: any;
 }
 
+const issueToken = (payload: JwtPayload): string => {
+  return jwt.sign(
+    payload,
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRES } as jwt.SignOptions
+  );
+};
+
+const sanitizeUser = (id: string, data: any) => {
+  const { password, passwordHash, hashedPassword, ...rest } = data || {};
+  return { id, ...rest };
+};
+
+const isBcryptHash = (s = '') => /^\$2[aby]\$/.test(String(s));
+
+const sha256 = (s = '') =>
+  require('crypto').createHash('sha256').update(String(s)).digest('hex');
+
+const plusMinutes = (mins: number) => new Date(Date.now() + mins * 60 * 1000);
+
+async function getByEmail(colName: string, emailLower: string) {
+  // preferred: emailLower
+  let snap = await db.collection(colName)
+    .where('emailLower', '==', emailLower)
+    .limit(1).get();
+  if (!snap.empty) return snap;
+
+  // legacy: email
+  snap = await db.collection(colName)
+    .where('email', '==', emailLower)
+    .limit(1).get();
+  if (!snap.empty) return snap;
+
+  return null as any;
+}
+
+async function getUserDocByEmailAny(emailLower: string) {
+  let snap = await db.collection(USERS_COL)
+    .where('emailLower', '==', emailLower)
+    .limit(1).get();
+  if (!snap.empty) return snap.docs[0];
+
+  snap = await db.collection(USERS_COL)
+    .where('email', '==', emailLower)
+    .limit(1).get();
+  if (!snap.empty) return snap.docs[0];
+
+  return null;
+}
+
+/* ======================= Controllers ======================= */
+
+// POST /api/auth/register
 export const register = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { email, password, name, role = 'user' } = req.body;
+    let { empid, name, email, password, role = 'employee', status = 'active' } = req.body || {};
+    email = normEmail(email || '');
+    empid = String(empid || '').trim();
+    name  = String(name || '').trim();
+    role  = String(role || 'employee').trim().toLowerCase();
+    status = String(status || 'active').trim().toLowerCase();
 
-    // Validate input
-    if (!email || !password || !name) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: 'Name, email and password are required' });
+    }
+    if (!okRoles.has(role)) {
+      return res.status(400).json({ error: 'Role must be "employee" or "admin"' });
     }
 
-    // Check if user already exists
-    const userSnapshot = await db.collection('users').where('email', '==', email).get();
-    if (!userSnapshot.empty) {
-      return res.status(400).json({ error: 'User already exists' });
+    const byEmail = await db.collection(USERS_COL).where('emailLower', '==', email).limit(1).get();
+    if (!byEmail.empty) return res.status(400).json({ error: 'Email is already in use' });
+
+    if (empid) {
+      const byEmp = await db.collection(USERS_COL).where('empid', '==', empid).limit(1).get();
+      if (!byEmp.empty) return res.status(400).json({ error: 'Employee ID already exists' });
     }
 
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    const hash = await bcrypt.hash(password, 10);
+    const now  = new Date();
 
-    // Create user
     const userId = uuidv4();
-    const newUser: Omit<User, 'id'> = {
-      email,
-      password: hashedPassword,
+    await db.collection(USERS_COL).doc(userId).set({
+      empid: empid || null,
       name,
+      email,
+      emailLower: email,
+      password: hash,
+      passwordHash: hash,
+      hashedPassword: hash,
       role,
-      createdAt: admin.firestore.Timestamp.now(),
-      updatedAt: admin.firestore.Timestamp.now(),
-    };
+      status,
+      createdAt: now,
+      updatedAt: now,
+    });
 
-    await db.collection('users').doc(userId).set(newUser);
+    const token = issueToken({ userId, email, role, empid: empid || null });
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { userId, email, role },
-      jwtSecret.value(),
-      { expiresIn: jwtExpiresIn.value() } as jwt.SignOptions
-    );
-
-    // Return user data (excluding password)
-    const { password: _, ...userData } = newUser;
-    return res.status(201).json({ ...userData, id: userId, token });
+    return res.status(201).json({
+      id: userId,
+      name,
+      email,
+      role,
+      empid: empid || null,
+      status,
+      token,
+      tokenType: 'Bearer',
+      expiresIn: JWT_EXPIRES,
+    });
   } catch (error) {
     console.error('Registration error:', error);
     return res.status(500).json({ error: 'Failed to register user' });
   }
 };
 
-interface LoginResponse {
-  message: string;
-  token: string;
-  tokenType: string;
-  expiresIn: string;
-  role: string;
-  uid: string;
-  empid: string | null;
-  name: string;
-  user: {
-    id: string;
-    name: string;
-    email: string;
-    role: string;
-    empid: string | null;
-    status: string;
-  };
-}
-
-const getByEmail = async (collection: string, email: string) => {
-  const emailLower = email.toLowerCase().trim();
-  // Try with both email and emailLower for backward compatibility
-  const snapshot = await db.collection(collection)
-    .where('emailLower', '==', emailLower)
-    .limit(1)
-    .get();
-
-  if (!snapshot.empty) return snapshot;
-
-  // Fallback to check email field directly if not found with emailLower
-  return await db.collection(collection)
-    .where('email', '==', emailLower)
-    .limit(1)
-    .get();
-};
-
-const isBcryptHash = (str: string): boolean => {
-  return /^\$2[aby]\$\d{2}\$[.\/0-9A-Za-z]{53}$/.test(str);
-};
-
+// POST /api/auth/login
 export const login = async (req: Request, res: Response): Promise<Response> => {
-  console.log('=== Login Request ===');
-  console.log('Request body:', JSON.stringify(req.body, null, 2));
-  
   try {
     const incoming = String(req.body.email || '');
-    const email = incoming.toLowerCase().trim();
+    const email = normEmail(incoming);
     const { password } = req.body;
 
-    console.log('Processing login for email:', email);
-    
     if (!email || !password) {
-      console.error('Missing email or password');
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    // Check users collection first
-    console.log('Checking users collection for email:', email);
-    const userSnap = await getByEmail('users', email);
-    console.log('User query result - found:', !userSnap.empty);
-    
-    if (!userSnap.empty) {
+    // 1) USERS first
+    const userSnap = await getByEmail(USERS_COL, email);
+    if (userSnap && !userSnap.empty) {
       const doc = userSnap.docs[0];
-      const user = doc.data();
-      console.log('Found user in users collection:', {
-        id: doc.id,
-        email: user.email,
-        role: user.role,
-        status: user.status
-      });
-      console.log('User document data:', JSON.stringify(user, null, 2));
+      const user: any = doc.data();
 
       const storedHash = user.password || user.passwordHash || user.hashedPassword || '';
-      console.log('Stored hash type:', typeof storedHash);
-      console.log('Stored hash length:', storedHash.length);
-      console.log('Stored hash exists:', !!storedHash);
-      
       const match = await bcrypt.compare(password, storedHash);
-      console.log('Password match result:', match);
-      
-      if (!match) {
-        console.error('Password does not match for user:', email);
-        return res.status(401).json({ 
-          error: 'Invalid email or password',
-          debug: { userFound: true, passwordMatch: false }
-        });
-      }
+      if (!match) return res.status(401).json({ error: 'Invalid email or password' });
 
       if (user.status && user.status !== 'active') {
         return res.status(403).json({ error: 'Account is not active' });
       }
 
       const role = String(user.role || 'employee').toLowerCase();
-      const okRoles = new Set(['admin', 'employee']);
       if (!okRoles.has(role)) {
         return res.status(403).json({ error: 'Invalid role on account' });
       }
 
-      const token = jwt.sign(
-        {
-          userId: doc.id,
-          email: user.email || incoming.trim(),
-          role,
-          empid: user.empid || null,
-        },
-        jwtSecret.value(),
-        { expiresIn: jwtExpiresIn.value() } as jwt.SignOptions
-      );
+      const token = issueToken({
+        userId: doc.id,
+        email: user.email || incoming.trim(),
+        role,
+        empid: user.empid || null,
+      });
 
-      const response: LoginResponse = {
+      return res.json({
         message: 'Login successful',
         token,
         tokenType: 'Bearer',
-        expiresIn: jwtExpiresIn.value(),
+        expiresIn: JWT_EXPIRES,
         role,
         uid: doc.id,
         empid: user.empid || null,
@@ -195,160 +210,467 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
           empid: user.empid || null,
           status: user.status || 'active',
         },
-      };
-
-      return res.json(response);
+      });
     }
 
-    // Check employees collection as fallback
-    console.log('User not found in users collection, checking employees collection');
-    const empSnap = await getByEmail('employees', email);
-    console.log('Employee query result - found:', !empSnap.empty);
-    
-    if (empSnap.empty) {
-      console.error('No user found with email:', email);
-      return res.status(401).json({ 
-        error: 'Invalid email or password',
-        debug: { userFound: false, employeeFound: false }
-      });
+    // 2) EMPLOYEES fallback
+    const empSnap = await getByEmail(EMPS_COL, email);
+    if (!empSnap || empSnap.empty) {
+      return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     const empDoc = empSnap.docs[0];
-    const emp = empDoc.data();
+    const emp: any = empDoc.data();
 
-    // Accept either plaintext or bcrypt in employees.password
     const stored = emp.password || '';
-    console.log('Employee password stored:', stored ? 'exists' : 'missing');
-    
     let passOK = false;
     if (stored) {
-      const isBcrypt = isBcryptHash(stored);
-      console.log('Password format:', isBcrypt ? 'bcrypt' : 'plaintext');
-      
-      if (isBcrypt) {
-        console.log('Comparing bcrypt hashes');
-        passOK = await bcrypt.compare(password, stored);
-      } else {
-        console.log('Comparing plaintext passwords');
-        passOK = stored === password;
-      }
+      passOK = isBcryptHash(stored) ? await bcrypt.compare(password, stored) : stored === password;
     }
-
-    if (!passOK) {
-      console.error('Password verification failed for employee:', email);
-      return res.status(401).json({ 
-        error: 'Invalid email or password',
-        debug: { 
-          userFound: false, 
-          employeeFound: true, 
-          passwordMatch: false,
-          storedPassword: stored ? 'present' : 'missing'
-        }
-      });
-    }
+    if (!passOK) return res.status(401).json({ error: 'Invalid email or password' });
 
     if (emp.status && emp.status !== 'active') {
       return res.status(403).json({ error: 'Account is not active' });
     }
 
-    // Create or update user in users collection
-    let userRef = userSnap.docs[0]?.ref || db.collection('users').doc();
-    const now = admin.firestore.Timestamp.now();
-    
-    const userData = {
-      empid: emp.empid || emp.employeeId || null,
-      name: emp.name || emp.fullName || '',
-      email: emp.email || incoming.trim(),
-      emailLower: email,
-      password: isBcryptHash(stored) ? stored : await bcrypt.hash(password, 10),
-      role: 'employee',
-      status: 'active',
-      createdAt: emp.createdAt || now,
-      updatedAt: now,
-    };
+    // Mirror into USERS so future logins are consistent
+    let mirror = await getByEmail(USERS_COL, email);
+    let mirrorDoc: FirebaseFirestore.DocumentSnapshot | null = null;
 
-    await userRef.set(userData, { merge: true });
-    const userDoc = await userRef.get();
-    const user = userDoc.data() || {};
-
-    const token = jwt.sign(
-      {
-        userId: userRef.id,
-        email: user.email || incoming.trim(),
+    if (mirror && !mirror.empty) {
+      mirrorDoc = mirror.docs[0];
+    } else {
+      const hash = isBcryptHash(stored) ? stored : await bcrypt.hash(password, 10);
+      const now  = new Date();
+      const ref = await db.collection(USERS_COL).add({
+        empid: emp.empid || emp.employeeId || null,
+        name: emp.name || emp.fullName || '',
+        email: emp.email || incoming.trim(),
+        emailLower: email,
+        password: hash,
+        passwordHash: hash,
+        hashedPassword: hash,
         role: 'employee',
-        empid: user.empid || emp.empid || null,
-      },
-      jwtSecret.value(),
-      { expiresIn: jwtExpiresIn.value() } as jwt.SignOptions
-    );
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      mirrorDoc = await ref.get();
+    }
 
-    const response: LoginResponse = {
+    const u = mirrorDoc!.data() as any;
+    const token = issueToken({
+      userId: mirrorDoc!.id,
+      email: u.email || incoming.trim(),
+      role: 'employee',
+      empid: u.empid || emp.empid || null,
+    });
+
+    return res.json({
       message: 'Login successful',
       token,
       tokenType: 'Bearer',
-      expiresIn: jwtExpiresIn.value(),
+      expiresIn: JWT_EXPIRES,
       role: 'employee',
-      uid: userRef.id,
-      empid: user.empid || emp.empid || null,
-      name: user.name || emp.name || '',
+      uid: mirrorDoc!.id,
+      empid: u.empid || emp.empid || null,
+      name: u.name || emp.name || '',
       user: {
-        id: userRef.id,
-        name: user.name || emp.name || '',
-        email: user.email || incoming.trim(),
+        id: mirrorDoc!.id,
+        name: u.name || emp.name || '',
+        email: u.email || incoming.trim(),
         role: 'employee',
-        empid: user.empid || emp.empid || null,
-        status: user.status || emp.status || 'active',
+        empid: u.empid || emp.empid || null,
+        status: u.status || emp.status || 'active',
       },
-    };
-
-    return res.json(response);
+    });
   } catch (error) {
     console.error('Login error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return res.status(500).json({ error: 'Failed to login', details: errorMessage });
+    return res.status(500).json({ error: 'Failed to login' });
   }
 };
 
-export const getProfile = async (req: Request & { user?: { userId: string } }, res: Response): Promise<Response> => {
+// GET /api/auth/me
+export const getMe = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const userId = req.user?.userId;
-    const userDoc = await db.collection('users').doc(userId || '').get();
-    
-    if (!userDoc.exists) {
-      return res.status(404).json({ error: 'User not found' });
+    const userId = (req as any).user?.userId;
+    const email  = normEmail((req as any).user?.email || '');
+    if (!userId && !email) return res.status(401).json({ error: 'Unauthorized' });
+
+    // Try USERS by id
+    let doc: FirebaseFirestore.DocumentSnapshot | null = null;
+    if (userId) {
+      const d = await db.collection(USERS_COL).doc(userId).get();
+      if (d.exists) doc = d;
+    }
+    // Fallback: USERS by emailLower
+    if (!doc && email) {
+      const q = await db.collection(USERS_COL).where('emailLower','==',email).limit(1).get();
+      if (!q.empty) doc = q.docs[0];
     }
 
-    const userData = userDoc.data() as User | undefined;
-    if (!userData) {
-      return res.status(404).json({ error: 'User data not found' });
+    if (doc) {
+      const user = sanitizeUser(doc.id, doc.data());
+      if ((user as any).empid) {
+        const empSnap = await db.collection(EMPS_COL)
+          .where('empid', '==', (user as any).empid)
+          .limit(1)
+          .get();
+        if (!empSnap.empty) {
+          const emp = empSnap.docs[0].data();
+          delete (emp as any).password;
+          (user as any).employeeProfile = emp;
+        }
+      }
+      return res.json(user);
     }
-    const { password, ...userWithoutPassword } = userData;
-    
-    return res.json({ ...userWithoutPassword, id: userDoc.id });
-  } catch (error) {
-    console.error('Get profile error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return res.status(500).json({ error: 'Failed to fetch profile', details: errorMessage });
+
+    // Last resort: employees by emailLower
+    if (email) {
+      const empSnap = await db.collection(EMPS_COL)
+        .where('emailLower','==',email).limit(1).get();
+      if (!empSnap.empty) {
+        const eDoc = empSnap.docs[0];
+        const emp  = eDoc.data();
+        delete (emp as any).password;
+        return res.json({
+          id: eDoc.id,
+          email,
+          role: 'employee',
+          empid: (emp as any).empid || null,
+          name: (emp as any).name || (emp as any).fullName || '',
+          employeeProfile: emp,
+        });
+      }
+    }
+
+    return res.status(404).json({ error: 'User not found' });
+  } catch (err) {
+    console.error('getMe error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
-// Other auth controller methods (updateProfile, changePassword, etc.) would go here
+// POST /api/auth/change-password  { email, newPassword }
+export const changePassword = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const email = normEmail(req.body.email);
+    const { newPassword } = req.body;
+    if (!email || !newPassword) {
+      return res.status(400).json({ error: 'Email and new password are required' });
+    }
+
+    const snap = await db.collection(USERS_COL).where('emailLower','==',email).limit(1).get();
+    if (snap.empty) return res.status(404).json({ error: 'User not found' });
+
+    const userDoc = snap.docs[0];
+    const hash    = await bcrypt.hash(newPassword, 10);
+
+    await userDoc.ref.set({
+      password:  hash,
+      passwordHash: hash,
+      hashedPassword: hash,
+      mustChangePassword: false,
+      updatedAt: new Date(),
+    }, { merge: true });
+
+    return res.json({ message: 'Password changed successfully' });
+  } catch (err) {
+    console.error('changePassword error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+/* ======================= Admin: enable logins ======================= */
+
+// POST /api/auth/admin/create-employee-login  { empid, email?, password? }
+export const createEmployeeLogin = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    let { empid, email, password } = req.body || {};
+    empid = String(empid || '').trim();
+    email = normEmail(email || '');
+    if (!empid) return res.status(400).json({ error: 'empid is required' });
+
+    const empQ = await db.collection(EMPS_COL).where('empid', '==', empid).limit(1).get();
+    if (empQ.empty) return res.status(404).json({ error: 'Employee not found' });
+    const emp = empQ.docs[0].data() as any;
+
+    const name = String(emp.name || emp.fullName || '').trim();
+    if (!email) email = normEmail(emp.email || '');
+    if (!email) return res.status(400).json({ error: 'email is required (not found on employee record)' });
+
+    const existsByEmail = await db.collection(USERS_COL).where('emailLower', '==', email).limit(1).get();
+    if (!existsByEmail.empty) return res.status(409).json({ error: 'Login already exists for this email' });
+
+    const existsByEmpid = await db.collection(USERS_COL).where('empid', '==', empid).limit(1).get();
+    if (!existsByEmpid.empty) return res.status(409).json({ error: 'Login already exists for this empid' });
+
+    const tempPassword = `${empid}@123`;
+    const finalPassword = String(password || tempPassword);
+    const hash = await bcrypt.hash(finalPassword, 10);
+    const now = new Date();
+
+    const docRef = await db.collection(USERS_COL).add({
+      empid,
+      name,
+      email,
+      emailLower: email,
+      password: hash,
+      passwordHash: hash,
+      hashedPassword: hash,
+      role: 'employee',
+      status: 'active',
+      mustChangePassword: !password,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return res.json({
+      message: 'Login enabled for employee',
+      userId: docRef.id,
+      tempPassword: !password ? tempPassword : undefined,
+    });
+  } catch (err) {
+    console.error('createEmployeeLogin error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// POST /api/auth/admin/backfill-employee-logins
+export const backfillEmployeesToUsers = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const empSnap = await db.collection(EMPS_COL).get();
+    const created: any[] = [];
+    const updatedEmp: any[] = [];
+
+    for (const d of empSnap.docs) {
+      const e = d.data() as any;
+      const empid = String(e.empid || '').trim();
+      const emailLower = normEmail(e.email || '');
+      const name  = String(e.name || e.fullName || '').trim();
+      if (!empid || !emailLower) {
+        await d.ref.set({ emailLower }, { merge: true });
+        continue;
+      }
+
+      if (!e.emailLower || e.emailLower !== emailLower) {
+        await d.ref.set({ emailLower }, { merge: true });
+        updatedEmp.push({ empid, emailLower });
+      }
+
+      const exists = await db.collection(USERS_COL).where('emailLower', '==', emailLower).limit(1).get();
+      if (!exists.empty) continue;
+
+      const existsEmp = await db.collection(USERS_COL).where('empid', '==', empid).limit(1).get();
+      if (!existsEmp.empty) continue;
+
+      const temp = `${empid}@123`;
+      const hash = await bcrypt.hash(temp, 10);
+      const now  = new Date();
+
+      const ref = await db.collection(USERS_COL).add({
+        empid,
+        name,
+        email: e.email || emailLower,
+        emailLower,
+        password: hash,
+        passwordHash: hash,
+        hashedPassword: hash,
+        role: 'employee',
+        status: 'active',
+        mustChangePassword: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      created.push({ userId: ref.id, empid, email: e.email || emailLower, tempPassword: temp });
+    }
+
+    return res.json({
+      message: 'Backfill complete',
+      createdCount: created.length,
+      normalizedEmployees: updatedEmp.length,
+      created,
+    });
+  } catch (err) {
+    console.error('backfillEmployeesToUsers error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+/* ======================= Forgot password (OTP flow) ======================= */
+
+// POST /api/auth/forgot-password/request-otp { email }
+export const requestOtp = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const email = normEmail(req.body.email || '');
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+
+    const userDoc = await getUserDocByEmailAny(email);
+    if (!userDoc) return res.status(404).json({ error: 'User not found' });
+
+    const otp = String(Math.floor(100000 + Math.random() * 900000));
+    const hash = sha256(otp);
+
+    const prev = await db.collection(OTP_COL)
+      .where('emailLower', '==', email)
+      .where('used', '==', false)
+      .get();
+    for (const d of prev.docs) await d.ref.set({ used: true }, { merge: true });
+
+    await db.collection(OTP_COL).add({
+      emailLower: email,
+      otpHash: hash,
+      used: false,
+      createdAt: new Date(),
+      expiresAt: plusMinutes(10),
+      attempts: 0,
+    });
+
+    if (mailer) {
+      const from = process.env.SMTP_FROM || `SERV App <${process.env.SMTP_USER}>`;
+      try {
+        await mailer.sendMail({
+          from,
+          to: email,
+          subject: 'Password Reset OTP',
+          text: `Your OTP code is: ${otp}. Valid for 10 minutes.`,
+          html: `<h3>Password Reset OTP</h3><p>Your OTP is <b>${otp}</b>.</p><p>Valid for 10 minutes.</p>`,
+        });
+      } catch (e) {
+        console.error('sendMail error:', e);
+      }
+    } else {
+      console.warn('Mailer not configured (SMTP_* envs).');
+    }
+
+    console.log(`[DEV] OTP for ${email}: ${otp}`);
+    return res.json({ message: 'OTP sent', otpSent: true });
+  } catch (err: any) {
+    console.error('requestOtp error:', err);
+    return res.status(500).json({ error: err.message || 'Internal server error' });
+  }
+};
+
+// POST /api/auth/forgot-password/verify-otp { email, otp }
+export const verifyOtp = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const email = normEmail(req.body.email || '');
+    const otp   = String(req.body.otp || '').trim();
+    if (!email || !otp) return res.status(400).json({ error: 'Email and OTP are required' });
+
+    const q = await db.collection(OTP_COL)
+      .where('emailLower', '==', email)
+      .limit(20).get();
+
+    const list = q.docs
+      .map(d => ({ d, data: d.data() as any }))
+      .sort((a, b) => {
+        const ad = a.data.createdAt?.toDate ? a.data.createdAt.toDate() : a.data.createdAt;
+        const bd = b.data.createdAt?.toDate ? b.data.createdAt.toDate() : b.data.createdAt;
+        return (bd?.getTime?.() || 0) - (ad?.getTime?.() || 0);
+      });
+
+    let doc: any = null, rec: any = null;
+    for (const it of list) { if (!it.data.used) { doc = it.d; rec = it.data; break; } }
+    if (!doc) return res.status(400).json({ error: 'OTP not found. Please request again.' });
+
+    const now = new Date();
+    const exp = rec.expiresAt?.toDate ? rec.expiresAt.toDate() : rec.expiresAt;
+    if (exp < now) {
+      await doc.ref.set({ used: true }, { merge: true });
+      return res.status(400).json({ error: 'OTP expired. Please request again.' });
+    }
+
+    if (sha256(otp) !== rec.otpHash) {
+      const attempts = (rec.attempts || 0) + 1;
+      await doc.ref.set({ attempts }, { merge: true });
+      return res.status(400).json({ error: 'Invalid OTP' });
+    }
+
+    await doc.ref.set({ verifiedAt: now }, { merge: true });
+    return res.json({ message: 'OTP verified', ok: true });
+  } catch (err: any) {
+    console.error('verifyOtp error:', err);
+    return res.status(500).json({ error: err.message || 'Internal server error' });
+  }
+};
+
+// POST /api/auth/forgot-password/reset { email, otp, newPassword }
+export const resetPasswordWithOtp = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const email = normEmail(req.body.email || '');
+    const otp   = String(req.body.otp || '').trim();
+    const newPassword = String(req.body.newPassword || '');
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ error: 'Email, OTP and newPassword are required' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    const q = await db.collection(OTP_COL)
+      .where('emailLower', '==', email)
+      .limit(20).get();
+
+    const list = q.docs
+      .map(d => ({ d, data: d.data() as any }))
+      .sort((a, b) => {
+        const ad = a.data.createdAt?.toDate ? a.data.createdAt.toDate() : a.data.createdAt;
+        const bd = b.data.createdAt?.toDate ? b.data.createdAt.toDate() : b.data.createdAt;
+        return (bd?.getTime?.() || 0) - (ad?.getTime?.() || 0);
+      });
+
+    let doc: any = null, rec: any = null;
+    for (const it of list) { if (!it.data.used) { doc = it.d; rec = it.data; break; } }
+    if (!doc) return res.status(400).json({ error: 'OTP not found. Please request again.' });
+
+    const now = new Date();
+    const exp = rec.expiresAt?.toDate ? rec.expiresAt.toDate() : rec.expiresAt;
+    if (exp < now) {
+      await doc.ref.set({ used: true }, { merge: true });
+      return res.status(400).json({ error: 'OTP expired. Please request again.' });
+    }
+    if (sha256(otp) !== rec.otpHash) {
+      const attempts = (rec.attempts || 0) + 1;
+      await doc.ref.set({ attempts }, { merge: true });
+      return res.status(400).json({ error: 'Invalid OTP' });
+    }
+
+    const userDoc = await getUserDocByEmailAny(email);
+    if (!userDoc) return res.status(404).json({ error: 'User not found' });
+
+    const hash = await bcrypt.hash(newPassword, 10);
+    await userDoc.ref.set({
+      password: hash,
+      passwordHash: hash,
+      hashedPassword: hash,
+      mustChangePassword: false,
+      updatedAt: now,
+    }, { merge: true });
+
+    await doc.ref.set({ used: true, resetAt: now }, { merge: true });
+    return res.json({ message: 'Password reset successful' });
+  } catch (err: any) {
+    console.error('resetPasswordWithOtp error:', err);
+    return res.status(500).json({ error: err.message || 'Internal server error' });
+  }
+};
+
+/* ===== Legacy convenience: POST /api/auth/forgot-password { email, newPassword } ===== */
 export const forgotPassword = async (req: Request, res: Response): Promise<Response> => {
-  // Implementation for forgot password
-  return res.json({ message: 'Password reset email sent' });
+  // For legacy callers, just call changePassword behavior if both fields provided.
+  if (!req.body?.email || !req.body?.newPassword) {
+    return res.status(400).json({ error: 'Provide email and newPassword or use OTP endpoints.' });
+  }
+  return changePassword(req, res);
 };
 
-export const resetPassword = async (req: Request, res: Response): Promise<Response> => {
-  // Implementation for reset password
-  return res.json({ message: 'Password reset successful' });
-};
+/* ===== Simple profile endpoints (kept for compatibility) ===== */
+export const getProfile = async (req: Request & { user?: { userId: string } }, res: Response) =>
+  getMe(req as any, res);
 
-export const updateProfile = async (req: Request & { user?: { userId: string } }, res: Response): Promise<Response> => {
-  // Implementation for updating profile
-  return res.json({ message: 'Profile updated successfully' });
-};
+export const updateProfile = async (req: Request & { user?: { userId: string } }, res: Response) =>
+  res.json({ message: 'Profile updated successfully' }); // stub or implement as needed
 
-export const changePassword = async (req: Request & { user?: { userId: string } }, res: Response): Promise<Response> => {
-  // Implementation for changing password
-  return res.json({ message: 'Password changed successfully' });
-};
+export const resetPassword = async () => { /* unused (OTP used instead) */ };

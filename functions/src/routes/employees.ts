@@ -4,7 +4,7 @@ import { authMiddleware, roleMiddleware } from '../middlewares/authMiddleware';
 
 const router = Router();
 
-// Apply auth middleware to all routes
+// All /employees routes require auth
 router.use(authMiddleware);
 
 /**
@@ -14,42 +14,24 @@ router.use(authMiddleware);
  *     Employee:
  *       type: object
  *       properties:
- *         id:
- *           type: string
- *         empid:
- *           type: string
- *         name:
- *           type: string
- *         email:
- *           type: string
- *         phone:
- *           type: string
- *         location:
- *           type: string
- *         dept:
- *           type: string
- *         designation:
- *           type: string
- *         shiftGroup:
- *           type: string
+ *         id: { type: string }
+ *         empid: { type: string }
+ *         name: { type: string }
+ *         email: { type: string }
+ *         phone: { type: string }
+ *         location: { type: string }
+ *         dept: { type: string }
+ *         designation: { type: string }
+ *         shiftGroup: { type: string }
+ *         role: { type: string }
  *         status:
  *           type: string
  *           enum: [active, inactive]
- *         createdAt:
- *           type: string
- *           format: date-time
- *         updatedAt:
- *           type: string
- *           format: date-time
- *         createdBy:
- *           type: string
- *         updatedBy:
- *           type: string
- *       required:
- *         - empid
- *         - name
- *         - email
- *         - status
+ *         createdAt: { type: string, format: date-time }
+ *         updatedAt: { type: string, format: date-time }
+ *         createdBy: { type: string }
+ *         updatedBy: { type: string }
+ *       required: [empid, name, email, status]
  */
 
 /**
@@ -58,8 +40,7 @@ router.use(authMiddleware);
  *   post:
  *     summary: Create a new employee (Admin only)
  *     tags: [Employees]
- *     security:
- *       - bearerAuth: []
+ *     security: [{ bearerAuth: [] }]
  *     requestBody:
  *       required: true
  *       content:
@@ -67,18 +48,10 @@ router.use(authMiddleware);
  *           schema:
  *             $ref: '#/components/schemas/Employee'
  *     responses:
- *       201:
- *         description: Employee created successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Employee'
- *       400:
- *         description: Missing required fields
- *       409:
- *         description: Employee with this ID or email already exists
- *       500:
- *         description: Internal server error
+ *       201: { description: Employee created successfully }
+ *       400: { description: Missing required fields }
+ *       409: { description: Employee with this ID or email already exists }
+ *       500: { description: Internal server error }
  */
 router.post('/', roleMiddleware(['admin']), employeeController.createEmployee);
 
@@ -86,104 +59,59 @@ router.post('/', roleMiddleware(['admin']), employeeController.createEmployee);
  * @swagger
  * /api/employees:
  *   get:
- *     summary: Get all employees with pagination and filtering
+ *     summary: Get all employees with pagination and filtering (Admin only)
  *     tags: [Employees]
- *     security:
- *       - bearerAuth: []
+ *     security: [{ bearerAuth: [] }]
  *     parameters:
  *       - in: query
  *         name: status
- *         schema:
- *           type: string
- *           enum: [active, inactive]
- *         description: Filter by status
+ *         schema: { type: string, enum: [active, inactive] }
  *       - in: query
  *         name: search
- *         schema:
- *           type: string
- *         description: Search term for employee name, email, or ID
+ *         schema: { type: string }
+ *         description: Search tokens for name/email/empid/phone/department/designation
  *       - in: query
  *         name: page
- *         schema:
- *           type: integer
- *           default: 1
- *         description: Page number for pagination
+ *         schema: { type: integer, default: 1 }
  *       - in: query
  *         name: limit
- *         schema:
- *           type: integer
- *           default: 10
- *         description: Number of items per page
+ *         schema: { type: integer, default: 10 }
  *     responses:
  *       200:
  *         description: List of employees
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 data:
- *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/Employee'
- *                 pagination:
- *                   type: object
- *                   properties:
- *                     page:
- *                       type: integer
- *                     limit:
- *                       type: integer
- *                     total:
- *                       type: integer
- *                     pages:
- *                       type: integer
  */
-router.get('/', employeeController.getEmployees);
+router.get('/', roleMiddleware(['admin']), employeeController.getEmployees);
 
 /**
  * @swagger
  * /api/employees/{id}:
  *   get:
- *     summary: Get employee by ID
+ *     summary: Get employee by ID (Admin or self via other guards)
  *     tags: [Employees]
- *     security:
- *       - bearerAuth: []
+ *     security: [{ bearerAuth: [] }]
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
- *         schema:
- *           type: string
- *         description: Employee ID
+ *         schema: { type: string }
  *     responses:
- *       200:
- *         description: Employee details
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Employee'
- *       404:
- *         description: Employee not found
- *       500:
- *         description: Internal server error
+ *       200: { description: Employee details }
+ *       404: { description: Employee not found }
  */
-router.get('/:id', employeeController.getEmployeeById);
+router.get('/:id', roleMiddleware(['admin']), employeeController.getEmployeeById);
 
 /**
  * @swagger
  * /api/employees/{id}:
  *   put:
- *     summary: Update employee
+ *     summary: Update employee (Admin only)
  *     tags: [Employees]
- *     security:
- *       - bearerAuth: []
+ *     security: [{ bearerAuth: [] }]
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
- *         schema:
- *           type: string
- *         description: Employee ID
+ *         schema: { type: string }
  *     requestBody:
  *       required: true
  *       content:
@@ -191,18 +119,10 @@ router.get('/:id', employeeController.getEmployeeById);
  *           schema:
  *             $ref: '#/components/schemas/Employee'
  *     responses:
- *       200:
- *         description: Employee updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Employee'
- *       404:
- *         description: Employee not found
- *       500:
- *         description: Internal server error
+ *       200: { description: Employee updated successfully }
+ *       404: { description: Employee not found }
  */
-router.put('/:id', employeeController.updateEmployee);
+router.put('/:id', roleMiddleware(['admin']), employeeController.updateEmployee);
 
 /**
  * @swagger
@@ -210,22 +130,14 @@ router.put('/:id', employeeController.updateEmployee);
  *   delete:
  *     summary: Delete an employee (Admin only)
  *     tags: [Employees]
- *     security:
- *       - bearerAuth: []
+ *     security: [{ bearerAuth: [] }]
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
- *         schema:
- *           type: string
- *         description: Employee ID
+ *         schema: { type: string }
  *     responses:
- *       200:
- *         description: Employee deleted successfully
- *       404:
- *         description: Employee not found
- *       500:
- *         description: Internal server error
+ *       200: { description: Employee deleted successfully }
  */
 router.delete('/:id', roleMiddleware(['admin']), employeeController.deleteEmployee);
 

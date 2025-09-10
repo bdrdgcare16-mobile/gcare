@@ -608,7 +608,7 @@ const Color kButtonColor = Color(0xFF655193);   // Darker purple for action bars
 const Color kTextOnDark = Colors.white;
 
 // Point to your backend
-const String _apiBase = 'http://localhost:3000';
+const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
 
 class MyAttendanceDetailPage extends StatefulWidget {
   const MyAttendanceDetailPage({

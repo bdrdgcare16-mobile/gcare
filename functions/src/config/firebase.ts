@@ -1,49 +1,53 @@
-import * as admin from 'firebase-admin';
-import { defineString } from 'firebase-functions/params';
+import { getApps, initializeApp, applicationDefault, cert, AppOptions } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
+import { getStorage } from 'firebase-admin/storage';
 
-// Check if Firebase app is already initialized
-if (!admin.apps.length) {
-  // Define parameters
-  const projectId = defineString('APP_PROJECT_ID', {
-    default: process.env.APP_PROJECT_ID || 'your-project-id'
-  });
+// NOTE:
+// - Do NOT use firebase-functions Params here (no defineString / .value() at module load).
+// - Rely on ADC in production. In local dev, use serviceAccountKey.json if present.
 
-  const storageBucket = defineString('APP_STORAGE_BUCKET', {
-    default: process.env.APP_STORAGE_BUCKET || 'your-project-id.appspot.com'
-  });
+let appInitialized = false;
 
-  // In production, these are automatically provided by Firebase
-  if (process.env.NODE_ENV === 'production') {
-    admin.initializeApp({
-      storageBucket: storageBucket.value()
-    });
-  } else {
-    // For local development, try to use service account if it exists
-    try {
-      const serviceAccount = require('../../serviceAccountKey.json');
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount as admin.ServiceAccount),
-        storageBucket: storageBucket.value(),
-      });
-    } catch (error) {
-      console.warn('Using default credentials for local development');
-      admin.initializeApp({
-        projectId: projectId.value(),
-        storageBucket: storageBucket.value(),
-      });
-    }
+if (!getApps().length) {
+  let options: AppOptions | undefined;
+
+  // Prefer explicit service account when available locally
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const serviceAccount = require('../../serviceAccountKey.json');
+    options = {
+      credential: cert(serviceAccount),
+      storageBucket:
+        process.env.APP_STORAGE_BUCKET ||
+        (process.env.GCLOUD_PROJECT ? `${process.env.GCLOUD_PROJECT}.appspot.com` : undefined),
+    };
+  } catch {
+    // Fall back to Application Default Credentials (Functions/Cloud Run)
+    options = {
+      credential: applicationDefault(),
+      storageBucket:
+        process.env.APP_STORAGE_BUCKET ||
+        (process.env.GCLOUD_PROJECT ? `${process.env.GCLOUD_PROJECT}.appspot.com` : undefined),
+    };
   }
+
+  initializeApp(options);
+  appInitialized = true;
 }
 
-export const db = admin.firestore();
-export const storage = admin.storage();
-export const auth = admin.auth();
+// Expose Admin services
+export const db = getFirestore();
+export const auth = getAuth();
+export const storage = getStorage();
 
-// Configure Firestore
+// Firestore recommended setting to ignore undefined fields
 db.settings({ ignoreUndefinedProperties: true });
 
-export default {
-  db,
-  storage,
-  auth,
-};
+// Helpful log in dev
+if (appInitialized) {
+  // eslint-disable-next-line no-console
+  console.log('[firebase] Admin initialized. Bucket:', storage.bucket().name);
+}
+
+export default { db, auth, storage };

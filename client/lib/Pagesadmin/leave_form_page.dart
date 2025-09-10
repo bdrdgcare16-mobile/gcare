@@ -379,7 +379,7 @@ const Color kAppBarColor = Color(0xFF8C6EAF);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
-const String apiBase = 'http://localhost:3000';
+const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
 
 class LeaveFormPage extends StatefulWidget {
   const LeaveFormPage({super.key});

@@ -3197,7 +3197,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 // Backend base
-const String apiBase = 'http://localhost:3000';
+const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
 
 bool _looksLikeJwt(String v) =>
     RegExp(r'^[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+$').hasMatch(v);

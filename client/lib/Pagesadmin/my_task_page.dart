@@ -2323,7 +2323,7 @@ class MyTasksPage extends StatefulWidget {
 
 class _MyTasksPageState extends State<MyTasksPage> {
   // API base
-  static const String _apiBase = 'http://localhost:3000';
+  static const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
 
   // local preview list (unchanged UI)
   List<PlatformFile> uploadedFiles = [];

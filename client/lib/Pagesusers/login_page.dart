@@ -50,16 +50,55 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   // ---------- COMPANY PROFILE HELPERS (Admin flow) ----------
-  Future<bool> isProfileFilled(String token) async {
-    final res = await http.get(
-      Uri.parse('$_apiBase/company/profile/check'),
-      headers: {'Authorization': 'Bearer $token'},
-    );
-    if (res.statusCode == 200) {
-      final body = jsonDecode(res.body);
-      return (body['filled'] ?? false) == true;
+  Future<Map<String, dynamic>> isProfileFilled(String token) async {
+    try {
+      print('🔍 [DEBUG] Checking if profile is filled...');
+      print('🔑 Token: ${token.substring(0, 10)}...');
+      
+      final url = '$_apiBase/company/profile/check';
+      print('🌐 Making request to: $url');
+      
+      final res = await http.get(
+        Uri.parse(url),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+      
+      print('✅ Response status: ${res.statusCode}');
+      print('📦 Response body: ${res.body}');
+      
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body);
+        print('🔍 Parsed response: ${jsonEncode(body)}');
+        
+        // Check both 'filled' and 'hasProfile' for backward compatibility
+        final isFilled = (body['filled'] ?? body['hasProfile'] ?? false) == true;
+        print('🏢 Profile filled: $isFilled');
+        
+        if (!isFilled) {
+          print('⚠️  No company profile found for this admin');
+        } else {
+          print('✅ Found company profile data');
+        }
+        
+        // Return the full response for the caller to process
+        return {
+          'filled': isFilled,
+          'data': body['data'] ?? {},
+          'response': body,
+        };
+      } else {
+        print('❌ Unexpected status code: ${res.statusCode}');
+        print('📦 Response body: ${res.body}');
+        throw Exception('Failed to check profile status (${res.statusCode})');
+      }
+    } catch (e, stackTrace) {
+      print('❌ Error in isProfileFilled: $e');
+      print('📜 Stack trace: $stackTrace');
+      rethrow;
     }
-    throw Exception('Failed to check profile status (${res.statusCode})');
   }
 
   Future<Map<String, dynamic>> fetchCompanyProfile(String token) async {
@@ -518,31 +557,45 @@ class _LoginPageState extends State<LoginPage> {
 
         if (isAdmin) {
           // ADMIN FLOW
-          final filled = await isProfileFilled(tok);
-          if (filled) {
-            final jsonProfile = await fetchCompanyProfile(tok);
-            if (!mounted) return;
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (_) => AdminDashboard(
-                  companyProfile: CompanyProfile(
-                    name: (jsonProfile['companyName'] ?? '').toString(),
-                    adminName: (jsonProfile['adminName'] ?? '').toString(),
-                    logoUrl: ((jsonProfile['logo'] as String?)?.isNotEmpty ??
-                            false)
-                        ? '$_apiBase${jsonProfile['logo']}'.replaceFirst('/api', '')
-                        : null,
+          try {
+            print('Checking company profile for admin...');
+            final profileCheck = await isProfileFilled(tok);
+            print('Profile check result: $profileCheck');
+            
+            if (profileCheck['filled'] == true) {
+              // Profile exists, navigate to dashboard
+              print('Company profile exists, navigating to AdminDashboard');
+              if (!mounted) return;
+              
+              final companyData = profileCheck['data'] ?? {};
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => AdminDashboard(
+                    companyProfile: CompanyProfile(
+                      name: (companyData['companyName'] ?? '').toString(),
+                      adminName: (companyData['adminName'] ?? '').toString(),
+                      logoUrl: companyData['logoUrl']?.toString(),
+                    ),
                   ),
                 ),
-              ),
-            );
-          } else {
+              );
+            } else {
+              // No profile exists, navigate to company details form
+              print('No company profile found, navigating to CompanyDetailsFormPage');
+              if (!mounted) return;
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const CompanyDetailsFormPage(),
+                ),
+              );
+            }
+          } catch (e) {
+            print('Error checking company profile: $e');
             if (!mounted) return;
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                  builder: (_) => const CompanyDetailsFormPage()),
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Error checking company profile')),
             );
           }
         } else {

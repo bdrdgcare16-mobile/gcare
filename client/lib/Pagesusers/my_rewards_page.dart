@@ -227,7 +227,7 @@ import 'package:http/http.dart' as http;
 import 'package:serv_app/models/company_data.dart';
 
 // Match your Node server base
-const String apiBase = 'http://localhost:3000';
+const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
 
 class UserRewardsPage extends StatefulWidget {
   const UserRewardsPage({super.key});
