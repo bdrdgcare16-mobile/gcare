@@ -13,13 +13,14 @@ import employeeRoutes from './routes/employees';
 import attendanceRoutes from './routes/attendance';
 import leaveRoutes from './routes/leave';
 import leaveTypeRoutes from './routes/leaveTypes';
-import officeLocationRoutes from './routes/officeLocation';
+import officeLocationRoutes from './routes/officeLocation'; // <-- keep Capital L
 import uploadRoutes from './routes/upload';
 import reportRoutes from './routes/report';
 import rewardRoutes from './routes/reward';
 import feedbackRoutes from './routes/feedbackRoutes';
 import eventRoutes from './routes/event';
 import shiftRoutes from './routes/shift';
+
 // -------------------- App setup --------------------
 const app = express();
 
@@ -64,19 +65,22 @@ app.get('/api/health', (_req: Request, res: Response) => {
 
 // -------------------- API routes (mounted once) --------------------
 app.use('/api/auth', authRoutes);
-app.use('/api/company', companyRoutes);          // /api/company/profile/check
+app.use('/api/company', companyRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/leaves', leaveRoutes);
 app.use('/api/leave-types', leaveTypeRoutes);
-app.use('/api/office-locations', officeLocationRoutes);
+
+// Canonical mount for office locations
+app.use('/api/office', officeLocationRoutes);
+
 app.use('/api/uploads', uploadRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/rewards', rewardRoutes);
-app.use('/api/events', eventRoutes(db));    
-// feedbackRoutes is a factory; inject Firestore safely
-app.use('/api/feedback', feedbackRoutes(db));
+app.use('/api/events', eventRoutes(db));
+app.use('/api/feedback', feedbackRoutes(db)); // factory
 app.use('/api/shifts', shiftRoutes);
+
 // -------------------- 404 + error handlers --------------------
 app.use((req, res) => {
   res.status(404).json({
@@ -120,8 +124,6 @@ app.use((err: AppError, _req: Request, res: Response, _next: NextFunction) => {
   return res.status(err.statusCode || 500).json({
     status: 'error',
     message: err.message || 'Internal server error',
-    // Expose stack only in dev if you want:
-    // ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
   });
 });
 

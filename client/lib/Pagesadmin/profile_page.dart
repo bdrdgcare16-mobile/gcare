@@ -1,442 +1,26 @@
-
-
-
-// // import 'package:flutter/material.dart';
-
-// // // Your provided theme color constants
-// // const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
-// // const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-// // const Color kAppBarColor = Color(0xFF8C6EAF);
-// // const Color kButtonColor = Color(0xFF655193);
-// // const Color kTextColor = Colors.white;
-
-// // class MyApp extends StatelessWidget {
-// //   @override
-// //   Widget build(BuildContext context) {
-// //     return MaterialApp(
-// //       title: 'Company Profile App',
-// //       theme: ThemeData(
-// //         primarySwatch: Colors.teal,
-// //       ),
-// //       home: CompanyDetailsPage(),
-// //       debugShowCheckedModeBanner: false,
-// //     );
-// //   }
-// // }
-
-// // class CompanyDetailsPage extends StatelessWidget {
-// //   @override
-// //   Widget build(BuildContext context) {
-// //     return Scaffold(
-// //       backgroundColor: Colors.transparent,
-// //       appBar: AppBar(
-// //         backgroundColor: kAppBarColor,
-// //         elevation: 1,
-// //         leading: IconButton(
-// //           icon: Icon(Icons.arrow_back, color: kTextColor),
-// //           onPressed: () => Navigator.pop(context),
-// //         ),
-// //         title: Text(
-// //           'Profile',
-// //           style: TextStyle(color: kTextColor, fontSize: 16),
-// //         ),
-// //       ),
-// //       body: Container(
-// //         decoration: const BoxDecoration(
-// //           gradient: LinearGradient(
-// //             colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
-// //             begin: Alignment.topCenter,
-// //             end: Alignment.bottomCenter,
-// //           ),
-// //         ),
-// //         child: LayoutBuilder(
-// //           builder: (context, constraints) {
-// //             double maxWidth = constraints.maxWidth > 800 ? 800 : constraints.maxWidth;
-// //             bool isWeb = constraints.maxWidth > 600;
-
-// //             return Center(
-// //               child: Container(
-// //                 width: maxWidth,
-// //                 child: SingleChildScrollView(
-// //                   padding: EdgeInsets.symmetric(horizontal: isWeb ? 40 : 20, vertical: 20),
-// //                   child: Column(
-// //                     children: [
-// //                       Column(
-// //                         children: [
-// //                           ClipRRect(
-// //                             borderRadius: BorderRadius.circular(60),
-// //                             child: Image.asset(
-// //                               'assets/images/companylogo.png.jpeg',
-// //                               width: 80,
-// //                               height: 80,
-// //                               fit: BoxFit.cover,
-// //                             ),
-// //                           ),
-// //                           SizedBox(height: 15),
-// //                           Text(
-// //                             'Company Details',
-// //                             style: TextStyle(
-// //                               fontSize: isWeb ? 28 : 24,
-// //                               fontWeight: FontWeight.bold,
-// //                               color: Colors.grey[800],
-// //                             ),
-// //                           ),
-// //                         ],
-// //                       ),
-// //                       SizedBox(height: 30),
-// //                       Container(
-// //                         width: double.infinity,
-// //                         padding: EdgeInsets.all(isWeb ? 30 : 20),
-// //                         decoration: BoxDecoration(
-// //                           color: Colors.white,
-// //                           borderRadius: BorderRadius.circular(12),
-// //                           boxShadow: [
-// //                             BoxShadow(
-// //                               color: Colors.grey.withOpacity(0.1),
-// //                               spreadRadius: 2,
-// //                               blurRadius: 8,
-// //                               offset: Offset(0, 2),
-// //                             ),
-// //                           ],
-// //                         ),
-// //                         child: Column(
-// //                           crossAxisAlignment: CrossAxisAlignment.start,
-// //                           children: [
-// //                             _buildDetailField('Company Name', 'Myth Reality Tech Pvt Ltd', isWeb),
-// //                             SizedBox(height: 20),
-// //                             _buildDetailField('Mobile Number', '9042545259', isWeb),
-// //                             SizedBox(height: 20),
-// //                             _buildIndustryTypeField(isWeb),
-// //                             SizedBox(height: 20),
-// //                             _buildDetailField('Company Website', '—', isWeb),
-// //                             SizedBox(height: 20),
-// //                             _buildDetailField('Alternative Email', '—', isWeb),
-// //                           ],
-// //                         ),
-// //                       ),
-// //                       SizedBox(height: 30),
-// //                     ],
-// //                   ),
-// //                 ),
-// //               ),
-// //             );
-// //           },
-// //         ),
-// //       ),
-// //     );
-// //   }
-
-// //   Widget _buildDetailField(String label, String value, bool isWeb) {
-// //     return Column(
-// //       crossAxisAlignment: CrossAxisAlignment.start,
-// //       children: [
-// //         Text(
-// //           label,
-// //           style: TextStyle(
-// //             color: Colors.black,
-// //             fontSize: isWeb ? 16 : 14,
-// //             fontWeight: FontWeight.bold,
-// //           ),
-// //         ),
-// //         SizedBox(height: 6),
-// //         Text(
-// //           value,
-// //           style: TextStyle(
-// //             color: Colors.grey[600],
-// //             fontSize: isWeb ? 18 : 16,
-// //             fontWeight: FontWeight.normal,
-// //           ),
-// //         ),
-// //       ],
-// //     );
-// //   }
-
-// //   Widget _buildIndustryTypeField(bool isWeb) {
-// //     return Column(
-// //       crossAxisAlignment: CrossAxisAlignment.start,
-// //       children: [
-// //         Text(
-// //           'Industry Type',
-// //           style: TextStyle(
-// //             color: Colors.black,
-// //             fontSize: isWeb ? 16 : 14,
-// //             fontWeight: FontWeight.bold,
-// //           ),
-// //         ),
-// //         SizedBox(height: 10),
-// //         Column(
-// //           crossAxisAlignment: CrossAxisAlignment.start,
-// //           children: [
-// //             _buildIndustryType('IT', isWeb),
-// //             SizedBox(height: 8),
-// //             _buildIndustryType('Healthcare', isWeb),
-// //             SizedBox(height: 8),
-// //             _buildIndustryType('Organization', isWeb),
-// //             SizedBox(height: 8),
-// //             _buildIndustryType('Production', isWeb),
-// //           ],
-// //         ),
-// //       ],
-// //     );
-// //   }
-
-// //   Widget _buildIndustryType(String type, bool isWeb) {
-// //     return Row(
-// //       children: [
-// //         Container(
-// //           width: isWeb ? 8 : 6,
-// //           height: isWeb ? 8 : 6,
-// //           decoration: BoxDecoration(
-// //             color: kButtonColor,
-// //             shape: BoxShape.circle,
-// //           ),
-// //         ),
-// //         SizedBox(width: 10),
-// //         Flexible(
-// //           child: Text(
-// //             type,
-// //             style: TextStyle(
-// //               color: Colors.grey[600],
-// //               fontSize: isWeb ? 16 : 14,
-// //             ),
-// //             overflow: TextOverflow.ellipsis,
-// //           ),
-// //         ),
-// //       ],
-// //     );
-// //   }
-// // }
-
-
-
-// // lib/pages/company_profile_page.dart
-
-// import 'dart:io' show File;
-// import 'package:flutter/foundation.dart' show kIsWeb;
-// import 'package:flutter/material.dart';
-// import 'package:image_picker/image_picker.dart';
-// import 'package:serv_app/models/company_data.dart';  // your shared model
-// // import 'company_details_page.dart';                  // for the edit form
-
-// // Theme colors
-// const Color kPrimaryBackgroundTop    = Color(0xFFFFFFFF);
-// const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-// const Color kAppBarColor             = Color(0xFF8C6EAF);
-// const Color kButtonColor             = Color(0xFF655193);
-// const Color kTextColor               = Colors.white;
-
-// class CompanyProfilePage extends StatefulWidget {
-//   const CompanyProfilePage({super.key});
-
-//   @override
-//   _CompanyProfilePageState createState() => _CompanyProfilePageState();
-// }
-
-// class _CompanyProfilePageState extends State<CompanyProfilePage> {
-//   bool _isEditing = false;
-
-//   late TextEditingController _nameCtrl;
-//   late TextEditingController _emailCtrl;
-//   late TextEditingController _phoneCtrl;
-//   late TextEditingController _websiteCtrl;
-//   late TextEditingController _adminNameCtrl;
-//   late TextEditingController _adminRoleCtrl;
-
-//   XFile? _logoFile;
-//   final ImagePicker _picker = ImagePicker();
-
-//   @override
-//   void initState() {
-//     super.initState();
-//     // load from CompanyData
-//     _logoFile      = CompanyData.logoFile;
-//     _nameCtrl      = TextEditingController(text: CompanyData.companyName);
-//     _emailCtrl     = TextEditingController(text: CompanyData.email);
-//     _phoneCtrl     = TextEditingController(text: CompanyData.phone);
-//     _websiteCtrl   = TextEditingController(text: CompanyData.website);
-//     _adminNameCtrl = TextEditingController(text: CompanyData.adminName);
-//     _adminRoleCtrl = TextEditingController(text: CompanyData.adminRole);
-//   }
-
-//   @override
-//   void dispose() {
-//     _nameCtrl.dispose();
-//     _emailCtrl.dispose();
-//     _phoneCtrl.dispose();
-//     _websiteCtrl.dispose();
-//     _adminNameCtrl.dispose();
-//     _adminRoleCtrl.dispose();
-//     super.dispose();
-//   }
-
-//   Future<void> _pickLogo() async {
-//     final XFile? picked = await _picker.pickImage(source: ImageSource.gallery);
-//     if (picked != null) {
-//       setState(() {
-//         _logoFile = picked;
-//       });
-//     }
-//   }
-
-//   void _toggleEdit() {
-//     if (_isEditing) {
-//       // save back into CompanyData
-//       CompanyData.logoFile      = _logoFile;
-//       CompanyData.companyName   = _nameCtrl.text.trim();
-//       CompanyData.email         = _emailCtrl.text.trim();
-//       CompanyData.phone         = _phoneCtrl.text.trim();
-//       CompanyData.website       = _websiteCtrl.text.trim();
-//       CompanyData.adminName     = _adminNameCtrl.text.trim();
-//       CompanyData.adminRole     = _adminRoleCtrl.text.trim();
-//     }
-//     setState(() => _isEditing = !_isEditing);
-//   }
-
-//   @override
-//   Widget build(BuildContext context) {
-//     final bool isWide = MediaQuery.of(context).size.width > 600;
-//     final double spacing = isWide ? 24.0 : 16.0;
-
-//     ImageProvider? avatar;
-//     if (_logoFile != null) {
-//       avatar = kIsWeb
-//           ? NetworkImage(_logoFile!.path)
-//           : FileImage(File(_logoFile!.path));
-//     }
-
-//     return Scaffold(
-//       backgroundColor: kPrimaryBackgroundTop,
-//       appBar: AppBar(
-//         backgroundColor: kAppBarColor,
-//         title: const Text('Company Profile', style: TextStyle(color: kTextColor)),
-//         iconTheme: const IconThemeData(color: kTextColor),
-//         actions: [
-//           IconButton(
-//             icon: Icon(_isEditing ? Icons.check : Icons.edit, color: kTextColor),
-//             onPressed: _toggleEdit,
-//             tooltip: _isEditing ? 'Save' : 'Edit',
-//           ),
-//         ],
-//       ),
-//       body: SingleChildScrollView(
-//         padding: EdgeInsets.all(spacing),
-//         child: Center(
-//           child: Container(
-//             width: isWide ? 600 : double.infinity,
-//             padding: EdgeInsets.all(spacing),
-//             decoration: BoxDecoration(
-//               gradient: const LinearGradient(
-//                 colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
-//                 begin: Alignment.topCenter,
-//                 end: Alignment.bottomCenter,
-//               ),
-//               borderRadius: BorderRadius.circular(12),
-//             ),
-//             child: Column(
-//               crossAxisAlignment: CrossAxisAlignment.stretch,
-//               children: [
-//                 // Avatar + camera button in edit mode
-//                 if (_isEditing)
-//                   Center(
-//                     child: Stack(
-//                       alignment: Alignment.bottomRight,
-//                       children: [
-//                         CircleAvatar(
-//                           radius: 48,
-//                           backgroundImage: avatar,
-//                           backgroundColor: Colors.grey[200],
-//                         ),
-//                         Positioned(
-//                           child: InkWell(
-//                             onTap: _pickLogo,
-//                             child: CircleAvatar(
-//                               radius: 16,
-//                               backgroundColor: kButtonColor,
-//                               child: const Icon(Icons.camera_alt, size: 16, color: kTextColor),
-//                             ),
-//                           ),
-//                         ),
-//                       ],
-//                     ),
-//                   )
-//                 else if (avatar != null)
-//                   Center(
-//                     child: CircleAvatar(
-//                       radius: 48,
-//                       backgroundImage: avatar,
-//                     ),
-//                   ),
-//                 SizedBox(height: spacing),
-
-//                 // Fields
-//                 if (_isEditing) ...[
-//                   _buildEditField('Company Name', _nameCtrl),
-//                   SizedBox(height: spacing),
-//                   _buildEditField('Official Email', _emailCtrl, keyboard: TextInputType.emailAddress),
-//                   SizedBox(height: spacing),
-//                   _buildEditField('Phone Number', _phoneCtrl, keyboard: TextInputType.phone),
-//                   SizedBox(height: spacing),
-//                   _buildEditField('Website', _websiteCtrl, keyboard: TextInputType.url),
-//                   SizedBox(height: spacing),
-//                   _buildEditField('Admin Full Name', _adminNameCtrl),
-//                   SizedBox(height: spacing),
-//                   _buildEditField('Admin Designation', _adminRoleCtrl),
-//                 ] else ...[
-//                   _buildDisplayField('Company Name',   CompanyData.companyName,  isWide),
-//                   SizedBox(height: spacing),
-//                   _buildDisplayField('Official Email', CompanyData.email,        isWide),
-//                   SizedBox(height: spacing),
-//                   _buildDisplayField('Phone Number',   CompanyData.phone,        isWide),
-//                   SizedBox(height: spacing),
-//                   _buildDisplayField('Website',        CompanyData.website.isNotEmpty ? CompanyData.website : '—', isWide),
-//                   SizedBox(height: spacing),
-//                   _buildDisplayField('Admin Full Name',CompanyData.adminName,    isWide),
-//                   SizedBox(height: spacing),
-//                   _buildDisplayField('Admin Designation',CompanyData.adminRole, isWide),
-//                 ],
-//               ],
-//             ),
-//           ),
-//         ),
-//       ),
-//     );
-//   }
-
-//   Widget _buildDisplayField(String label, String value, bool isWide) {
-//     return Column(
-//       crossAxisAlignment: CrossAxisAlignment.start,
-//       children: [
-//         Text(label, style: TextStyle(fontWeight: FontWeight.bold, fontSize: isWide ? 16 : 14)),
-//         const SizedBox(height: 4),
-//         Text(value, style: TextStyle(fontSize: isWide ? 18 : 16)),
-//       ],
-//     );
-//   }
-
-//   Widget _buildEditField(String label, TextEditingController ctrl,
-//       {TextInputType keyboard = TextInputType.text}) {
-//     return TextFormField(
-//       controller: ctrl,
-//       keyboardType: keyboard,
-//       decoration: InputDecoration(
-//         labelText: label,
-//         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-//       ),
-//     );
-//   }
-// }
-// lib/Pagesadmin/profile_page.dart
+import 'dart:convert';
 import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:http/http.dart' as http;
+
+// Web-only storage shims (safe on non-web due to conditional import)
+import 'package:serv_app/html_stub.dart'
+  if (dart.library.html) 'package:serv_app/html_web.dart' as html;
+
 import 'package:serv_app/models/company_data.dart'; // shared model with static fields
 
-// Theme colors
+// ===== Theme colors (unchanged) =====
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
 const Color kAppBarColor = Color(0xFF8C6EAF);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
+
+// ===== Backend base (same as the rest of the app) =====
+const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
 
 class CompanyProfilePage extends StatefulWidget {
   const CompanyProfilePage({super.key});
@@ -447,6 +31,8 @@ class CompanyProfilePage extends StatefulWidget {
 
 class _CompanyProfilePageState extends State<CompanyProfilePage> {
   bool _isEditing = false;
+  bool _loading = false;
+  bool _saving = false;
 
   late final TextEditingController _nameCtrl;
   late final TextEditingController _emailCtrl;
@@ -455,15 +41,15 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
   late final TextEditingController _adminNameCtrl;
   late final TextEditingController _adminRoleCtrl;
 
-  final ImagePicker _picker =  ImagePicker();
-  XFile? _logoFile;          // for persistence back to CompanyData if you already use it
-  Uint8List? _logoBytes;     // used to render avatar cross-platform
+  final ImagePicker _picker = ImagePicker();
+  XFile? _logoFile;       // persisted via CompanyData too
+  Uint8List? _logoBytes;  // for avatar preview
 
   @override
   void initState() {
     super.initState();
 
-    // Seed UI from CompanyData (your existing shared model)
+    // Seed from CompanyData so the UI has something immediately.
     _logoFile      = CompanyData.logoFile;
     _nameCtrl      = TextEditingController(text: CompanyData.companyName);
     _emailCtrl     = TextEditingController(text: CompanyData.email);
@@ -472,21 +58,223 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
     _adminNameCtrl = TextEditingController(text: CompanyData.adminName);
     _adminRoleCtrl = TextEditingController(text: CompanyData.adminRole);
 
-    // If a logo was already chosen earlier, load its bytes so we can show it
     _loadInitialLogoBytes();
+
+    // Fetch from API (uses token's email as doc id on the server)
+    _fetchProfile();
   }
 
+  // ----- STORAGE / TOKEN HELPERS -----
+  String? _readToken() {
+    final t = (CompanyData.token).toString();
+    if (t.isNotEmpty && t != 'null') return t;
+
+    if (kIsWeb) {
+      final t1 = html.window.localStorage['token'];
+      if (t1 != null && t1.trim().isNotEmpty) return t1;
+      final t2 = html.window.sessionStorage['token'];
+      if (t2 != null && t2.trim().isNotEmpty) return t2;
+    }
+    return null;
+  }
+
+  Map<String, String> _authHeaders({bool json = true}) {
+    final h = <String, String>{};
+    if (json) h['Content-Type'] = 'application/json';
+    final tok = _readToken();
+    if (tok != null && tok.isNotEmpty) h['Authorization'] = 'Bearer $tok';
+    return h;
+  }
+
+  // ----- LOGO PREVIEW -----
   Future<void> _loadInitialLogoBytes() async {
     try {
       if (_logoFile != null) {
-        final bytes = await _logoFile!.readAsBytes(); // works on Web & Mobile
-        if (mounted) {
-          setState(() => _logoBytes = bytes);
-        }
+        final bytes = await _logoFile!.readAsBytes();
+        if (mounted) setState(() => _logoBytes = bytes);
       }
     } catch (_) {
-      // Ignore preview errors; UI will simply show empty avatar
+      // ignore preview errors
     }
+  }
+
+  // ----- API: FETCH PROFILE -----
+  Future<void> _fetchProfile() async {
+    setState(() => _loading = true);
+    try {
+      final res = await http.get(
+        Uri.parse('$_apiBase/company/profile'),
+        headers: _authHeaders(json: true),
+      );
+
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final data = (body['data'] ?? {}) as Map<String, dynamic>;
+
+        // Map server -> UI fields
+        final companyName = (data['companyName'] ?? '').toString();
+        final email       = (data['email'] ?? '').toString();
+        final phone       = (data['phone'] ?? '').toString();
+        final website     = (data['website'] ?? '').toString();
+        final adminName   = (data['adminName'] ?? '').toString();
+        final designation = (data['designation'] ?? '').toString();
+
+        // Optional image: server may store logoBase64 OR logoUrl
+        Uint8List? logoBytes;
+        final String logoBase64 = (data['logoBase64'] ?? '').toString();
+        if (logoBase64.isNotEmpty) {
+          // strip any "data:image/*;base64," prefix
+          final pure = logoBase64.split('base64,').last;
+          try {
+            logoBytes = base64Decode(pure);
+          } catch (_) {}
+        }
+
+        // Update controllers and memory model
+        _nameCtrl.text      = companyName;
+        _emailCtrl.text     = email;
+        _phoneCtrl.text     = phone;
+        _websiteCtrl.text   = website;
+        _adminNameCtrl.text = adminName;
+        _adminRoleCtrl.text = designation;
+
+        CompanyData.companyName = companyName;
+        CompanyData.email       = email;
+        CompanyData.phone       = phone;
+        CompanyData.website     = website;
+        CompanyData.adminName   = adminName;
+        CompanyData.adminRole   = designation;
+
+        if (logoBytes != null) {
+          setState(() => _logoBytes = logoBytes);
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Profile loaded')),
+          );
+        }
+      } else if (res.statusCode == 404) {
+        // No profile yet — keep existing seed values
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No profile found.')),
+          );
+        }
+      } else if (res.statusCode == 401) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Unauthorized. Please sign in again.')),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Load failed: ${res.statusCode}')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading profile: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  // ----- API: SAVE PROFILE -----
+  Future<void> _saveProfile() async {
+    setState(() => _saving = true);
+    try {
+      final uri = Uri.parse('$_apiBase/company/profile');
+      final req = http.MultipartRequest('POST', uri);
+
+      // Auth header only; MultipartRequest sets its own content-type
+      final tok = _readToken();
+      if (tok != null && tok.isNotEmpty) {
+        req.headers['Authorization'] = 'Bearer $tok';
+      }
+
+      // Fields expected by backend
+      req.fields['companyName'] = _nameCtrl.text.trim();
+      req.fields['email']       = _emailCtrl.text.trim();
+      req.fields['phone']       = _phoneCtrl.text.trim();
+      req.fields['website']     = _websiteCtrl.text.trim();
+      req.fields['adminName']   = _adminNameCtrl.text.trim();
+      req.fields['designation'] = _adminRoleCtrl.text.trim();
+
+      // Optional logo file — multer looks for 'logo'
+      if (_logoFile != null) {
+        final bytes = await _logoFile!.readAsBytes();
+        final filename = _logoFile!.name; // works on web & mobile
+        req.files.add(
+          http.MultipartFile.fromBytes('logo', bytes, filename: filename),
+        );
+      }
+
+      final streamed = await req.send();
+      final res = await http.Response.fromStream(streamed);
+
+      if (res.statusCode == 200) {
+        // Persist back to CompanyData so the rest of the app can read it
+        CompanyData.logoFile    = _logoFile;
+        CompanyData.companyName = _nameCtrl.text.trim();
+        CompanyData.email       = _emailCtrl.text.trim();
+        CompanyData.phone       = _phoneCtrl.text.trim();
+        CompanyData.website     = _websiteCtrl.text.trim();
+        CompanyData.adminName   = _adminNameCtrl.text.trim();
+        CompanyData.adminRole   = _adminRoleCtrl.text.trim();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Profile saved')),
+          );
+        }
+      } else {
+        // Surface server error message if any
+        String msg = 'Save failed: ${res.statusCode}';
+        try {
+          final b = jsonDecode(res.body);
+          msg = (b['message'] ?? b['error'] ?? msg).toString();
+        } catch (_) {}
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error saving profile: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  // ----- UI actions (unchanged look) -----
+  Future<void> _pickLogo() async {
+    final XFile? picked = await _picker.pickImage(source: ImageSource.gallery);
+    if (picked != null) {
+      final bytes = await picked.readAsBytes();
+      setState(() {
+        _logoFile = picked;
+        _logoBytes = bytes;
+      });
+    }
+  }
+
+  void _toggleEdit() async {
+    if (_isEditing) {
+      // On save click (✓): call API first, then persist locally and exit edit mode.
+      await _saveProfile();
+    } else {
+      // entering edit mode — no-op
+    }
+    if (mounted) setState(() => _isEditing = !_isEditing);
   }
 
   @override
@@ -500,37 +288,12 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
     super.dispose();
   }
 
-  Future<void> _pickLogo() async {
-    final XFile? picked = await _picker.pickImage(source: ImageSource.gallery);
-    if (picked != null) {
-      final bytes = await picked.readAsBytes(); // cross-platform
-      setState(() {
-        _logoFile = picked;
-        _logoBytes = bytes;
-      });
-    }
-  }
-
-  void _toggleEdit() {
-    if (_isEditing) {
-      // Save back into CompanyData (keeps your existing pattern)
-      CompanyData.logoFile    = _logoFile;
-      CompanyData.companyName = _nameCtrl.text.trim();
-      CompanyData.email       = _emailCtrl.text.trim();
-      CompanyData.phone       = _phoneCtrl.text.trim();
-      CompanyData.website     = _websiteCtrl.text.trim();
-      CompanyData.adminName   = _adminNameCtrl.text.trim();
-      CompanyData.adminRole   = _adminRoleCtrl.text.trim();
-    }
-    setState(() => _isEditing = !_isEditing);
-  }
-
+  // ----- BUILD (UI preserved) -----
   @override
   Widget build(BuildContext context) {
     final bool isWide = MediaQuery.of(context).size.width > 600;
     final double spacing = isWide ? 24.0 : 16.0;
 
-    // Single provider that works on all platforms
     ImageProvider<Object>? avatar =
         (_logoBytes != null) ? MemoryImage(_logoBytes!) : null;
 
@@ -542,8 +305,15 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
         iconTheme: const IconThemeData(color: kTextColor),
         actions: [
           IconButton(
-            icon: Icon(_isEditing ? Icons.check : Icons.edit, color: kTextColor),
-            onPressed: _toggleEdit,
+            icon: (_isEditing
+                    ? (_saving ? const SizedBox(
+                        width: 20, height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2, color: kTextColor,
+                        ),
+                      ) : const Icon(Icons.check, color: kTextColor))
+                    : const Icon(Icons.edit, color: kTextColor)),
+            onPressed: _saving ? null : _toggleEdit,
             tooltip: _isEditing ? 'Save' : 'Edit',
           ),
         ],
@@ -565,7 +335,6 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Avatar + camera button in edit mode
                 if (_isEditing)
                   Center(
                     child: Stack(
@@ -582,10 +351,10 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
                         Positioned(
                           child: InkWell(
                             onTap: _pickLogo,
-                            child: CircleAvatar(
+                            child: const CircleAvatar(
                               radius: 16,
                               backgroundColor: kButtonColor,
-                              child: const Icon(Icons.camera_alt, size: 16, color: kTextColor),
+                              child: Icon(Icons.camera_alt, size: 16, color: kTextColor),
                             ),
                           ),
                         ),
@@ -606,36 +375,45 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
 
                 SizedBox(height: spacing),
 
-                // Fields
-                if (_isEditing) ...[
-                  _buildEditField('Company Name', _nameCtrl),
-                  SizedBox(height: spacing),
-                  _buildEditField('Official Email', _emailCtrl,
-                      keyboard: TextInputType.emailAddress),
-                  SizedBox(height: spacing),
-                  _buildEditField('Phone Number', _phoneCtrl,
-                      keyboard: TextInputType.phone),
-                  SizedBox(height: spacing),
-                  _buildEditField('Website', _websiteCtrl,
-                      keyboard: TextInputType.url),
-                  SizedBox(height: spacing),
-                  _buildEditField('Admin Full Name', _adminNameCtrl),
-                  SizedBox(height: spacing),
-                  _buildEditField('Admin Designation', _adminRoleCtrl),
-                ] else ...[
-                  _buildDisplayField('Company Name', CompanyData.companyName, isWide),
-                  SizedBox(height: spacing),
-                  _buildDisplayField('Official Email', CompanyData.email, isWide),
-                  SizedBox(height: spacing),
-                  _buildDisplayField('Phone Number', CompanyData.phone, isWide),
-                  SizedBox(height: spacing),
-                  _buildDisplayField('Website',
-                      CompanyData.website.isNotEmpty ? CompanyData.website : '—', isWide),
-                  SizedBox(height: spacing),
-                  _buildDisplayField('Admin Full Name', CompanyData.adminName, isWide),
-                  SizedBox(height: spacing),
-                  _buildDisplayField('Admin Designation', CompanyData.adminRole, isWide),
-                ],
+                if (_loading)
+                  const Center(child: CircularProgressIndicator())
+                else
+                  (_isEditing
+                      ? Column(
+                          children: [
+                            _buildEditField('Company Name', _nameCtrl),
+                            SizedBox(height: spacing),
+                            _buildEditField('Official Email', _emailCtrl,
+                                keyboard: TextInputType.emailAddress),
+                            SizedBox(height: spacing),
+                            _buildEditField('Phone Number', _phoneCtrl,
+                                keyboard: TextInputType.phone),
+                            SizedBox(height: spacing),
+                            _buildEditField('Website', _websiteCtrl,
+                                keyboard: TextInputType.url),
+                            SizedBox(height: spacing),
+                            _buildEditField('Admin Full Name', _adminNameCtrl),
+                            SizedBox(height: spacing),
+                            _buildEditField('Admin Designation', _adminRoleCtrl),
+                          ],
+                        )
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _buildDisplayField('Company Name', _nameCtrl.text, isWide),
+                            SizedBox(height: spacing),
+                            _buildDisplayField('Official Email', _emailCtrl.text, isWide),
+                            SizedBox(height: spacing),
+                            _buildDisplayField('Phone Number', _phoneCtrl.text, isWide),
+                            SizedBox(height: spacing),
+                            _buildDisplayField('Website',
+                                _websiteCtrl.text.isNotEmpty ? _websiteCtrl.text : '—', isWide),
+                            SizedBox(height: spacing),
+                            _buildDisplayField('Admin Full Name', _adminNameCtrl.text, isWide),
+                            SizedBox(height: spacing),
+                            _buildDisplayField('Admin Designation', _adminRoleCtrl.text, isWide),
+                          ],
+                        )),
               ],
             ),
           ),
