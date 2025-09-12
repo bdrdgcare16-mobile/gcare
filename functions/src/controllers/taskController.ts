@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { db } from '../config/firebase';
-import { uploadBufferToStorage, buildTaskPath } from '../utils/storage';
+import { uploadBufferToStorage } from '../utils/storage';
 
 // Re-export the user type for consistency with auth middleware
 export type AuthUser = {
@@ -86,14 +86,18 @@ export async function createBroadcastTask(req: Request, res: Response) {
     };
 
     const docRef = db.collection('tasks').doc();
-    const destPath = buildTaskPath(docRef.id, req.file.originalname);
-    const url = await uploadBufferToStorage(req.file, destPath);
+    const uploadResult = await uploadBufferToStorage(
+      req.file.buffer,
+      req.file.originalname,
+      req.file.mimetype,
+      `tasks/${docRef.id}`
+    );
 
     const fileMeta: FileMeta = {
       name: req.file.originalname,
       size: req.file.size,
       contentType: req.file.mimetype,
-      url,
+      url: uploadResult.url,
     };
 
     const data = makeTaskDoc({
@@ -139,14 +143,18 @@ export async function createSingleTask(req: Request, res: Response) {
     if (!req.file) return res.status(400).json({ error: 'file is required' });
 
     const docRef = db.collection('tasks').doc();
-    const destPath = buildTaskPath(docRef.id, req.file.originalname);
-    const url = await uploadBufferToStorage(req.file, destPath);
+    const uploadResult = await uploadBufferToStorage(
+      req.file.buffer,
+      req.file.originalname,
+      req.file.mimetype,
+      `tasks/${docRef.id}`
+    );
 
     const fileMeta: FileMeta = {
       name: req.file.originalname,
       size: req.file.size,
       contentType: req.file.mimetype,
-      url,
+      url: uploadResult.url,
     };
 
     const data = makeTaskDoc({
