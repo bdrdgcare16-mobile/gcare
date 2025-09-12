@@ -82,15 +82,30 @@
 
 //       if (res.statusCode == 200) {
 //         final data = jsonDecode(res.body) as Map<String, dynamic>;
+
+//         // 🔧 FIX: read nested fields from employeeProfile if present
+//         final Map<String, dynamic> profile =
+//             (data['employeeProfile'] is Map<String, dynamic>)
+//                 ? (data['employeeProfile'] as Map<String, dynamic>)
+//                 : <String, dynamic>{};
+
 //         setState(() {
-//           userName = data['name'] ?? "";
-//           userId = data['empid'] ?? "";
-//           dept = data['dept'] ?? "";
-//           location = data['location'] ?? "";
-//           // Pre-select the employee’s shiftGroup
-//           selectedShift = data['shiftGroup'] ?? "Shift";
-//           shiftClicked = true;
-//           isShiftSelected = true;
+//           userName = (data['name'] ?? profile['name'] ?? "") as String;
+//           userId = (data['empid'] ?? profile['empid'] ?? "") as String;
+
+//           // dept & location typically live under employeeProfile
+//           dept = (profile['dept'] ?? data['dept'] ?? "") as String;
+//           location = (profile['location'] ?? data['location'] ?? "") as String;
+
+//           // shiftGroup typically lives under employeeProfile
+//           selectedShift = (profile['shiftGroup'] ??
+//               data['shiftGroup'] ??
+//               "Shift") as String;
+
+//           // If we resolved a shift name, mark it selected so the button shows it
+//           final hasShift = selectedShift.isNotEmpty && selectedShift != "Shift";
+//           shiftClicked = hasShift;
+//           isShiftSelected = hasShift;
 //         });
 //       } else {
 //         setState(() {
@@ -523,21 +538,12 @@
 //                 const SizedBox(height: 20),
 
 //                 // CLOCK ICON
-//                 Container(
+//                 SizedBox(
 //                   width: 65,
 //                   height: 65,
-//                   decoration: BoxDecoration(
-//                     color: kButtonColor.withOpacity(0.2),
-//                     shape: BoxShape.circle,
-//                     border: Border.all(
-//                       color: kButtonColor.withOpacity(0.3),
-//                       width: 2,
-//                     ),
-//                   ),
-//                   child: Icon(
-//                     isTimerRunning ? Icons.timer : Icons.access_time,
-//                     size: 32,
-//                     color: kButtonColor,
+//                   child: Image.asset(
+//                     'assets/images/timer1.png',
+//                     fit: BoxFit.contain,
 //                   ),
 //                 ),
 
@@ -584,7 +590,7 @@
 
 //                 const SizedBox(height: 20),
 
-//                 // SHIFT BUTTON
+//                 // SHIFT BUTTON (read-only, shows employee's shiftGroup)
 //                 GestureDetector(
 //                   onTap: null,
 //                   child: Container(
@@ -835,7 +841,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:serv_app/models/company_data.dart'; // where you kept the token
+import 'package:serv_app/models/company_data.dart';
 
 // Color constants
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -845,16 +851,15 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 class AttendanceScreen extends StatefulWidget {
-  /// Pass the Firestore document ID of the logged-in employee here
   final String employeeDocId;
-
   const AttendanceScreen({super.key, required this.employeeDocId});
 
   @override
   _AttendanceScreenState createState() => _AttendanceScreenState();
 }
 
-class _AttendanceScreenState extends State<AttendanceScreen> {
+class _AttendanceScreenState extends State<AttendanceScreen>
+    with WidgetsBindingObserver {
   // User states
   bool isFaceRegistered = false;
   bool isShiftSelected = false;
@@ -881,17 +886,26 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   @override
   void initState() {
     super.initState();
-    _loadUserInfo();
+    WidgetsBinding.instance.addObserver(this);
+    _loadUserInfo(); // also triggers _loadTodayStatus once userId is known
     _checkUserFaceRegistration();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     super.dispose();
   }
 
-  /// 1) Load the employee’s profile from your backend
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadTodayStatus(); // refresh when returning to this page
+    }
+  }
+
+  /// 1) Load employee profile, then load today's attendance status
   Future<void> _loadUserInfo() async {
     final token = CompanyData.token;
     final url = Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/auth/me');
@@ -902,10 +916,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }
 
     try {
-      final res = await http.get(
-        url,
-        headers: {'Authorization': 'Bearer $token'},
-      );
+      final res = await http.get(url, headers: {'Authorization': 'Bearer $token'});
 
       if (kDebugMode) {
         print('[AttendanceScreen] statusCode: ${res.statusCode}');
@@ -914,8 +925,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
-
-        // 🔧 FIX: read nested fields from employeeProfile if present
         final Map<String, dynamic> profile =
             (data['employeeProfile'] is Map<String, dynamic>)
                 ? (data['employeeProfile'] as Map<String, dynamic>)
@@ -930,15 +939,18 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           location = (profile['location'] ?? data['location'] ?? "") as String;
 
           // shiftGroup typically lives under employeeProfile
-          selectedShift = (profile['shiftGroup'] ??
-              data['shiftGroup'] ??
-              "Shift") as String;
+          selectedShift =
+              (profile['shiftGroup'] ?? data['shiftGroup'] ?? "Shift") as String;
 
-          // If we resolved a shift name, mark it selected so the button shows it
           final hasShift = selectedShift.isNotEmpty && selectedShift != "Shift";
           shiftClicked = hasShift;
           isShiftSelected = hasShift;
         });
+
+        // Once we know empid, fetch today's status
+        if (userId.isNotEmpty) {
+          await _loadTodayStatus();
+        }
       } else {
         setState(() {
           userName = "(unknown)";
@@ -960,6 +972,92 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }
   }
 
+  // Pull today's attendance from server and reflect UI state
+  Future<void> _loadTodayStatus() async {
+    final token = CompanyData.token;
+    if (userId.isEmpty || token.isEmpty) return;
+
+    final url = Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/attendance/live');
+
+    try {
+      final res = await http.get(url, headers: {'Authorization': 'Bearer $token'});
+
+      if (kDebugMode) {
+        print('[AttendanceScreen] /attendance/live status: ${res.statusCode}');
+        if (res.statusCode == 200) print('[AttendanceScreen] live body: ${res.body}');
+      }
+
+      if (res.statusCode != 200) return;
+
+      final list = List<Map<String, dynamic>>.from(jsonDecode(res.body));
+      final me = list.firstWhere(
+        (e) => (e['empid']?.toString() ?? '') == userId,
+        orElse: () => const {},
+      );
+
+      final checkIn = (me['checkIn']) as String?;
+      final checkOut = (me['checkOut']) as String?;
+
+      if (checkIn != null && (checkOut == null || checkOut.isEmpty)) {
+        // Already checked-in and not checked-out -> show Checkout
+        _applyCheckedInFromServer(checkIn);
+      } else {
+        // Not currently checked-in
+        _resetTimerAndState();
+      }
+    } catch (e) {
+      if (kDebugMode) print('[AttendanceScreen] _loadTodayStatus error: $e');
+    }
+  }
+
+  // Parse HH:mm:ss and start timer from elapsed time today
+  void _applyCheckedInFromServer(String hhmmss) {
+    try {
+      final now = DateTime.now();
+      final parts = hhmmss.split(':').map((s) => int.tryParse(s) ?? 0).toList();
+      final inDT = DateTime(now.year, now.month, now.day,
+          parts.elementAt(0), parts.elementAt(1), parts.elementAt(2));
+      final diff = now.difference(inDT).inSeconds;
+      final startSeconds = diff > 0 ? diff : 0;
+
+      _timer?.cancel();
+      setState(() {
+        isCheckedIn = true;
+        isTimerRunning = true;
+        totalSeconds = startSeconds;
+        hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
+        minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
+        seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+      });
+
+      _timer = Timer.periodic(const Duration(seconds: 1), (t) {
+        if (!mounted) return;
+        setState(() {
+          totalSeconds++;
+          hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
+          minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
+          seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+        });
+      });
+    } catch (_) {
+      // Fallback: just mark as checked-in and start fresh timer
+      _startWorkTimer();
+      setState(() => isCheckedIn = true);
+    }
+  }
+
+  void _resetTimerAndState() {
+    _timer?.cancel();
+    setState(() {
+      isCheckedIn = false;
+      isTimerRunning = false;
+      totalSeconds = 0;
+      hours = "00";
+      minutes = "00";
+      seconds = "00";
+    });
+  }
+
   // Check if user face is already registered
   Future<void> _checkUserFaceRegistration() async {
     setState(() {
@@ -971,11 +1069,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   Future<void> _performCheckIn(String type) async {
     final token = CompanyData.token;
     final url = Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/attendance/check-in');
-    final body = jsonEncode({
-      'empid': userId,
-      'name': userName,
-      'location': location,
-    });
+    final body = jsonEncode({'empid': userId, 'name': userName, 'location': location});
 
     if (kDebugMode) {
       print('[AttendanceScreen] POST $url');
@@ -1000,9 +1094,27 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       }
 
       if (res.statusCode == 200 || res.statusCode == 201) {
-        setState(() => isCheckedIn = true);
-        _startWorkTimer();
-        _showSuccessDialog('Check-in successful! Timer started.');
+        // Treat both fresh and "ALREADY_CHECKED_IN" as success -> show Checkout
+        try {
+          final data = jsonDecode(res.body) as Map<String, dynamic>;
+          if ((data['code'] ?? '') == 'ALREADY_CHECKED_IN') {
+            final rec = (data['record'] ?? {}) as Map<String, dynamic>;
+            final ci = (rec['checkIn'] ?? '') as String;
+            if (ci.isNotEmpty) {
+              _applyCheckedInFromServer(ci);
+            } else {
+              setState(() => isCheckedIn = true);
+              _startWorkTimer();
+            }
+          } else {
+            setState(() => isCheckedIn = true);
+            _startWorkTimer();
+          }
+        } catch (_) {
+          setState(() => isCheckedIn = true);
+          _startWorkTimer();
+        }
+        _showSuccessDialog('Check-in successful!');
       } else {
         final msg =
             (jsonDecode(res.body)['error'] ?? jsonDecode(res.body)['message'])
@@ -1057,8 +1169,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }
   }
 
-  // Start work timer after check-in (00:00:00)
+  // Start work timer from zero (fresh check-in)
   void _startWorkTimer() {
+    _timer?.cancel();
     setState(() {
       isTimerRunning = true;
       totalSeconds = 0;
@@ -1080,18 +1193,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   // Stop work timer after check-out
   void _stopWorkTimer() {
-    _timer?.cancel();
-    setState(() {
-      isTimerRunning = false;
-      isCheckedIn = false;
-      totalSeconds = 0;
-      hours = "00";
-      minutes = "00";
-      seconds = "00";
-    });
-    _showSuccessDialog(
-      'Check-out successful!\nWork duration: ${hours}h ${minutes}m ${seconds}s',
-    );
+    final h = hours, m = minutes, s = seconds;
+    _resetTimerAndState();
+    _showSuccessDialog('Check-out successful!\nWork duration: ${h}h ${m}m ${s}s');
   }
 
   // Get month name
@@ -1422,7 +1526,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
                 const SizedBox(height: 20),
 
-                // SHIFT BUTTON (read-only, shows employee's shiftGroup)
+                // SHIFT BUTTON (read-only)
                 GestureDetector(
                   onTap: null,
                   child: Container(
@@ -1447,7 +1551,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
                 const SizedBox(height: 15),
 
-                // CHECK-IN / CHECK-OUT FLOW
+                // CHECK-IN / CHECK-OUT FLOW (UI untouched)
                 if (!isCheckedIn) ...[
                   if (!isFaceRegistered) ...[
                     Row(

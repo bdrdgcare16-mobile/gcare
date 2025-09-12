@@ -290,7 +290,7 @@ class _HalfDayTimePageState extends State<HalfDayTimePage> {
       return;
     }
 
-    final uri = Uri.parse('$apiBase/api/leaves');
+    final uri = Uri.parse('$apiBase/leaves');
 
     // Backend Half-Day branch expects: type, selectDate, (optional) selectShift, reason.
     final payload = {

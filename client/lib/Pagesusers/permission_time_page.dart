@@ -233,7 +233,7 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
       'reason': selectedReason,
     };
 
-    final uri = Uri.parse('$apiBase/api/leaves');
+    final uri = Uri.parse('$apiBase/leaves');
     debugPrint('[PermissionTime] POST $uri');
     debugPrint('[PermissionTime] payload: $payload');
 

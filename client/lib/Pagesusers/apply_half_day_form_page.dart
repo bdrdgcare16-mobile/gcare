@@ -993,7 +993,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 /// Match your Node server port
-const String apiBase = 'http://localhost:3000';
+const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
 
 class ApplyHalfDayForm extends StatefulWidget {
   const ApplyHalfDayForm({super.key});
@@ -1074,7 +1074,7 @@ class _ApplyHalfDayFormState extends State<ApplyHalfDayForm> {
       return;
     }
 
-    final url = Uri.parse('$apiBase/api/leaves');
+    final url = Uri.parse('$apiBase/leaves');
     final body = {
       'type': 'Comp Off',
       'selectShift': selectedShift,

@@ -62,6 +62,12 @@ const sha256 = (s = '') =>
 
 const plusMinutes = (mins: number) => new Date(Date.now() + mins * 60 * 1000);
 
+/** Pick emp id independent of key style in stored docs */
+const pickEmpId = (obj: any): string | null => {
+  const v = (obj?.empid ?? obj?.empId ?? obj?.employeeId ?? null);
+  return v ? String(v).trim() : null;
+};
+
 async function getByEmail(colName: string, emailLower: string) {
   // preferred: emailLower
   let snap = await db.collection(colName)
@@ -125,6 +131,7 @@ export const register = async (req: Request, res: Response): Promise<Response> =
     const userId = uuidv4();
     await db.collection(USERS_COL).doc(userId).set({
       empid: empid || null,
+      empId: empid || null, // keep both keys for compatibility
       name,
       email,
       emailLower: email,
@@ -186,11 +193,28 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
         return res.status(403).json({ error: 'Invalid role on account' });
       }
 
+      // ---- FIX: make sure empid is present even if users doc uses empId/employeeId or is empty
+      let userEmpid = pickEmpId(user);
+
+      if (!userEmpid) {
+        // Try to read employee document by emailLower to fetch empid
+        const empQ = await db.collection(EMPS_COL)
+          .where('emailLower', '==', email)
+          .limit(1).get();
+        if (!empQ.empty) {
+          userEmpid = pickEmpId(empQ.docs[0].data());
+          if (userEmpid) {
+            // persist both keys for next time
+            await doc.ref.set({ empid: userEmpid, empId: userEmpid, updatedAt: new Date() }, { merge: true });
+          }
+        }
+      }
+
       const token = issueToken({
         userId: doc.id,
         email: user.email || incoming.trim(),
         role,
-        empid: user.empid || null,
+        empid: userEmpid || null,
       });
 
       return res.json({
@@ -200,14 +224,15 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
         expiresIn: JWT_EXPIRES,
         role,
         uid: doc.id,
-        empid: user.empid || null,
+        empid: userEmpid || null,
         name: user.name || user.fullName || '',
         user: {
           id: doc.id,
           name: user.name || user.fullName || '',
           email: user.email || incoming.trim(),
           role,
-          empid: user.empid || null,
+          empid: userEmpid || null,
+          empId: userEmpid || null, // compatibility for callers expecting empId
           status: user.status || 'active',
         },
       });
@@ -242,8 +267,10 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
     } else {
       const hash = isBcryptHash(stored) ? stored : await bcrypt.hash(password, 10);
       const now  = new Date();
+      const empIdVal = pickEmpId(emp);
       const ref = await db.collection(USERS_COL).add({
-        empid: emp.empid || emp.employeeId || null,
+        empid: empIdVal || null,
+        empId: empIdVal || null, // store both keys
         name: emp.name || emp.fullName || '',
         email: emp.email || incoming.trim(),
         emailLower: email,
@@ -259,11 +286,13 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
     }
 
     const u = mirrorDoc!.data() as any;
+    const finalEmpid = pickEmpId(u) || pickEmpId(emp);
+
     const token = issueToken({
       userId: mirrorDoc!.id,
       email: u.email || incoming.trim(),
       role: 'employee',
-      empid: u.empid || emp.empid || null,
+      empid: finalEmpid || null,
     });
 
     return res.json({
@@ -273,14 +302,15 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
       expiresIn: JWT_EXPIRES,
       role: 'employee',
       uid: mirrorDoc!.id,
-      empid: u.empid || emp.empid || null,
+      empid: finalEmpid || null,
       name: u.name || emp.name || '',
       user: {
         id: mirrorDoc!.id,
         name: u.name || emp.name || '',
         email: u.email || incoming.trim(),
         role: 'employee',
-        empid: u.empid || emp.empid || null,
+        empid: finalEmpid || null,
+        empId: finalEmpid || null, // compatibility
         status: u.status || emp.status || 'active',
       },
     });
@@ -311,6 +341,11 @@ export const getMe = async (req: Request, res: Response): Promise<Response> => {
 
     if (doc) {
       const user = sanitizeUser(doc.id, doc.data());
+      // ---- FIX: expose both empid and empId in the response for compatibility
+      const eid = (user as any).empid ?? (user as any).empId ?? (user as any).employeeId ?? null;
+      if (eid && !(user as any).empid) (user as any).empid = eid;
+      if (eid && !(user as any).empId) (user as any).empId = eid;
+
       if ((user as any).empid) {
         const empSnap = await db.collection(EMPS_COL)
           .where('empid', '==', (user as any).empid)
@@ -333,11 +368,13 @@ export const getMe = async (req: Request, res: Response): Promise<Response> => {
         const eDoc = empSnap.docs[0];
         const emp  = eDoc.data();
         delete (emp as any).password;
+        const eid = pickEmpId(emp);
         return res.json({
           id: eDoc.id,
           email,
           role: 'employee',
-          empid: (emp as any).empid || null,
+          empid: eid || null,
+          empId: eid || null,
           name: (emp as any).name || (emp as any).fullName || '',
           employeeProfile: emp,
         });
@@ -412,6 +449,7 @@ export const createEmployeeLogin = async (req: Request, res: Response): Promise<
 
     const docRef = await db.collection(USERS_COL).add({
       empid,
+      empId: empid, // keep both keys
       name,
       email,
       emailLower: email,
@@ -445,7 +483,8 @@ export const backfillEmployeesToUsers = async (req: Request, res: Response): Pro
 
     for (const d of empSnap.docs) {
       const e = d.data() as any;
-      const empid = String(e.empid || '').trim();
+      const empidRaw = pickEmpId(e);
+      const empid = empidRaw ? String(empidRaw) : '';
       const emailLower = normEmail(e.email || '');
       const name  = String(e.name || e.fullName || '').trim();
       if (!empid || !emailLower) {
@@ -470,6 +509,7 @@ export const backfillEmployeesToUsers = async (req: Request, res: Response): Pro
 
       const ref = await db.collection(USERS_COL).add({
         empid,
+        empId: empid, // both keys
         name,
         email: e.email || emailLower,
         emailLower,

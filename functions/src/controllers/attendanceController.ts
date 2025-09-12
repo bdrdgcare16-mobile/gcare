@@ -62,6 +62,20 @@ function eachYMD(start: string, end: string) {
 // Maintain a project-level holiday set if you have one; placeholder here.
 const HOLIDAYS_SET = new Set<string>([]);
 
+/* ==== NEW: tolerant helpers for emp id (fixes empid/empId mismatch) ==== */
+const pickEmpId = (obj: any): string | null => {
+  const v = obj?.empid ?? obj?.empId ?? obj?.employeeId ?? null;
+  return v ? String(v).trim() : null;
+};
+
+const getReqEmpId = (req: Request): string | null => {
+  return (
+    pickEmpId((req as any).body) ||
+    pickEmpId((req as any).user) ||
+    null
+  );
+};
+
 /* ============================== Normalizers (Approvals) ============================== */
 
 const norm = (s: any) => String(s || '').trim().toLowerCase();
@@ -109,7 +123,7 @@ const overlaps = (aStart?: string | null, aEnd?: string | null, bStart?: string 
 /** Get current user (from req.user) */
 export const getCurrentUser = async (req: Request, res: Response) => {
   try {
-    const empid = (req as any).user?.empid;
+    const empid = getReqEmpId(req);
     const snap = await db.collection(EMP_COL).where('empid', '==', empid).limit(1).get();
     if (snap.empty) return res.status(404).json({ error: 'Employee not found' });
     const d = snap.docs[0].data();
@@ -127,7 +141,10 @@ export const getCurrentUser = async (req: Request, res: Response) => {
 
 /** POST /api/attendance/check-in (string HH:mm:ss) */
 export const checkIn = async (req: Request, res: Response) => {
-  const { empid, name, location } = req.body as { empid: string; name: string; location: string };
+  const empid = getReqEmpId(req) || '';
+  const name = String((req.body as any)?.name || '').trim();
+  const location = String((req.body as any)?.location || '').trim();
+
   if (!empid || !name || !location) {
     return res.status(400).json({ error: 'empid, name and location are required' });
   }
@@ -137,15 +154,34 @@ export const checkIn = async (req: Request, res: Response) => {
     const snap = await db.collection(ATT_COL)
       .where('empid', '==', empid)
       .where('date', '==', today)
+      .limit(1)
       .get();
 
     const nowTime = new Date().toLocaleTimeString('en-GB'); // HH:mm:ss
 
     if (!snap.empty) {
       const doc = snap.docs[0];
-      if (doc.data().checkIn) {
-        return res.status(400).json({ error: 'Already checked in today' });
+      const data = doc.data();
+
+      // === CHANGE: make check-in idempotent ===
+      if (data.checkIn) {
+        // ensure employee is active when already checked in
+        const empSnap = await db.collection(EMP_COL).where('empid', '==', empid).limit(1).get();
+        if (!empSnap.empty) {
+          await empSnap.docs[0].ref.set(
+            { status: 'active', updatedAt: admin.firestore.FieldValue.serverTimestamp() },
+            { merge: true }
+          );
+        }
+
+        return res.status(200).json({
+          message: 'Already checked in today',
+          code: 'ALREADY_CHECKED_IN',
+          attendanceId: doc.id,
+          record: { id: doc.id, ...data },
+        });
       }
+
       await doc.ref.update({
         checkIn:        nowTime,
         location,
@@ -153,6 +189,16 @@ export const checkIn = async (req: Request, res: Response) => {
         approvalStatus: 'Pending',
         updatedAt:      admin.firestore.FieldValue.serverTimestamp(),
       });
+
+      // set employee active on (first) check-in
+      const empSnap = await db.collection(EMP_COL).where('empid', '==', empid).limit(1).get();
+      if (!empSnap.empty) {
+        await empSnap.docs[0].ref.update({
+          status: 'active',
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+
       return res.json({ message: 'Check-in updated' });
     }
 
@@ -168,6 +214,15 @@ export const checkIn = async (req: Request, res: Response) => {
       updatedAt:      admin.firestore.FieldValue.serverTimestamp(),
     });
 
+    // set employee active on first check-in
+    const empSnap = await db.collection(EMP_COL).where('empid', '==', empid).limit(1).get();
+    if (!empSnap.empty) {
+      await empSnap.docs[0].ref.update({
+        status: 'active',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
     return res.json({ message: 'Checked-in successfully' });
   } catch (err: any) {
     console.error('checkIn error:', err);
@@ -177,7 +232,9 @@ export const checkIn = async (req: Request, res: Response) => {
 
 /** POST /api/attendance/check-out (string HH:mm:ss) */
 export const checkOut = async (req: Request, res: Response) => {
-  const { empid, location } = req.body as { empid: string; location: string };
+  const empid = getReqEmpId(req) || '';
+  const location = String((req.body as any)?.location || '').trim();
+
   if (!empid || !location) {
     return res.status(400).json({ error: 'empid and location are required' });
   }
@@ -187,6 +244,7 @@ export const checkOut = async (req: Request, res: Response) => {
     const snap = await db.collection(ATT_COL)
       .where('empid', '==', empid)
       .where('date', '==', today)
+      .limit(1)
       .get();
 
     if (snap.empty) {
@@ -232,8 +290,9 @@ export const getLiveAttendance = async (req: Request, res: Response) => {
       const empSnap = await db.collection(EMP_COL).get();
       employees = empSnap.docs.map(d => d.data());
     } else {
+      const empid = getReqEmpId(req);
       const empSnap = await db.collection(EMP_COL)
-        .where('empid', '==', (req as any).user?.empid)
+        .where('empid', '==', empid)
         .limit(1).get();
       if (empSnap.empty) return res.json([]);
       employees = [empSnap.docs[0].data()];
@@ -789,7 +848,7 @@ export const decideApproval = async (req: Request, res: Response) => {
 
       await (docRef as any).update({
         approvalStatus: clean,
-        decisionBy: (req as any).user?.empid || null,
+        decisionBy: getReqEmpId(req),
         decisionAt: admin.firestore.FieldValue.serverTimestamp(),
         decisionRemarks: remarks || null,
       });
@@ -799,7 +858,7 @@ export const decideApproval = async (req: Request, res: Response) => {
     if (!leaveId) return res.status(400).json({ error: 'leaveId required' });
     await db.collection(LEAVE_COL).doc(leaveId).update({
       approvalStatus: clean,
-      decisionBy: (req as any).user?.empid || null,
+      decisionBy: getReqEmpId(req),
       decisionAt: admin.firestore.FieldValue.serverTimestamp(),
       decisionRemarks: remarks || null,
     });
@@ -813,7 +872,7 @@ export const decideApproval = async (req: Request, res: Response) => {
 /** GET /api/attendance/my-requests */
 export const listMyRequests = async (req: Request, res: Response) => {
   try {
-    const empid = (req as any).user?.empid;
+    const empid = getReqEmpId(req);
     if (!empid) return res.status(401).json({ message: 'Unauthorized' });
 
     const statusQ = String(req.query.status || 'All');

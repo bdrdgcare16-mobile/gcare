@@ -367,7 +367,7 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
     final token = await _getJwt();
     if (token != null && token.isNotEmpty) {
       try {
-        final uri = Uri.parse('$apiBase/api/auth/me');
+        final uri = Uri.parse('$apiBase/auth/me');
         final resp = await http.get(
           uri,
           headers: {
@@ -418,7 +418,7 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
     }
 
     final uri = Uri.parse(
-      '$apiBase/api/rewards',
+      '$apiBase/rewards',
     ).replace(queryParameters: {'empid': empId});
     debugPrint('[Rewards] GET $uri');
 

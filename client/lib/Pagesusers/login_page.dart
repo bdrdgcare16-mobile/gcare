@@ -1,4 +1,3 @@
-
 import 'dart:async';
 import 'dart:convert';
 
@@ -7,7 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:jwt_decoder/jwt_decoder.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-// Conditional web localStorage (html_web.dart should define a `window` shim)
+// Web localStorage shim
 import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
@@ -15,8 +14,8 @@ import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/Pagesusers/home_screen_page.dart';
 import 'package:serv_app/Pagesadmin/admin_dashboard_page.dart';
 import 'package:serv_app/Pagesadmin/company_details_page.dart';
-// If you actually use it elsewhere keep this, otherwise you can remove
 import 'package:serv_app/Pagesadmin/company_setup_page.dart';
+
 // ===== THEME =====
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
@@ -52,51 +51,26 @@ class _LoginPageState extends State<LoginPage> {
   // ---------- COMPANY PROFILE HELPERS (Admin flow) ----------
   Future<Map<String, dynamic>> isProfileFilled(String token) async {
     try {
-      print('🔍 [DEBUG] Checking if profile is filled...');
-      print('🔑 Token: ${token.substring(0, 10)}...');
-      
-      final url = '$_apiBase/company/profile/check';
-      print('🌐 Making request to: $url');
-      
       final res = await http.get(
-        Uri.parse(url),
+        Uri.parse('$_apiBase/company/profile/check'),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
         },
       );
-      
-      print('✅ Response status: ${res.statusCode}');
-      print('📦 Response body: ${res.body}');
-      
+
       if (res.statusCode == 200) {
         final body = jsonDecode(res.body);
-        print('🔍 Parsed response: ${jsonEncode(body)}');
-        
-        // Check both 'filled' and 'hasProfile' for backward compatibility
         final isFilled = (body['filled'] ?? body['hasProfile'] ?? false) == true;
-        print('🏢 Profile filled: $isFilled');
-        
-        if (!isFilled) {
-          print('⚠️  No company profile found for this admin');
-        } else {
-          print('✅ Found company profile data');
-        }
-        
-        // Return the full response for the caller to process
         return {
           'filled': isFilled,
           'data': body['data'] ?? {},
           'response': body,
         };
       } else {
-        print('❌ Unexpected status code: ${res.statusCode}');
-        print('📦 Response body: ${res.body}');
         throw Exception('Failed to check profile status (${res.statusCode})');
       }
-    } catch (e, stackTrace) {
-      print('❌ Error in isProfileFilled: $e');
-      print('📜 Stack trace: $stackTrace');
+    } catch (_) {
       rethrow;
     }
   }
@@ -488,12 +462,11 @@ class _LoginPageState extends State<LoginPage> {
 
   // ---------- PERSIST HELPERS ----------
   Future<void> _persist(String key, String value) async {
-    // Web localStorage
     try {
-      html.window.localStorage[key] = value;
+      html.window.localStorage[key] = value; // web
     } catch (_) {}
-    // SharedPreferences (mobile/desktop)
-    final sp = await SharedPreferences.getInstance();
+    final sp = await SharedPreferences.getInstance(); // mobile/desktop
+    final empid = sp.getString('empId') ?? sp.getString('empid') ?? '';
     await sp.setString(key, value);
   }
 
@@ -511,7 +484,7 @@ class _LoginPageState extends State<LoginPage> {
 
     try {
       final email = idController.text.trim().toLowerCase();
-      final pwd = passwordController.text; // keep exact
+      final pwd = passwordController.text;
 
       final response = await http
           .post(
@@ -535,6 +508,7 @@ class _LoginPageState extends State<LoginPage> {
           return;
         }
 
+        // Store token/role ASAP
         CompanyData.token = tok;
         await _persist('token', tok);
         await _persist('role', role);
@@ -558,15 +532,9 @@ class _LoginPageState extends State<LoginPage> {
         if (isAdmin) {
           // ADMIN FLOW
           try {
-            print('Checking company profile for admin...');
             final profileCheck = await isProfileFilled(tok);
-            print('Profile check result: $profileCheck');
-            
             if (profileCheck['filled'] == true) {
-              // Profile exists, navigate to dashboard
-              print('Company profile exists, navigating to AdminDashboard');
               if (!mounted) return;
-              
               final companyData = profileCheck['data'] ?? {};
               Navigator.pushReplacement(
                 context,
@@ -581,8 +549,6 @@ class _LoginPageState extends State<LoginPage> {
                 ),
               );
             } else {
-              // No profile exists, navigate to company details form
-              print('No company profile found, navigating to CompanyDetailsFormPage');
               if (!mounted) return;
               Navigator.pushReplacement(
                 context,
@@ -591,8 +557,7 @@ class _LoginPageState extends State<LoginPage> {
                 ),
               );
             }
-          } catch (e) {
-            print('Error checking company profile: $e');
+          } catch (_) {
             if (!mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Error checking company profile')),
@@ -600,19 +565,42 @@ class _LoginPageState extends State<LoginPage> {
           }
         } else {
           // EMPLOYEE FLOW
-          String realName = '';
-          String docId = '';
-          String empId = '';
+          // 1) Seed from login response immediately (prevents empty empid during first check-in)
+          String empIdSeed = (data['empId'] ??
+                  data['empid'] ??
+                  data['user']?['empId'] ??
+                  data['user']?['empid'] ??
+                  '')
+              .toString()
+              .trim();
 
-          // Decode token -> user id (if present)
+          String nameSeed =
+              (data['name'] ?? data['user']?['name'] ?? '').toString().trim();
+
+          if (nameSeed.isEmpty) {
+            // Try token payload as fallback
+            try {
+              final decoded = JwtDecoder.decode(tok);
+              nameSeed = (decoded['name'] ?? '').toString().trim();
+            } catch (_) {}
+          }
+
+          if (empIdSeed.isNotEmpty) {
+            await _persist('empId', empIdSeed); // canonical
+            await _persist('empid', empIdSeed); // legacy compatibility
+          }
+          if (nameSeed.isNotEmpty) {
+            await _persist('name', nameSeed);
+          }
+
+          // 2) Decode token for docId (optional)
+          String docId = '';
           try {
             final decoded = JwtDecoder.decode(tok);
             docId = (decoded['userId'] ?? decoded['uid'] ?? '').toString();
-          } catch (_) {
-            docId = '';
-          }
+          } catch (_) {}
 
-          // call /auth/me for richer info
+          // 3) Call /auth/me to normalize and overwrite with authoritative values
           try {
             final meRes = await http.get(
               Uri.parse('$_apiBase/auth/me'),
@@ -620,52 +608,54 @@ class _LoginPageState extends State<LoginPage> {
             );
             if (meRes.statusCode == 200) {
               final meData = jsonDecode(meRes.body) as Map<String, dynamic>;
-
               final profile = (meData['employeeProfile'] is Map)
-                  ? (meData['employeeProfile'] as Map)
+                  ? Map<String, dynamic>.from(meData['employeeProfile'])
                   : <String, dynamic>{};
 
-              realName = (meData['name'] ??
+              final realName = (meData['name'] ??
                       profile['name'] ??
                       meData['fullName'] ??
-                      '')
+                      nameSeed)
                   .toString()
                   .trim();
 
-              empId = (meData['empid'] ??
+              final empId = (meData['empId'] ??
+                      profile['empId'] ??
+                      meData['empid'] ??
                       profile['empid'] ??
                       meData['employeeId'] ??
                       profile['employeeId'] ??
-                      '')
+                      empIdSeed)
                   .toString()
                   .trim();
 
-              // cache for other pages
               await _persist(
                 'employeeProfile',
                 jsonEncode({
                   ...profile,
-                  if (meData['empid'] != null) 'empid': meData['empid'],
-                  if (meData['name'] != null) 'name': meData['name'],
+                  if (realName.isNotEmpty) 'name': realName,
+                  if (empId.isNotEmpty) 'empId': empId, // canonical
                 }),
               );
-            } else {
-              realName = email.split('@').first;
+
+              if (realName.isNotEmpty) await _persist('name', realName);
+              if (empId.isNotEmpty) {
+                await _persist('empId', empId); // canonical
+                await _persist('empid', empId); // legacy compatibility
+              }
             }
           } catch (_) {
-            realName = email.split('@').first;
+            // ignore; seeded values will still be present
           }
 
           if (docId.isNotEmpty) await _persist('userDocId', docId);
-          if (realName.isNotEmpty) await _persist('name', realName);
-          if (empId.isNotEmpty) await _persist('empid', empId);
 
           if (!mounted) return;
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
               builder: (_) =>
-                  HomeScreen(userName: realName, employeeDocId: docId),
+                  HomeScreen(userName: nameSeed.isNotEmpty ? nameSeed : email.split('@').first, employeeDocId: docId),
             ),
           );
         }
