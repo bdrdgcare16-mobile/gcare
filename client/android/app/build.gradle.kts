@@ -31,6 +31,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        multiDexEnabled = true
     }
 
     buildTypes {
@@ -38,13 +39,35 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            
+            // Disable R8 for now to avoid compatibility issues
+            isMinifyEnabled = false
+            isShrinkResources = false
+            
+            // Use default ProGuard rules
+            proguardFiles(
+                getDefaultProguardFile("proguard-android.txt"),
+                "proguard-rules.pro"
+            )
         }
+    }
+    
+    // Disable R8 for now
+    buildFeatures {
+        buildConfig = true
+    }
+    
+    // Enable multidex support
+    defaultConfig {
+        multiDexEnabled = true
     }
 }
 
 dependencies {
     implementation(platform("com.google.firebase:firebase-bom:34.2.0"))
     implementation("com.google.firebase:firebase-analytics")
+    // Play Core is already included by other dependencies
+    implementation("androidx.multidex:multidex:2.0.1")
     // Add other Firebase dependencies here as needed
 }
 

@@ -122,23 +122,29 @@ import 'package:serv_app/Pagesusers/landing_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase (must come before any Firebase usage)
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
-
-  // Optional: ensure there is a FirebaseAuth user (helps with Storage/Firestore rules)
-  // If you don’t use anonymous auth, you can safely delete this block.
   try {
-    if (FirebaseAuth.instance.currentUser == null) {
-      await FirebaseAuth.instance.signInAnonymously();
-      // ignore: avoid_print
-      print('[FirebaseAuth] Anonymous sign-in OK');
+    // Initialize Firebase only if it hasn't been initialized yet
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+      
+      // Optional: ensure there is a FirebaseAuth user (helps with Storage/Firestore rules)
+      try {
+        if (FirebaseAuth.instance.currentUser == null) {
+          await FirebaseAuth.instance.signInAnonymously();
+          // ignore: avoid_print
+          print('[FirebaseAuth] Anonymous sign-in OK');
+        }
+      } catch (e) {
+        // Non-fatal in dev
+        // ignore: avoid_print
+        print('Anonymous sign-in failed: $e');
+      }
     }
   } catch (e) {
-    // Non-fatal in dev
     // ignore: avoid_print
-    print('Anonymous sign-in failed: $e');
+    print('Firebase initialization error: $e');
   }
 
   runApp(const MyApp());
