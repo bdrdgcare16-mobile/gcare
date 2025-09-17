@@ -256,7 +256,7 @@ class EmployeeCard extends StatelessWidget {
             children: [
               Text(
                 emp['name'] ?? '',
-                style: TextStyle(
+                style: const TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 16,
                   color: kButtonColor,
@@ -264,7 +264,7 @@ class EmployeeCard extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text("ID: ${emp['id']} | Date: ${emp['date']}"),
-              Text("Check-in: ${emp['checkIn']} "),
+              Text("Check-in: ${emp['checkIn']}"),
               const Divider(),
               Text("Department: ${emp['department']}"),
               Text("Shift: ${emp['shift']}"),

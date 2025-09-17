@@ -48,8 +48,13 @@
 	<key>NSFaceIDUsageDescription</key>
 	<string>We need Face ID to verify your identity for secure login</string>
 
-	<key>NSCameraUsageDescription</key>
-	<string>Need camera access to take pictures</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+    <string>This app uses your location to mark office attendance.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>We use your location to verify check-in and check-out.</string>
+    <key>NSFaceIDUsageDescription</key>
+    <string>Face ID is used to authenticate your check-in.</string>
+
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Need photo library access to select images</string>
 </dict>

@@ -313,7 +313,7 @@ class LeaveCard extends StatelessWidget {
     return GestureDetector(
       onTap: () async {
         final type = item['type']?.toString().toLowerCase();
-        if (type == 'late check in' || type == 'early check out') {
+        if (type == 'late check in' || type == 'early check out'|| type == 'other location') {
           final result = await Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => RequestDetailsCard(data: item)),

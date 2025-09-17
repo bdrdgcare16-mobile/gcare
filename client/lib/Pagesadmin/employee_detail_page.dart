@@ -209,11 +209,12 @@ class EmployeeDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    LatLng checkInLocation = LatLng(
-      employee['latitude'],
-      employee['longitude'],
-    );
-    LatLng branchLocation = const LatLng(13.0300, 80.1800);
+    // Safe numeric casting (prevents type issues)
+    final double lat = (employee['latitude'] as num).toDouble();
+    final double lng = (employee['longitude'] as num).toDouble();
+
+    final LatLng checkInLocation = LatLng(lat, lng);
+    final LatLng branchLocation = const LatLng(13.0300, 80.1800);
 
     return Scaffold(
       backgroundColor: kPrimaryBackgroundTop,
@@ -231,7 +232,7 @@ class EmployeeDetailPage extends StatelessWidget {
             ),
             child: Center(
               child: Text(
-                employee['status'],
+                employee['status'] ?? '',
                 style: const TextStyle(
                   color: Colors.green,
                   fontWeight: FontWeight.bold,
@@ -266,14 +267,14 @@ class EmployeeDetailPage extends StatelessWidget {
                       1: FlexColumnWidth(2),
                     },
                     children: [
-                      _buildRow('Shift', employee['shift']),
-                      _buildRow('Location', employee['location']),
-                      _buildRow('Check-in', employee['checkIn']),
+                      _buildRow('Shift', employee['shift'] ?? '-'),
+                      _buildRow('Location', employee['location'] ?? '-'),
+                      _buildRow('Check-in', employee['checkIn'] ?? '-'),
                       // _buildRow('Check-out', employee['checkOut']),
-                      _buildRow('Geofence', employee['geofence']),
-                      _buildRow('Latitude', employee['latitude'].toString()),
-                      _buildRow('Longitude', employee['longitude'].toString()),
-                      _buildRow('Status', employee['status'], statusColor: Colors.green),
+                      _buildRow('Geofence', employee['geofence'] ?? '-'),
+                      _buildRow('Latitude', lat.toString()),
+                      _buildRow('Longitude', lng.toString()),
+                      _buildRow('Status', employee['status'] ?? '-', statusColor: Colors.green),
                     ],
                   ),
                 ),
@@ -338,9 +339,13 @@ class EmployeeDetailPage extends StatelessWidget {
                             markerId: const MarkerId('branch'),
                             position: branchLocation,
                             infoWindow: const InfoWindow(title: 'Branch'),
-                            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+                            icon: BitmapDescriptor.defaultMarkerWithHue(
+                              BitmapDescriptor.hueRed,
+                            ),
                           ),
                         },
+                        myLocationButtonEnabled: false,
+                        zoomControlsEnabled: false,
                       ),
                     ),
                   ),
@@ -364,8 +369,10 @@ class EmployeeDetailPage extends StatelessWidget {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      Text("Entry: ${employee['checkIn']}", style: const TextStyle(fontWeight: FontWeight.w500)),
-                      Text("Exit: ${employee['checkOut']}", style: const TextStyle(fontWeight: FontWeight.w500)),
+                      Text("Entry: ${employee['checkIn'] ?? '-'}",
+                          style: const TextStyle(fontWeight: FontWeight.w500)),
+                      Text("Exit: ${employee['checkOut'] ?? '-'}",
+                          style: const TextStyle(fontWeight: FontWeight.w500)),
                     ],
                   ),
                 ),
@@ -384,7 +391,7 @@ class EmployeeDetailPage extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 6),
           child: Text(
             label,
-            style: TextStyle(fontWeight: FontWeight.bold, color: kButtonColor),
+            style: const TextStyle(fontWeight: FontWeight.bold, color: kButtonColor),
           ),
         ),
         Padding(
