@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as dev;
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -48,45 +49,73 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  // ---------- COMPANY PROFILE HELPERS (Admin flow) ----------
-  Future<Map<String, dynamic>> isProfileFilled(String token) async {
+  // ---------- UI helpers ----------
+  void _showSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  Future<void> _persist(String key, String value) async {
     try {
-      final res = await http.get(
-        Uri.parse('$_apiBase/company/profile/check'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-      );
-
-      if (res.statusCode == 200) {
-        final body = jsonDecode(res.body);
-        final isFilled = (body['filled'] ?? body['hasProfile'] ?? false) == true;
-        return {
-          'filled': isFilled,
-          'data': body['data'] ?? {},
-          'response': body,
-        };
-      } else {
-        throw Exception('Failed to check profile status (${res.statusCode})');
-      }
-    } catch (_) {
-      rethrow;
-    }
+      html.window.localStorage[key] = value; // web
+    } catch (_) {}
+    final sp = await SharedPreferences.getInstance(); // mobile/desktop
+    await sp.setString(key, value);
   }
 
-  Future<Map<String, dynamic>> fetchCompanyProfile(String token) async {
-    final res = await http.get(
-      Uri.parse('$_apiBase/company/profile'),
-      headers: {'Authorization': 'Bearer $token'},
-    );
-    if (res.statusCode == 200) {
-      return jsonDecode(res.body) as Map<String, dynamic>;
+  // ---------- COMPANY PROFILE (Admin) ----------
+  /// Returns { exists: bool, data: Map, raw: Map }.
+  /// NOTE: 404 is treated as {exists:false} so we route to setup without error.
+  Future<Map<String, dynamic>> _checkCompanyProfile({
+    required String token,
+    required String adminEmail,
+  }) async {
+    Map<String, dynamic> norm(dynamic body) {
+      final m = (body is Map) ? body : <String, dynamic>{};
+      final exists = (m['exists'] == true) || (m['filled'] == true) || (m['hasProfile'] == true);
+      final data = (m['data'] is Map)
+          ? (m['data'] as Map).cast<String, dynamic>()
+          : <String, dynamic>{};
+      return {'exists': exists, 'data': data, 'raw': m};
     }
-    throw Exception('Failed to load company profile (${res.statusCode})');
+
+    Future<Map<String, dynamic>> treat404() async =>
+        {'exists': false, 'data': <String, dynamic>{}, 'raw': <String, dynamic>{}};
+
+    // 1) Try /company/profile/check
+    final u1 = Uri.parse('$_apiBase/company/profile/check');
+    try {
+      final r1 = await http
+          .get(u1, headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'})
+          .timeout(const Duration(seconds: 15));
+      dev.log('[GET] $u1 -> ${r1.statusCode}');
+      if (r1.statusCode == 200) return norm(jsonDecode(r1.body));
+      if (r1.statusCode == 404) return treat404();
+      // fall through to fallback for non-200/404
+    } catch (e) {
+      dev.log('profile/check exception: $e');
+    }
+
+    // 2) Fallback /company/profile?email=...
+    final u2 = Uri.parse('$_apiBase/company/profile')
+        .replace(queryParameters: {'email': adminEmail.trim().toLowerCase()});
+    final r2 = await http
+        .get(u2, headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'})
+        .timeout(const Duration(seconds: 15));
+
+    dev.log('[GET] $u2 -> ${r2.statusCode}');
+    if (r2.statusCode == 200) return norm(jsonDecode(r2.body));
+    if (r2.statusCode == 404) return treat404();
+
+    // any other status is a real error
+    dynamic err;
+    try {
+      err = jsonDecode(r2.body);
+    } catch (_) {}
+    throw Exception('HTTP ${r2.statusCode} ${r2.reasonPhrase} ${err ?? ''}');
   }
 
-  // ---------- FORGOT PASSWORD (Email -> OTP -> New Password) ----------
+  // ---------- FORGOT PASSWORD DIALOG ----------
   Future<void> _showForgotPasswordDialog(BuildContext context) async {
     final emailCtrl = TextEditingController(text: idController.text.trim());
     final otpCtrl = TextEditingController();
@@ -123,7 +152,7 @@ class _LoginPageState extends State<LoginPage> {
           setDlgState(() {});
         } else {
           t.cancel();
-          setDlgState(() {}); // refresh "Expired" state
+          setDlgState(() {});
         }
       });
     }
@@ -140,24 +169,13 @@ class _LoginPageState extends State<LoginPage> {
         if (res.statusCode == 200) {
           otpSent = true;
           startTimer(setDlgState);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('OTP sent to your email.')),
-            );
-          }
+          _showSnack('OTP sent to your email.');
         } else {
-          final msg =
-              (jsonDecode(res.body)['error'] ?? 'Failed to send OTP').toString();
-          if (mounted) {
-            ScaffoldMessenger.of(context)
-                .showSnackBar(SnackBar(content: Text(msg)));
-          }
+          final msg = (jsonDecode(res.body)['error'] ?? 'Failed to send OTP').toString();
+          _showSnack(msg);
         }
       } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text('Error: $e')));
-        }
+        _showSnack('Error: $e');
       } finally {
         setDlgState(() => sending = false);
       }
@@ -166,11 +184,7 @@ class _LoginPageState extends State<LoginPage> {
     Future<void> verifyOtp(void Function(VoidCallback fn) setDlgState) async {
       if (!otpKey.currentState!.validate()) return;
       if (secondsLeft <= 0) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('OTP expired. Please resend.')),
-          );
-        }
+        _showSnack('OTP expired. Please resend.');
         return;
       }
       setDlgState(() => verifying = true);
@@ -185,33 +199,19 @@ class _LoginPageState extends State<LoginPage> {
         );
         if (res.statusCode == 200) {
           otpVerified = true;
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                  content: Text('OTP verified. Please set new password.')),
-            );
-          }
+          _showSnack('OTP verified. Please set new password.');
         } else {
-          final msg =
-              (jsonDecode(res.body)['error'] ?? 'Invalid OTP').toString();
-          if (mounted) {
-            ScaffoldMessenger.of(context)
-                .showSnackBar(SnackBar(content: Text(msg)));
-          }
+          final msg = (jsonDecode(res.body)['error'] ?? 'Invalid OTP').toString();
+          _showSnack(msg);
         }
       } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text('Error: $e')));
-        }
+        _showSnack('Error: $e');
       } finally {
         setDlgState(() => verifying = false);
       }
     }
 
-    Future<void> resetPassword(
-      void Function(VoidCallback fn) setDlgState,
-    ) async {
+    Future<void> resetPassword(void Function(VoidCallback fn) setDlgState) async {
       if (!resetKey.currentState!.validate()) return;
       setDlgState(() => resetting = true);
       try {
@@ -225,27 +225,15 @@ class _LoginPageState extends State<LoginPage> {
           }),
         );
         if (res.statusCode == 200) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                  content: Text('Password reset successful. Please log in.')),
-            );
-          }
+          _showSnack('Password reset successful. Please log in.');
           countdown?.cancel();
-          if (mounted) Navigator.of(context).pop(); // Close dialog
+          if (mounted) Navigator.of(context).pop();
         } else {
-          final msg =
-              (jsonDecode(res.body)['error'] ?? 'Reset failed').toString();
-          if (mounted) {
-            ScaffoldMessenger.of(context)
-                .showSnackBar(SnackBar(content: Text(msg)));
-          }
+          final msg = (jsonDecode(res.body)['error'] ?? 'Reset failed').toString();
+          _showSnack(msg);
         }
       } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text('Error: $e')));
-        }
+        _showSnack('Error: $e');
       } finally {
         setDlgState(() => resetting = false);
       }
@@ -256,21 +244,17 @@ class _LoginPageState extends State<LoginPage> {
       barrierDismissible: false,
       builder: (_) => StatefulBuilder(
         builder: (ctx, setDlgState) {
-          // Decide which step to render
           Widget content;
           List<Widget> actions = [];
 
           if (!otpSent) {
-            // Step 1: Email
             content = Form(
               key: emailKey,
               child: TextFormField(
                 controller: emailCtrl,
                 decoration: InputDecoration(
                   hintText: "Enter your registered email",
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                 ),
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) return "Email required";
@@ -281,29 +265,16 @@ class _LoginPageState extends State<LoginPage> {
               ),
             );
             actions = [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text("Cancel"),
-              ),
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
               ElevatedButton(
-                style:
-                    ElevatedButton.styleFrom(backgroundColor: kAppBarColor),
+                style: ElevatedButton.styleFrom(backgroundColor: kAppBarColor),
                 onPressed: sending ? null : () => sendOtp(setDlgState),
                 child: sending
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : const Text("Send OTP",
-                        style: TextStyle(color: kTextColor)),
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : const Text("Send OTP", style: TextStyle(color: kTextColor)),
               ),
             ];
           } else if (!otpVerified) {
-            // Step 2: OTP
             content = Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -316,70 +287,29 @@ class _LoginPageState extends State<LoginPage> {
                     decoration: InputDecoration(
                       hintText: "Enter 6-digit OTP",
                       counterText: "",
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                     ),
                     validator: (v) {
-                      if (v == null || v.trim().isEmpty) {
-                        return "OTP required";
-                      }
-                      if (!RegExp(r'^\d{6}$').hasMatch(v.trim())) {
-                        return "Enter 6-digit OTP";
-                      }
+                      if (v == null || v.trim().isEmpty) return "OTP required";
+                      if (!RegExp(r'^\d{6}$').hasMatch(v.trim())) return "Enter 6-digit OTP";
                       return null;
                     },
                   ),
                 ),
                 const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      secondsLeft > 0
-                          ? "Expires in ${fmt(secondsLeft)}"
-                          : "OTP expired",
-                      style: TextStyle(
-                        color:
-                            secondsLeft > 0 ? Colors.black54 : Colors.redAccent,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: sending ? null : () => sendOtp(setDlgState),
-                      child: const Text("Resend OTP"),
-                    ),
-                  ],
-                ),
               ],
             );
             actions = [
-              TextButton(
-                onPressed: () {
-                  countdown?.cancel();
-                  Navigator.pop(ctx);
-                },
-                child: const Text("Cancel"),
-              ),
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
               ElevatedButton(
-                style:
-                    ElevatedButton.styleFrom(backgroundColor: kAppBarColor),
+                style: ElevatedButton.styleFrom(backgroundColor: kAppBarColor),
                 onPressed: verifying ? null : () => verifyOtp(setDlgState),
                 child: verifying
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : const Text("Verify OTP",
-                        style: TextStyle(color: kTextColor)),
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : const Text("Verify OTP", style: TextStyle(color: kTextColor)),
               ),
             ];
           } else {
-            // Step 3: New Password
             content = Form(
               key: resetKey,
               child: Column(
@@ -390,9 +320,7 @@ class _LoginPageState extends State<LoginPage> {
                     obscureText: true,
                     decoration: InputDecoration(
                       hintText: "Enter new password",
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                     ),
                     validator: (v) {
                       if (v == null || v.isEmpty) return "Password required";
@@ -406,9 +334,7 @@ class _LoginPageState extends State<LoginPage> {
                     obscureText: true,
                     decoration: InputDecoration(
                       hintText: "Confirm new password",
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                     ),
                     validator: (v) {
                       if (v == null || v.isEmpty) return "Confirm password";
@@ -420,28 +346,13 @@ class _LoginPageState extends State<LoginPage> {
               ),
             );
             actions = [
-              TextButton(
-                onPressed: () {
-                  countdown?.cancel();
-                  Navigator.pop(ctx);
-                },
-                child: const Text("Cancel"),
-              ),
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
               ElevatedButton(
-                style:
-                    ElevatedButton.styleFrom(backgroundColor: kAppBarColor),
+                style: ElevatedButton.styleFrom(backgroundColor: kAppBarColor),
                 onPressed: resetting ? null : () => resetPassword(setDlgState),
                 child: resetting
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : const Text("Submit",
-                        style: TextStyle(color: kTextColor)),
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : const Text("Submit", style: TextStyle(color: kTextColor)),
               ),
             ];
           }
@@ -450,24 +361,13 @@ class _LoginPageState extends State<LoginPage> {
             title: const Text("Forgot Password"),
             content: content,
             actions: actions,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           );
         },
       ),
     ).whenComplete(() {
       countdown?.cancel();
     });
-  }
-
-  // ---------- PERSIST HELPERS ----------
-  Future<void> _persist(String key, String value) async {
-    try {
-      html.window.localStorage[key] = value; // web
-    } catch (_) {}
-    final sp = await SharedPreferences.getInstance(); // mobile/desktop
-    final empid = sp.getString('empId') ?? sp.getString('empid') ?? '';
-    await sp.setString(key, value);
   }
 
   // ---------- LOGIN ----------
@@ -501,10 +401,7 @@ class _LoginPageState extends State<LoginPage> {
         final role = (data['role'] ?? '').toString();
 
         if (tok.isEmpty || role.isEmpty) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Invalid server response')),
-          );
+          _showSnack('Invalid server response');
           return;
         }
 
@@ -515,27 +412,23 @@ class _LoginPageState extends State<LoginPage> {
 
         // role checks vs button pressed
         if (isAdmin && role != 'admin') {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Not authorized as admin.")),
-          );
+          _showSnack("Not authorized as admin.");
           return;
         }
         if (!isAdmin && role != 'employee') {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Not authorized as employee.")),
-          );
+          _showSnack("Not authorized as employee.");
           return;
         }
 
         if (isAdmin) {
           // ADMIN FLOW
           try {
-            final profileCheck = await isProfileFilled(tok);
-            if (profileCheck['filled'] == true) {
+            final result = await _checkCompanyProfile(token: tok, adminEmail: email);
+            final exists = result['exists'] == true;
+            final companyData = result['data'] as Map<String, dynamic>? ?? const {};
+
+            if (exists) {
               if (!mounted) return;
-              final companyData = profileCheck['data'] ?? {};
               Navigator.pushReplacement(
                 context,
                 MaterialPageRoute(
@@ -552,20 +445,16 @@ class _LoginPageState extends State<LoginPage> {
               if (!mounted) return;
               Navigator.pushReplacement(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const CompanyDetailsFormPage(),
-                ),
+                MaterialPageRoute(builder: (_) => const CompanyDetailsFormPage()),
               );
             }
-          } catch (_) {
-            if (!mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Error checking company profile')),
-            );
+          } catch (e) {
+            dev.log('Company profile check failed: $e');
+            _showSnack('Company profile check failed: $e');
           }
         } else {
           // EMPLOYEE FLOW
-          // 1) Seed from login response immediately (prevents empty empid during first check-in)
+          // 1) Seed from login response immediately
           String empIdSeed = (data['empId'] ??
                   data['empid'] ??
                   data['user']?['empId'] ??
@@ -578,7 +467,6 @@ class _LoginPageState extends State<LoginPage> {
               (data['name'] ?? data['user']?['name'] ?? '').toString().trim();
 
           if (nameSeed.isEmpty) {
-            // Try token payload as fallback
             try {
               final decoded = JwtDecoder.decode(tok);
               nameSeed = (decoded['name'] ?? '').toString().trim();
@@ -586,8 +474,8 @@ class _LoginPageState extends State<LoginPage> {
           }
 
           if (empIdSeed.isNotEmpty) {
-            await _persist('empId', empIdSeed); // canonical
-            await _persist('empid', empIdSeed); // legacy compatibility
+            await _persist('empId', empIdSeed);
+            await _persist('empid', empIdSeed); // legacy
           }
           if (nameSeed.isNotEmpty) {
             await _persist('name', nameSeed);
@@ -600,7 +488,7 @@ class _LoginPageState extends State<LoginPage> {
             docId = (decoded['userId'] ?? decoded['uid'] ?? '').toString();
           } catch (_) {}
 
-          // 3) Call /auth/me to normalize and overwrite with authoritative values
+          // 3) Normalize with /auth/me
           try {
             final meRes = await http.get(
               Uri.parse('$_apiBase/auth/me'),
@@ -634,18 +522,18 @@ class _LoginPageState extends State<LoginPage> {
                 jsonEncode({
                   ...profile,
                   if (realName.isNotEmpty) 'name': realName,
-                  if (empId.isNotEmpty) 'empId': empId, // canonical
+                  if (empId.isNotEmpty) 'empId': empId,
                 }),
               );
 
               if (realName.isNotEmpty) await _persist('name', realName);
               if (empId.isNotEmpty) {
-                await _persist('empId', empId); // canonical
-                await _persist('empid', empId); // legacy compatibility
+                await _persist('empId', empId);
+                await _persist('empid', empId);
               }
             }
           } catch (_) {
-            // ignore; seeded values will still be present
+            // ignore
           }
 
           if (docId.isNotEmpty) await _persist('userDocId', docId);
@@ -654,24 +542,19 @@ class _LoginPageState extends State<LoginPage> {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
-              builder: (_) =>
-                  HomeScreen(userName: nameSeed.isNotEmpty ? nameSeed : email.split('@').first, employeeDocId: docId),
+              builder: (_) => HomeScreen(
+                userName: nameSeed.isNotEmpty ? nameSeed : email.split('@').first,
+                employeeDocId: docId,
+              ),
             ),
           );
         }
       } else {
-        final msg =
-            (data['message'] ?? data['error'] ?? 'Login failed').toString();
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg)),
-        );
+        final msg = (data['message'] ?? data['error'] ?? 'Login failed').toString();
+        _showSnack(msg);
       }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      _showSnack('Error: $e');
     } finally {
       if (mounted) {
         setState(() {
@@ -705,8 +588,7 @@ class _LoginPageState extends State<LoginPage> {
                 child: ConstrainedBox(
                   constraints: BoxConstraints(minHeight: constraints.maxHeight),
                   child: Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
                     child: Form(
                       key: _formKey,
                       child: Column(
@@ -721,17 +603,10 @@ class _LoginPageState extends State<LoginPage> {
                               borderRadius: BorderRadius.circular(16),
                             ),
                             clipBehavior: Clip.antiAlias,
-                            child: Image.asset(
-                              'assets/images/loginlogo.png',
-                              fit: BoxFit.cover,
-                            ),
+                            child: Image.asset('assets/images/loginlogo.png', fit: BoxFit.cover),
                           ),
                           const SizedBox(height: 10),
-                          const Text(
-                            'Sign In',
-                            style: TextStyle(
-                                fontSize: 22, fontWeight: FontWeight.bold),
-                          ),
+                          const Text('Sign In', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                           const SizedBox(height: 30),
 
                           // Email
@@ -740,35 +615,25 @@ class _LoginPageState extends State<LoginPage> {
                             keyboardType: TextInputType.emailAddress,
                             decoration: InputDecoration(
                               labelText: "Enter email",
-                              prefixIcon:
-                                  const Icon(Icons.email, color: kButtonColor),
+                              prefixIcon: const Icon(Icons.email, color: kButtonColor),
                               filled: true,
                               fillColor: Colors.white,
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(
-                                  color: kButtonColor,
-                                  width: 1.5,
-                                ),
+                                borderSide: const BorderSide(color: kButtonColor, width: 1.5),
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(
-                                  color: kButtonColor,
-                                  width: 2,
-                                ),
+                                borderSide: const BorderSide(color: kButtonColor, width: 2),
                               ),
                             ),
                             validator: (val) {
-                              if (val == null || val.trim().isEmpty) {
-                                return "Email required";
-                              }
+                              if (val == null || val.trim().isEmpty) return "Email required";
                               final emailRegex = RegExp(
-                                  r"^[\w._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$",
-                                  caseSensitive: false);
-                              if (!emailRegex.hasMatch(val.trim())) {
-                                return "Enter valid email";
-                              }
+                                r"^[\w._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$",
+                                caseSensitive: false,
+                              );
+                              if (!emailRegex.hasMatch(val.trim())) return "Enter valid email";
                               return null;
                             },
                           ),
@@ -780,39 +645,26 @@ class _LoginPageState extends State<LoginPage> {
                             obscureText: !isPasswordVisible,
                             decoration: InputDecoration(
                               labelText: "Enter password",
-                              prefixIcon:
-                                  const Icon(Icons.lock, color: kButtonColor),
+                              prefixIcon: const Icon(Icons.lock, color: kButtonColor),
                               suffixIcon: IconButton(
                                 icon: Icon(
-                                  isPasswordVisible
-                                      ? Icons.visibility
-                                      : Icons.visibility_off,
+                                  isPasswordVisible ? Icons.visibility : Icons.visibility_off,
                                   color: kButtonColor,
                                 ),
-                                onPressed: () => setState(
-                                    () => isPasswordVisible = !isPasswordVisible),
+                                onPressed: () => setState(() => isPasswordVisible = !isPasswordVisible),
                               ),
                               filled: true,
                               fillColor: Colors.white,
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(
-                                  color: kButtonColor,
-                                  width: 1.5,
-                                ),
+                                borderSide: const BorderSide(color: kButtonColor, width: 1.5),
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(
-                                  color: kButtonColor,
-                                  width: 2,
-                                ),
+                                borderSide: const BorderSide(color: kButtonColor, width: 2),
                               ),
                             ),
-                            validator: (val) =>
-                                val == null || val.isEmpty
-                                    ? "Password required"
-                                    : null,
+                            validator: (val) => (val == null || val.isEmpty) ? "Password required" : null,
                           ),
 
                           Align(
@@ -836,49 +688,31 @@ class _LoginPageState extends State<LoginPage> {
                             width: double.infinity,
                             height: 44,
                             child: ElevatedButton(
-                              onPressed: _isEmpLoading
-                                  ? null
-                                  : () => _login(isAdmin: false),
+                              onPressed: _isEmpLoading ? null : () => _login(isAdmin: false),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: kButtonColor,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                               ),
                               child: _isEmpLoading
-                                  ? const CircularProgressIndicator(
-                                      color: Colors.white,
-                                    )
-                                  : const Text(
-                                      "Sign in as employee",
-                                      style: TextStyle(color: kTextColor),
-                                    ),
+                                  ? const CircularProgressIndicator(color: Colors.white)
+                                  : const Text("Sign in as employee", style: TextStyle(color: kTextColor)),
                             ),
                           ),
                           const SizedBox(height: 10),
 
                           // Admin Sign In
                           SizedBox(
-                            width: fullWidth,
+                            width: double.infinity,
                             height: 44,
                             child: ElevatedButton(
-                              onPressed: _isAdminLoading
-                                  ? null
-                                  : () => _login(isAdmin: true),
+                              onPressed: _isAdminLoading ? null : () => _login(isAdmin: true),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: kButtonColor,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                               ),
                               child: _isAdminLoading
-                                  ? const CircularProgressIndicator(
-                                      color: Colors.white,
-                                    )
-                                  : const Text(
-                                      "Sign in as admin",
-                                      style: TextStyle(color: kTextColor),
-                                    ),
+                                  ? const CircularProgressIndicator(color: Colors.white)
+                                  : const Text("Sign in as admin", style: TextStyle(color: kTextColor)),
                             ),
                           ),
                           const SizedBox(height: 12),

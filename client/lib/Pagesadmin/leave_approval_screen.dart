@@ -1,7 +1,9 @@
 // import 'package:flutter/material.dart';
 // import 'package:intl/intl.dart';
+
 // import '../services/api_service.dart';
 // import 'leave_card.dart';
+// import 'leave_detail_screen.dart' show RequestDetailsCard;
 
 // class LeaveApprovalsScreen extends StatefulWidget {
 //   const LeaveApprovalsScreen({super.key});
@@ -11,13 +13,12 @@
 // }
 
 // class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
-//   String selectedTab = 'All';              // Type filter (UI label)
+//   String selectedTab = 'All'; // Type filter (UI label)
 //   String selectedStatusFilter = 'Pending'; // Status chip
 //   final TextEditingController searchController = TextEditingController();
 
-//   List<Map<String, dynamic>> _items = [];
+//   List<Map<String, dynamic>> _rows = [];
 //   int _cPending = 0, _cApproved = 0, _cRejected = 0;
-
 //   bool _loading = false;
 
 //   @override
@@ -26,16 +27,15 @@
 //     _loadAll(adjustForType: true);
 //   }
 
-//   // ---- Helpers -------------------------------------------------------------
-
 //   bool _isOtherLocationTab(String label) {
 //     final t = label.trim().toLowerCase();
 //     return t == 'other location' || t == 'other_location';
 //   }
 
-//   // Map UI label -> API “type” (used for non other-location tabs)
 //   String _apiTypeForTab(String ui) {
-//     switch (ui.toLowerCase()) {
+//     final t = ui.trim().toLowerCase();
+//     if (t == 'other location' || t == 'other_location') return 'Other Location';
+//     switch (t) {
 //       case 'late check in':
 //         return 'attendance:late_check_in';
 //       case 'early check out':
@@ -64,67 +64,188 @@
 //     return input.trim();
 //   }
 
-//   /// Decide the backend source.
 //   String _sourceFromItemOrTab(Map<String, dynamic> item) {
 //     final s = (item['source'] ?? '').toString().toLowerCase();
 //     if (s == 'attendance' || s == 'leaves' || s == 'other_location') return s;
+
 //     if (_isOtherLocationTab(selectedTab)) return 'other_location';
 
-//     final typeStr = (item['type'] ?? item['category'] ?? '')
-//         .toString()
-//         .toLowerCase();
+//     final typeStr =
+//         (item['type'] ?? item['category'] ?? '').toString().toLowerCase();
+//     if (typeStr.contains('other') && typeStr.contains('location')) return 'other_location';
 //     if (typeStr.contains('late') || typeStr.contains('early')) return 'attendance';
 //     if (typeStr.contains('leave') ||
 //         typeStr.contains('permission') ||
 //         typeStr.contains('overtime') ||
 //         typeStr.contains('half')) return 'leaves';
+
+//     if (item.containsKey('withinRadius') ||
+//         item.containsKey('expectedLatitude') ||
+//         item.containsKey('otherLocation')) return 'other_location';
 //     return 'attendance';
+//   }
+
+//   bool _isRowTappable(Map<String, dynamic> item) {
+//     if (_isOtherLocationTab(selectedTab)) return true;
+
+//     final src = _sourceFromItemOrTab(item);
+//     if (src == 'other_location') return true;
+
+//     if (src != 'attendance') return false;
+
+//     final type =
+//         (item['type'] ?? item['category'] ?? '').toString().toLowerCase();
+//     final isLateIn =
+//         type.contains('late') && type.contains('check') && type.contains('in');
+//     final isEarlyOut =
+//         type.contains('early') && type.contains('check') && type.contains('out');
+
+//     return isLateIn || isEarlyOut;
+//   }
+
+//   Map<String, dynamic> _toDisplay(Map<String, dynamic> item) {
+//     String pickStr(List keys, {String fallback = '-'}) {
+//       for (final k in keys) {
+//         final v = item[k]?.toString();
+//         if (v != null && v.trim().isNotEmpty) return v;
+//       }
+//       return fallback;
+//     }
+
+//     final requestTime = pickStr(['requestTime', 'time', 'checkIn', 'checkOut']);
+//     final requestDate =
+//         pickStr(['requestDate', 'date', 'startDate', 'selectDate'], fallback: '');
+
+//     return <String, dynamic>{
+//       'type': pickStr(['type', 'category'], fallback: '-'),
+//       'empid': pickStr(['empid', 'empId', 'employeeId'], fallback: '-'),
+//       'department': pickStr(['department', 'dept'], fallback: '-'),
+//       'name': pickStr(['name', 'employeeName'], fallback: '-'),
+//       'shift': pickStr(['shift', 'shiftGroup'], fallback: '-'),
+//       'requestTime': requestTime,
+//       'requestDate': requestDate,
+//       'reason': pickStr(['reason', 'otherLocation'], fallback: '-'),
+//       'location': pickStr(['location'], fallback: '-'),
+//       'branchName': pickStr(['branchName', 'branchLocation'], fallback: '-'),
+//       'status': pickStr(['status', 'approvalStatus'], fallback: 'Pending'),
+//     };
+//   }
+
+//   String _pickAnyId(Map<String, dynamic> item) {
+//     for (final k in [
+//       'requestId', 'id', 'docId', 'attendanceId', 'leaveId', 'otherLocId',
+//     ]) {
+//       final v = item[k]?.toString();
+//       if (v != null && v.trim().isNotEmpty) return v;
+//     }
+//     return '';
+//   }
+
+//   Future<void> _openDetails(
+//     Map<String, dynamic> backendItem,
+//     Map<String, dynamic> viewItem,
+//   ) async {
+//     Map<String, dynamic> details = {};
+//     try {
+//       final src = _sourceFromItemOrTab(backendItem);
+//       if (src == 'attendance' || src == 'other_location') {
+//         final id = _pickAnyId(backendItem);
+//         String empid =
+//             (backendItem['empid'] ?? backendItem['empId'] ?? backendItem['employeeId'])?.toString() ?? '';
+//         String date  =
+//             (backendItem['requestDate'] ?? backendItem['date'] ?? backendItem['onDate'])?.toString() ?? '';
+//         if (date.length > 10) date = date.substring(0, 10);
+
+//         if (id.isNotEmpty) {
+//           details = await ApiService.fetchRequestDetails(
+//             id: id,
+//             src: (src == 'other_location') ? 'other_location' : 'attendance',
+//           );
+//         } else if (empid.isNotEmpty && date.isNotEmpty) {
+//           details = await ApiService.fetchRequestDetails(empid: empid, date: date);
+//         }
+//       }
+//     } catch (e) {
+//       // non-fatal; UI will still open with whatever data we have
+//       debugPrint('fetchRequestDetails failed: $e');
+//     }
+
+//     final merged = {...backendItem, ...viewItem, ...details};
+
+//     final decision = await Navigator.push(
+//       context,
+//       MaterialPageRoute(builder: (_) => RequestDetailsCard(data: merged)),
+//     );
+
+//     if (decision is String &&
+//         (decision.toLowerCase() == 'approved' ||
+//             decision.toLowerCase() == 'rejected')) {
+//       final normalized = _normalizeDecision(decision);
+//       try {
+//         final src = _sourceFromItemOrTab(backendItem);
+//         if (src == 'other_location') {
+//           final id = _pickAnyId(backendItem);
+//           if (id.isEmpty) throw 'Missing id for other-location';
+//           await ApiService.decideOtherLocation(
+//             id: id,
+//             status: normalized,
+//             remarks: backendItem['decisionRemarks'],
+//           );
+//         } else {
+//           final payload =
+//               Map<String, dynamic>.from(backendItem)..['status'] = normalized;
+//           await ApiService.decideApproval(
+//             item: payload,
+//             status: normalized,
+//             sourceHint: src,
+//           );
+//         }
+
+//         _snack('Updated: $normalized');
+//         await _loadAll(adjustForType: true);
+//       } catch (e) {
+//         _snack('Update failed: $e');
+//       }
+//     }
 //   }
 
 //   Future<void> _loadAll({bool adjustForType = false}) async {
 //     setState(() => _loading = true);
 //     try {
-//       List<Map<String, dynamic>> pending = [];
-//       List<Map<String, dynamic>> approved = [];
-//       List<Map<String, dynamic>> rejected = [];
+//       final apiType = _apiTypeForTab(selectedTab);
 
-//       if (_isOtherLocationTab(selectedTab)) {
-//         // ---- READ DIRECTLY FROM otherLocation collection ----
-//         pending  = await ApiService.fetchOtherLocationApprovals(status: 'Pending');
-//         approved = await ApiService.fetchOtherLocationApprovals(status: 'Approved');
-//         rejected = await ApiService.fetchOtherLocationApprovals(status: 'Rejected');
-//       } else {
-//         // ---- All other tabs through approvals aggregator ----
-//         final apiType = _apiTypeForTab(selectedTab);
-//         pending  = await ApiService.fetchApprovals(type: apiType, status: 'Pending');
-//         approved = await ApiService.fetchApprovals(type: apiType, status: 'Approved');
-//         rejected = await ApiService.fetchApprovals(type: apiType, status: 'Rejected');
-//       }
+//       final pending  = await ApiService.fetchApprovals(type: apiType, status: 'Pending');
+//       final approved = await ApiService.fetchApprovals(type: apiType, status: 'Approved');
+//       final rejected = await ApiService.fetchApprovals(type: apiType, status: 'Rejected');
 
-//       // Counts
-//       final newPendingCount  = pending.length;
+//       final newPendingCount = pending.length;
 //       final newApprovedCount = approved.length;
 //       final newRejectedCount = rejected.length;
 
 //       String nextStatus = selectedStatusFilter;
 //       if (adjustForType) {
-//         final currIsEmpty = (nextStatus == 'Pending'  && newPendingCount  == 0) ||
-//                             (nextStatus == 'Approved' && newApprovedCount == 0) ||
-//                             (nextStatus == 'Rejected' && newRejectedCount == 0);
-//         if (currIsEmpty) {
+//         final emptyNow = (nextStatus == 'Pending' && newPendingCount == 0) ||
+//             (nextStatus == 'Approved' && newApprovedCount == 0) ||
+//             (nextStatus == 'Rejected' && newRejectedCount == 0);
+//         if (emptyNow) {
 //           if (newPendingCount > 0) nextStatus = 'Pending';
 //           else if (newApprovedCount > 0) nextStatus = 'Approved';
 //           else if (newRejectedCount > 0) nextStatus = 'Rejected';
 //         }
 //       }
 
-//       // Pick list by status chip
 //       List<Map<String, dynamic>> current;
 //       switch (nextStatus) {
-//         case 'Approved': current = approved; break;
-//         case 'Rejected': current = rejected; break;
+//         case 'Approved':
+//           current = approved;
+//           break;
+//         case 'Rejected':
+//           current = rejected;
+//           break;
 //         case 'Pending':
-//         default: current = pending; break;
+//         default:
+//           current = pending;
+//           break;
 //       }
 
 //       if (!mounted) return;
@@ -133,13 +254,13 @@
 //         _cApproved = newApprovedCount;
 //         _cRejected = newRejectedCount;
 //         selectedStatusFilter = nextStatus;
-//         _items = current;
+//         _rows = current;
 //       });
 //     } catch (e) {
 //       _snack('Failed to fetch approvals: $e');
 //       if (!mounted) return;
 //       setState(() {
-//         _items = [];
+//         _rows = [];
 //         _cPending = _cApproved = _cRejected = 0;
 //       });
 //     } finally {
@@ -150,8 +271,6 @@
 //   void _snack(String msg) =>
 //       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
 
-//   // ---- UI ------------------------------------------------------------------
-
 //   @override
 //   Widget build(BuildContext context) {
 //     const kAppBarColor = Color(0xFF8C6EAF);
@@ -160,13 +279,20 @@
 
 //     final today = DateFormat('dd MMM yyyy').format(DateTime.now());
 
-//     final filtered = _items
-//         .where((leave) => leave.values.any((v) =>
-//             (v ?? '')
-//                 .toString()
-//                 .toLowerCase()
-//                 .contains(searchController.text.toLowerCase())))
-//         .toList();
+//     final displayList = _rows.map(_toDisplay).toList();
+//     final q = searchController.text.toLowerCase();
+
+//     final filteredIndices = <int>[];
+//     final filteredDisplay = <Map<String, dynamic>>[];
+//     for (int i = 0; i < displayList.length; i++) {
+//       final disp = displayList[i];
+//       final hit =
+//           disp.values.any((v) => (v ?? '').toString().toLowerCase().contains(q));
+//       if (hit) {
+//         filteredIndices.add(i);
+//         filteredDisplay.add(disp);
+//       }
+//     }
 
 //     return Scaffold(
 //       appBar: AppBar(
@@ -228,11 +354,9 @@
 //                           'Over Time',
 //                           'Half Day Leave',
 //                           'Comp Off',
-//                           'Other Location', // loads from otherLocation
-//                         ]
-//                             .map((type) =>
-//                                 DropdownMenuItem(value: type, child: Text(type)))
-//                             .toList(),
+//                           'Other Location',
+//                         ].map((t) =>
+//                             DropdownMenuItem(value: t, child: Text(t))).toList(),
 //                       ),
 //                     ),
 //                   ),
@@ -262,14 +386,19 @@
 //               const Expanded(child: Center(child: CircularProgressIndicator()))
 //             else
 //               Expanded(
-//                 child: filtered.isEmpty
+//                 child: filteredDisplay.isEmpty
 //                     ? const Center(child: Text('No requests'))
 //                     : ListView.builder(
-//                         itemCount: filtered.length,
-//                         itemBuilder: (context, index) {
-//                           final item = filtered[index];
-//                           return LeaveCard(
-//                             item: item,
+//                         itemCount: filteredDisplay.length,
+//                         itemBuilder: (context, viewIdx) {
+//                           final backendIdx = filteredIndices[viewIdx];
+//                           final backendItem = _rows[backendIdx];
+//                           final viewItem = filteredDisplay[viewIdx];
+
+//                           final tappable = _isRowTappable(backendItem);
+
+//                           final card = LeaveCard(
+//                             item: viewItem,
 //                             onStatusChange: (status) async {
 //                               try {
 //                                 final normalized = _normalizeDecision(status);
@@ -277,24 +406,24 @@
 //                                     normalized != 'Rejected') {
 //                                   throw 'Invalid status "$status"';
 //                                 }
-
-//                                 final src = _sourceFromItemOrTab(item);
+//                                 final src = _sourceFromItemOrTab(backendItem);
 
 //                                 if (src == 'other_location') {
-//                                   final id = (item['requestId'] ?? item['id'] ?? '').toString();
+//                                   final id = _pickAnyId(backendItem);
 //                                   if (id.isEmpty) throw 'Missing id for other-location';
 //                                   await ApiService.decideOtherLocation(
 //                                     id: id,
 //                                     status: normalized,
-//                                     remarks: item['decisionRemarks'],
+//                                     remarks: backendItem['decisionRemarks'],
 //                                   );
 //                                 } else {
-//                                   final payloadItem = Map<String, dynamic>.from(item)
-//                                     ..['status'] = normalized;
+//                                   final payloadItem =
+//                                       Map<String, dynamic>.from(backendItem)
+//                                         ..['status'] = normalized;
 //                                   await ApiService.decideApproval(
 //                                     item: payloadItem,
 //                                     status: normalized,
-//                                     sourceHint: src, // "attendance" | "leaves"
+//                                     sourceHint: src,
 //                                   );
 //                                 }
 
@@ -304,6 +433,14 @@
 //                                 _snack('Update failed: $e');
 //                               }
 //                             },
+//                           );
+
+//                           if (!tappable) return card;
+
+//                           return GestureDetector(
+//                             behavior: HitTestBehavior.opaque,
+//                             onTap: () => _openDetails(backendItem, viewItem),
+//                             child: card,
 //                           );
 //                         },
 //                       ),
@@ -361,12 +498,8 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
   String selectedStatusFilter = 'Pending'; // Status chip
   final TextEditingController searchController = TextEditingController();
 
-  // backend rows (full objects)
   List<Map<String, dynamic>> _rows = [];
-
-  // chip counts
   int _cPending = 0, _cApproved = 0, _cRejected = 0;
-
   bool _loading = false;
 
   @override
@@ -382,8 +515,14 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     return t == 'other location' || t == 'other_location';
   }
 
+  /// Map UI tab → API `type` query value (what your backend expects)
   String _apiTypeForTab(String ui) {
-    switch (ui.toLowerCase()) {
+    final t = ui.trim().toLowerCase();
+    if (t == 'other location' || t == 'other_location') {
+      // We won’t pass this to fetchApprovals(); other-location uses its own API.
+      return 'Other Location';
+    }
+    switch (t) {
       case 'late check in':
         return 'attendance:late_check_in';
       case 'early check out':
@@ -412,39 +551,54 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     return input.trim();
   }
 
+  /// Heuristic to decide if a row is attendance, leaves, or other_location.
   String _sourceFromItemOrTab(Map<String, dynamic> item) {
+    // Explicit source wins.
     final s = (item['source'] ?? '').toString().toLowerCase();
     if (s == 'attendance' || s == 'leaves' || s == 'other_location') return s;
+
+    // The tab can force it.
     if (_isOtherLocationTab(selectedTab)) return 'other_location';
 
+    // Type/category hints.
     final typeStr =
         (item['type'] ?? item['category'] ?? '').toString().toLowerCase();
-    if (typeStr.contains('late') || typeStr.contains('early')) return 'attendance';
-    if (typeStr.contains('other') && typeStr.contains('location')) return 'other_location';
+    if (typeStr.contains('other') && typeStr.contains('location')) {
+      return 'other_location';
+    }
+    if (typeStr.contains('late') || typeStr.contains('early')) {
+      return 'attendance';
+    }
     if (typeStr.contains('leave') ||
         typeStr.contains('permission') ||
         typeStr.contains('overtime') ||
         typeStr.contains('half')) {
       return 'leaves';
     }
-    // heuristic by fields
+
+    // Field-based hints (covers All tab where type looks like check-in/out):
+    // Any of these are strong signals of otherLocation docs.
     if (item.containsKey('withinRadius') ||
         item.containsKey('expectedLatitude') ||
-        item.containsKey('otherLocation')) {
+        item.containsKey('expectedLongitude') ||
+        item.containsKey('distanceFromBranch') ||
+        item.containsKey('requestLocation') ||
+        item.containsKey('otherLocation') ||
+        (item.containsKey('latitude') && item.containsKey('longitude'))) {
       return 'other_location';
     }
+
+    // Attendance fall-back.
     return 'attendance';
   }
 
   // ✅ Only allow navigation for: Other Location, Late Check-In, Early Check-Out
   bool _isRowTappable(Map<String, dynamic> item) {
-    // If user is on the Other Location tab, all rows there are tappable
     if (_isOtherLocationTab(selectedTab)) return true;
 
     final src = _sourceFromItemOrTab(item);
-    if (src == 'other_location') return true; // Other Location always navigates
+    if (src == 'other_location') return true;
 
-    // Only allow attendance rows that are explicitly Late Check-In / Early Check-Out
     if (src != 'attendance') return false;
 
     final type =
@@ -470,7 +624,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     final requestDate =
         pickStr(['requestDate', 'date', 'startDate', 'selectDate'], fallback: '');
 
-    // Only the selected fields get shown (UNCHANGED)
+    // Only the selected fields get shown
     return <String, dynamic>{
       'type': pickStr(['type', 'category'], fallback: '-'),
       'empid': pickStr(['empid', 'empId', 'employeeId'], fallback: '-'),
@@ -480,20 +634,21 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
       'requestTime': requestTime,
       'requestDate': requestDate,
       'reason': pickStr(['reason', 'otherLocation'], fallback: '-'),
-      'location': pickStr(['location'], fallback: '-'),
+      'location': pickStr(['location', 'requestLocation'], fallback: '-'),
       'branchName': pickStr(['branchName', 'branchLocation'], fallback: '-'),
       'status': pickStr(['status', 'approvalStatus'], fallback: 'Pending'),
     };
   }
 
+  // 🔧 Prefer otherLocId first to avoid mixing ids between sources
   String _pickAnyId(Map<String, dynamic> item) {
     for (final k in [
+      'otherLocId',      // moved to the front
       'requestId',
       'id',
       'docId',
       'attendanceId',
       'leaveId',
-      'otherLocId',
     ]) {
       final v = item[k]?.toString();
       if (v != null && v.trim().isNotEmpty) return v;
@@ -501,24 +656,100 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     return '';
   }
 
+  Future<void> _openDetails(
+    Map<String, dynamic> backendItem,
+    Map<String, dynamic> viewItem,
+  ) async {
+    Map<String, dynamic> details = {};
+    try {
+      // Decide source; if user is on Other Location tab, force that source.
+      String src = _sourceFromItemOrTab(backendItem);
+      if (_isOtherLocationTab(selectedTab)) {
+        src = 'other_location';
+      }
+
+      if (src == 'attendance' || src == 'other_location') {
+        final id = _pickAnyId(backendItem);
+        String empid =
+            (backendItem['empid'] ?? backendItem['empId'] ?? backendItem['employeeId'])?.toString() ?? '';
+        String date  =
+            (backendItem['requestDate'] ?? backendItem['date'] ?? backendItem['onDate'])?.toString() ?? '';
+        if (date.length > 10) date = date.substring(0, 10);
+
+        if (id.isNotEmpty) {
+          details = await ApiService.fetchRequestDetails(
+            id: id,
+            src: src, // <- correct source now
+          );
+        } else if (empid.isNotEmpty && date.isNotEmpty) {
+          details = await ApiService.fetchRequestDetails(empid: empid, date: date);
+        }
+      }
+    } catch (e) {
+      debugPrint('fetchRequestDetails failed: $e');
+    }
+
+    final merged = {...backendItem, ...viewItem, ...details};
+
+    final decision = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => RequestDetailsCard(data: merged)),
+    );
+
+    if (decision is String &&
+        (decision.toLowerCase() == 'approved' ||
+            decision.toLowerCase() == 'rejected')) {
+      final normalized = _normalizeDecision(decision);
+      try {
+        final src = _sourceFromItemOrTab(backendItem);
+        if (src == 'other_location') {
+          final id = _pickAnyId(backendItem);
+          if (id.isEmpty) throw 'Missing id for other-location';
+          await ApiService.decideOtherLocation(
+            id: id,
+            status: normalized,
+            remarks: backendItem['decisionRemarks'],
+          );
+        } else {
+          final payload =
+              Map<String, dynamic>.from(backendItem)..['status'] = normalized;
+          await ApiService.decideApproval(
+            item: payload,
+            status: normalized,
+            sourceHint: src,
+          );
+        }
+
+        _snack('Updated: $normalized');
+        await _loadAll(adjustForType: true);
+      } catch (e) {
+        _snack('Update failed: $e');
+      }
+    }
+  }
+
+  /// Fetch rows for a given tab+status.
+  Future<List<Map<String, dynamic>>> _fetchByTabAndStatus(
+      String tab, String status) async {
+    // For OTHER LOCATION: use the dedicated endpoint so only otherLocation docs are returned.
+    if (_isOtherLocationTab(tab)) {
+      debugPrint('[Approvals] OTHER-LOCATION  STATUS="$status"');
+      return ApiService.fetchOtherLocation(status: status);
+    }
+
+    // All other tabs go through the aggregator with mapped type.
+    final apiType = _apiTypeForTab(tab);
+    debugPrint('[Approvals] TAB="$tab"  STATUS="$status"  type="$apiType"');
+    return ApiService.fetchApprovals(type: apiType, status: status);
+  }
+
   Future<void> _loadAll({bool adjustForType = false}) async {
     setState(() => _loading = true);
     try {
-      List<Map<String, dynamic>> pending = [];
-      List<Map<String, dynamic>> approved = [];
-      List<Map<String, dynamic>> rejected = [];
-
-      if (_isOtherLocationTab(selectedTab)) {
-        // uses the dedicated other-location endpoint
-        pending = await ApiService.fetchOtherLocation(status: 'Pending');
-        approved = await ApiService.fetchOtherLocation(status: 'Approved');
-        rejected = await ApiService.fetchOtherLocation(status: 'Rejected');
-      } else {
-        final apiType = _apiTypeForTab(selectedTab);
-        pending = await ApiService.fetchApprovals(type: apiType, status: 'Pending');
-        approved = await ApiService.fetchApprovals(type: apiType, status: 'Approved');
-        rejected = await ApiService.fetchApprovals(type: apiType, status: 'Rejected');
-      }
+      // Pull counts & rows per status for the current tab.
+      final pending  = await _fetchByTabAndStatus(selectedTab, 'Pending');
+      final approved = await _fetchByTabAndStatus(selectedTab, 'Approved');
+      final rejected = await _fetchByTabAndStatus(selectedTab, 'Rejected');
 
       final newPendingCount = pending.length;
       final newApprovedCount = approved.length;
@@ -530,9 +761,8 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
             (nextStatus == 'Approved' && newApprovedCount == 0) ||
             (nextStatus == 'Rejected' && newRejectedCount == 0);
         if (emptyNow) {
-          if (newPendingCount > 0) {
-            nextStatus = 'Pending';
-          } else if (newApprovedCount > 0) nextStatus = 'Approved';
+          if (newPendingCount > 0) nextStatus = 'Pending';
+          else if (newApprovedCount > 0) nextStatus = 'Approved';
           else if (newRejectedCount > 0) nextStatus = 'Rejected';
         }
       }
@@ -704,7 +934,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                           final tappable = _isRowTappable(backendItem);
 
                           final card = LeaveCard(
-                            item: viewItem, // only selected fields shown (UNCHANGED)
+                            item: viewItem, // only selected fields shown
                             onStatusChange: (status) async {
                               try {
                                 final normalized = _normalizeDecision(status);
@@ -741,51 +971,11 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                             },
                           );
 
-                          // Only wrap with tap if it is tappable (so only your 3 cases navigate)
                           if (!tappable) return card;
 
                           return GestureDetector(
                             behavior: HitTestBehavior.opaque,
-                            onTap: () async {
-                              final merged = {...backendItem, ...viewItem};
-                              final decision = await Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => RequestDetailsCard(data: merged),
-                                ),
-                              );
-
-                              if (decision is String &&
-                                  (decision.toLowerCase() == 'approved' ||
-                                      decision.toLowerCase() == 'rejected')) {
-                                final normalized = _normalizeDecision(decision);
-                                try {
-                                  final src = _sourceFromItemOrTab(backendItem);
-                                  if (src == 'other_location') {
-                                    final id = _pickAnyId(backendItem);
-                                    if (id.isEmpty) throw 'Missing id for other-location';
-                                    await ApiService.decideOtherLocation(
-                                      id: id,
-                                      status: normalized,
-                                      remarks: backendItem['decisionRemarks'],
-                                    );
-                                  } else {
-                                    final payload =
-                                        Map<String, dynamic>.from(backendItem)
-                                          ..['status'] = normalized;
-                                    await ApiService.decideApproval(
-                                      item: payload,
-                                      status: normalized,
-                                      sourceHint: src,
-                                    );
-                                  }
-                                  _snack('Updated: $normalized');
-                                  await _loadAll(adjustForType: true);
-                                } catch (e) {
-                                  _snack('Update failed: $e');
-                                }
-                              }
-                            },
+                            onTap: () => _openDetails(backendItem, viewItem),
                             child: card,
                           );
                         },

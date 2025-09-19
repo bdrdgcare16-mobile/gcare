@@ -298,11 +298,11 @@ import 'profile_page.dart';
 import 'package:serv_app/Pagesusers/myserv_page.dart';
 
 // App Colors
-const Color kPrimaryBackgroundTop    = Color(0xFFFFFFFF);
+const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-const Color kAppBarColor             = Color(0xFF8C6EAF);
-const Color kButtonColor             = Color(0xFF655193);
-const Color kTextColor               = Colors.white;
+const Color kAppBarColor = Color(0xFF8C6EAF);
+const Color kButtonColor = Color(0xFF655193);
+const Color kTextColor = Colors.white;
 
 class HomeScreen extends StatelessWidget {
   final String userName;
@@ -394,7 +394,8 @@ class HomeScreen extends StatelessWidget {
                         SizedBox(
                           height: 200,
                           width: 200,
-                          child: Image.asset('assets/images/attendance-management.png'),
+                          child: Image.asset(
+                              'assets/images/attendance-management.png'),
                         ),
                         const SizedBox(height: 3),
 
@@ -433,9 +434,13 @@ class HomeScreen extends StatelessWidget {
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: const [
-                                      Icon(Icons.calendar_month, size: 50, color: kAppBarColor),
+                                      Icon(Icons.calendar_month,
+                                          size: 50, color: kAppBarColor),
                                       SizedBox(height: 8),
-                                      Text('Attendance', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+                                      Text('Attendance',
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.black)),
                                     ],
                                   ),
                                 ),
@@ -446,7 +451,8 @@ class HomeScreen extends StatelessWidget {
                                 onTap: () {
                                   Navigator.push(
                                     context,
-                                    MaterialPageRoute(builder: (_) => const MyServPage()),
+                                    MaterialPageRoute(
+                                        builder: (_) => const MyServPage()),
                                   );
                                 },
                                 child: Container(
@@ -466,9 +472,13 @@ class HomeScreen extends StatelessWidget {
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: const [
-                                      Icon(Icons.handshake, size: 50, color: kAppBarColor),
+                                      Icon(Icons.handshake,
+                                          size: 50, color: kAppBarColor),
                                       SizedBox(height: 8),
-                                      Text('My Serv', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+                                      Text('My Serv',
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.black)),
                                     ],
                                   ),
                                 ),
@@ -487,7 +497,6 @@ class HomeScreen extends StatelessWidget {
           ),
         ),
       ),
-
       bottomNavigationBar: Container(
         height: 50,
         decoration: const BoxDecoration(color: kAppBarColor),
@@ -504,7 +513,7 @@ class HomeScreen extends StatelessWidget {
                   MaterialPageRoute(
                     builder: (_) => ProfilePage(userData: {
                       'name': userName,
-                      'id':   employeeDocId,
+                      'id': employeeDocId,
                     }),
                   ),
                 );

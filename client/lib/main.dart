@@ -1,6 +1,6 @@
-
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 
 // ✅ Firebase
 import 'package:firebase_core/firebase_core.dart';
@@ -12,6 +12,7 @@ import 'package:serv_app/Pagesusers/login_page.dart';
 import 'package:serv_app/Pagesadmin/leave_page.dart';
 import 'package:serv_app/Pagesadmin/leave_form_page.dart';
 import 'package:serv_app/Pagesusers/landing_screen.dart';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -93,7 +94,7 @@ class MyApp extends StatelessWidget {
       theme: myTheme,
       initialRoute: _initialRouteForPlatform(),
       routes: {
-        '/': (context) => const LoginPage(),   // root still points to login
+        '/': (context) => const LoginPage(), // root still points to login
         '/login': (context) => const LoginPage(),
         '/leave': (context) => const LeavePage(),
         '/add-leave': (context) => const LeaveFormPage(),
