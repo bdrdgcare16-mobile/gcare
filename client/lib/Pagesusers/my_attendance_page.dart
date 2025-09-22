@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:serv_app/html_stub.dart'
-if (dart.library.html) 'package:serv_app/html_web.dart' as html; // Flutter Web storage
+    if (dart.library.html) 'package:serv_app/html_web.dart'
+    as html; // Flutter Web storage
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
@@ -26,7 +27,7 @@ const Color kWeekOffColor = Colors.purple;
 const Color kHalfDayColor = Color.fromARGB(169, 220, 233, 30);
 
 // ============== API BASE =================
-const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 // ====== helpers (top-level so they’re easy to reuse) ======
 bool _looksLikeJwt(String v) =>
@@ -70,7 +71,7 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
       final t = CompanyData.token;
       if (t != null && t.isNotEmpty) {
         html.window.localStorage['token'] = t; // primary key this page reads
-        html.window.localStorage['jwt'] = t;   // backup key
+        html.window.localStorage['jwt'] = t; // backup key
       }
     } catch (_) {}
   }
@@ -125,14 +126,21 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
       final uri = Uri.parse('$apiBase/auth/me');
       final resp = await http.get(
         uri,
-        headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json'
+        },
       );
       if (resp.statusCode == 200) {
         final me = jsonDecode(resp.body);
         html.window.localStorage['me'] = jsonEncode(me);
         final ep = me['employeeProfile'];
-        if ((me['empid'] ?? '').toString().isNotEmpty) return me['empid'].toString();
-        if (ep is Map && (ep['empid'] ?? '').toString().isNotEmpty) return ep['empid'].toString();
+        if ((me['empid'] ?? '').toString().isNotEmpty) {
+          return me['empid'].toString();
+        }
+        if (ep is Map && (ep['empid'] ?? '').toString().isNotEmpty) {
+          return ep['empid'].toString();
+        }
       }
     } catch (_) {}
     return null;
@@ -190,13 +198,13 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
       if (resp.statusCode == 200) {
         final j = jsonDecode(resp.body) as Map<String, dynamic>;
         final ds = (j['dayStatuses'] as Map).map(
-              (k, v) => MapEntry(k.toString(), v.toString()),
+          (k, v) => MapEntry(k.toString(), v.toString()),
         );
         final totals = (j['totals'] as Map).map(
-              (k, v) => MapEntry(k.toString(), int.tryParse(v.toString()) ?? 0),
+          (k, v) => MapEntry(k.toString(), int.tryParse(v.toString()) ?? 0),
         );
         final extras = (j['extras'] as Map).map(
-              (k, v) => MapEntry(k.toString(), int.tryParse(v.toString()) ?? 0),
+          (k, v) => MapEntry(k.toString(), int.tryParse(v.toString()) ?? 0),
         );
 
         setState(() {
@@ -266,8 +274,12 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
       case 'HalfDay':
         return kHalfDayColor;
       default:
-        if (widget.data.presentDates.any((d) => isSameDay(d, day))) return kPresentColor;
-        if (widget.data.absentDates.any((d) => isSameDay(d, day))) return kAbsentColor;
+        if (widget.data.presentDates.any((d) => isSameDay(d, day))) {
+          return kPresentColor;
+        }
+        if (widget.data.absentDates.any((d) => isSameDay(d, day))) {
+          return kAbsentColor;
+        }
         return null;
     }
   }
@@ -308,11 +320,11 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
       _focusedDay.month,
     );
     final remainingDays =
-    (today.year == _focusedDay.year && today.month == _focusedDay.month)
-        ? (totalDaysInMonth - today.day)
-        : (today.isBefore(DateTime(_focusedDay.year, _focusedDay.month))
-        ? totalDaysInMonth
-        : 0);
+        (today.year == _focusedDay.year && today.month == _focusedDay.month)
+            ? (totalDaysInMonth - today.day)
+            : (today.isBefore(DateTime(_focusedDay.year, _focusedDay.month))
+                ? totalDaysInMonth
+                : 0);
 
     return Scaffold(
       appBar: AppBar(
@@ -412,12 +424,12 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
   }
 
   Widget _dayCell(
-      DateTime day, {
-        Color? color,
-        bool isSelected = false,
-        bool isToday = false,
-        bool dim = false,
-      }) {
+    DateTime day, {
+    Color? color,
+    bool isSelected = false,
+    bool isToday = false,
+    bool dim = false,
+  }) {
     final bg = isSelected
         ? kAppBarColor
         : (isToday ? kButtonColor : (color ?? Colors.transparent));

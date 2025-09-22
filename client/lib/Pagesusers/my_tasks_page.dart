@@ -21,7 +21,7 @@
 // import 'package:http/http.dart' as http;
 
 // /* ================= CONFIG ================= */
-// const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+// const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 // /* ================= THEME ================= */
 // const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -768,7 +768,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:serv_app/models/company_data.dart';
 
-const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
@@ -785,12 +785,12 @@ class _TaskItem {
   final String id;
   final String title;
   final String description;
-  final String audience;     // "all" | "employee"
-  final String? assignedTo;  // empid when audience='employee'
-  final String? dueDate;     // ISO or yyyy-MM-dd
-  final String? createdAt;   // ISO string
-  final String? createdBy;   // uid/userId
-  final String? kind;        // "Task" | "DailyUpdate" | etc.
+  final String audience; // "all" | "employee"
+  final String? assignedTo; // empid when audience='employee'
+  final String? dueDate; // ISO or yyyy-MM-dd
+  final String? createdAt; // ISO string
+  final String? createdBy; // uid/userId
+  final String? kind; // "Task" | "DailyUpdate" | etc.
 
   _TaskItem({
     required this.id,
@@ -892,12 +892,23 @@ class _MyTasksPageState extends State<MyTasksPage> {
     final ist = parsed.toUtc().add(const Duration(hours: 5, minutes: 30));
     String two(int n) => n.toString().padLeft(2, '0');
     const months = [
-      'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
     ];
     final hour12 = ist.hour % 12 == 0 ? 12 : ist.hour % 12;
     final ampm = ist.hour >= 12 ? 'PM' : 'AM';
     return '${two(ist.day)} ${months[ist.month - 1]} ${ist.year}, '
-           '${two(hour12)}:${two(ist.minute)} $ampm';
+        '${two(hour12)}:${two(ist.minute)} $ampm';
   }
 
   // Label bold, value normal, consistent left alignment
@@ -961,7 +972,8 @@ class _MyTasksPageState extends State<MyTasksPage> {
         await _fetchTasks();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Post failed (${resp.statusCode}): ${resp.body}')),
+          SnackBar(
+              content: Text('Post failed (${resp.statusCode}): ${resp.body}')),
         );
       }
     } catch (e) {
@@ -1009,7 +1021,8 @@ class _MyTasksPageState extends State<MyTasksPage> {
               ),
               const SizedBox(height: 6),
               ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 200, minHeight: 120),
+                constraints:
+                    const BoxConstraints(maxHeight: 200, minHeight: 120),
                 child: TextField(
                   controller: controller,
                   maxLines: null,
@@ -1032,7 +1045,8 @@ class _MyTasksPageState extends State<MyTasksPage> {
                 children: [
                   TextButton(
                     onPressed: () => Navigator.pop(context),
-                    child: const Text('Cancel', style: TextStyle(color: kRoyalPurple)),
+                    child: const Text('Cancel',
+                        style: TextStyle(color: kRoyalPurple)),
                   ),
                   const SizedBox(width: 8),
                   ElevatedButton(
@@ -1044,7 +1058,8 @@ class _MyTasksPageState extends State<MyTasksPage> {
                       final text = controller.text.trim();
                       if (text.isEmpty) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Please enter a description')),
+                          const SnackBar(
+                              content: Text('Please enter a description')),
                         );
                         return;
                       }
@@ -1077,7 +1092,10 @@ class _MyTasksPageState extends State<MyTasksPage> {
             borderRadius: BorderRadius.circular(18),
             border: Border.all(color: kRoyalPurple, width: 1.4),
             boxShadow: const [
-              BoxShadow(color: Color(0x1A000000), blurRadius: 14, offset: Offset(0, 6)),
+              BoxShadow(
+                  color: Color(0x1A000000),
+                  blurRadius: 14,
+                  offset: Offset(0, 6)),
             ],
           ),
           child: ConstrainedBox(
@@ -1107,8 +1125,10 @@ class _MyTasksPageState extends State<MyTasksPage> {
                           style: ElevatedButton.styleFrom(
                             backgroundColor: kRoyalPurple,
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            textStyle:
+                                const TextStyle(fontWeight: FontWeight.w700),
                           ),
                           icon: const Icon(Icons.upload),
                           label: const Text('Upload'),
@@ -1117,9 +1137,9 @@ class _MyTasksPageState extends State<MyTasksPage> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  const Divider(height: 1, thickness: 1, color: Color(0x226B4EA2)),
+                  const Divider(
+                      height: 1, thickness: 1, color: Color(0x226B4EA2)),
                   const SizedBox(height: 8),
-
                   Flexible(
                     child: SingleChildScrollView(
                       padding: EdgeInsets.zero,
@@ -1127,15 +1147,16 @@ class _MyTasksPageState extends State<MyTasksPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           _kvRow('Title', t.title),
-                          _kvRow('Description', t.description.isNotEmpty ? t.description : '-'),
-                          if ((t.dueDate ?? '').isNotEmpty) _kvRow('Due Date', t.dueDate!),
+                          _kvRow('Description',
+                              t.description.isNotEmpty ? t.description : '-'),
+                          if ((t.dueDate ?? '').isNotEmpty)
+                            _kvRow('Due Date', t.dueDate!),
                           _kvRow('Created By', 'Admin'),
                           _kvRow('Created At', _formatISTDateTime(t.createdAt)),
                         ],
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 8),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
@@ -1164,7 +1185,8 @@ class _MyTasksPageState extends State<MyTasksPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('My Tasks'), backgroundColor: kAppBarColor),
+      appBar:
+          AppBar(title: const Text('My Tasks'), backgroundColor: kAppBarColor),
       body: Container(
         width: double.infinity,
         height: double.infinity,

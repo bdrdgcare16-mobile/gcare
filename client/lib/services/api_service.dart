@@ -6,7 +6,7 @@
 // import 'package:serv_app/html_stub.dart'
 //     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
-// const String _defaultApiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+// const String _defaultApiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 // const String apiBase =
 //     String.fromEnvironment('API_BASE', defaultValue: _defaultApiBase);
 
@@ -425,7 +425,7 @@ import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
-const String _defaultApiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String _defaultApiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 const String apiBase =
     String.fromEnvironment('API_BASE', defaultValue: _defaultApiBase);
 
@@ -459,8 +459,7 @@ class ApiService {
   }
 
   // -------------- helpers --------------
-  static String _ymd(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-'
+  static String _ymd(DateTime d) => '${d.year.toString().padLeft(4, '0')}-'
       '${d.month.toString().padLeft(2, '0')}-'
       '${d.day.toString().padLeft(2, '0')}';
 
@@ -509,28 +508,38 @@ class ApiService {
   }
 
   static String? _inferSource(Map<String, dynamic> item, {String? hint}) {
-    final fromItem =
-        (item['source'] ?? item['collection'] ?? item['src'])?.toString().toLowerCase();
+    final fromItem = (item['source'] ?? item['collection'] ?? item['src'])
+        ?.toString()
+        .toLowerCase();
     if (fromItem == 'attendance' || fromItem == 'leaves') return fromItem;
 
-    final t =
-        (item['type'] ?? item['category'] ?? hint ?? '').toString().toLowerCase();
+    final t = (item['type'] ?? item['category'] ?? hint ?? '')
+        .toString()
+        .toLowerCase();
     if (t.contains('late') ||
         t.contains('early') ||
         t.contains('attend') ||
-        t.contains('other location')) return 'attendance';
+        t.contains('other location')) {
+      return 'attendance';
+    }
     if (t.contains('leave') ||
         t.contains('permission') ||
         t.contains('over time') ||
         t.contains('half') ||
-        t.contains('comp')) return 'leaves';
+        t.contains('comp')) {
+      return 'leaves';
+    }
 
     if (item.containsKey('checkIn') ||
         item.containsKey('checkOut') ||
-        item.containsKey('requestTime')) return 'attendance';
+        item.containsKey('requestTime')) {
+      return 'attendance';
+    }
     if (item.containsKey('leaveType') ||
         item.containsKey('fromDate') ||
-        item.containsKey('toDate')) return 'leaves';
+        item.containsKey('toDate')) {
+      return 'leaves';
+    }
     return null;
   }
 
@@ -592,7 +601,10 @@ class ApiService {
 
     final body = jsonDecode(res.body);
     if (body is List) {
-      return body.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      return body
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
     }
     if (body is Map && body['items'] is List) {
       return (body['items'] as List)
@@ -664,12 +676,11 @@ class ApiService {
     String? sourceHint,
   }) async {
     final s = status.trim().toLowerCase();
-    final normalizedStatus =
-        (s == 'approve' || s == 'approved')
-            ? 'Approved'
-            : (s == 'reject' || s == 'rejected')
-                ? 'Rejected'
-                : (throw Exception('Decision failed: invalid status "$status"'));
+    final normalizedStatus = (s == 'approve' || s == 'approved')
+        ? 'Approved'
+        : (s == 'reject' || s == 'rejected')
+            ? 'Rejected'
+            : (throw Exception('Decision failed: invalid status "$status"'));
 
     String? src = sourceHint?.trim().toLowerCase();
     src ??= _inferSource(item);
@@ -690,8 +701,7 @@ class ApiService {
     if (genericId != null && genericId.isNotEmpty) payload['id'] = genericId;
 
     if (src == 'attendance') {
-      final attendanceId =
-          (item['attendanceId'] ?? item['attId'])?.toString();
+      final attendanceId = (item['attendanceId'] ?? item['attId'])?.toString();
       final empid =
           (item['empid'] ?? item['empId'] ?? item['employeeId'])?.toString();
       final rawDate =
@@ -709,9 +719,11 @@ class ApiService {
         payload['date'] = normDate;
       }
     } else {
-      final leaveId =
-          (item['leaveId'] ?? item['leave_id'] ?? item['requestId'] ?? item['id'])
-              ?.toString();
+      final leaveId = (item['leaveId'] ??
+              item['leave_id'] ??
+              item['requestId'] ??
+              item['id'])
+          ?.toString();
       if (leaveId == null || leaveId.isEmpty) {
         throw Exception('Decision failed: leaveId required');
       }
@@ -733,12 +745,11 @@ class ApiService {
     String? remarks,
   }) async {
     final s = status.trim().toLowerCase();
-    final normalizedStatus =
-        (s == 'approve' || s == 'approved')
-            ? 'Approved'
-            : (s == 'reject' || s == 'rejected')
-                ? 'Rejected'
-                : (throw Exception('Decision failed: invalid status "$status"'));
+    final normalizedStatus = (s == 'approve' || s == 'approved')
+        ? 'Approved'
+        : (s == 'reject' || s == 'rejected')
+            ? 'Rejected'
+            : (throw Exception('Decision failed: invalid status "$status"'));
 
     final first = await http.post(
       Uri.parse('$apiBase$_otherLocDecisionPath'),
@@ -784,7 +795,10 @@ class ApiService {
     }
     final body = jsonDecode(res.body);
     if (body is List) {
-      return body.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      return body
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
     }
     if (body is Map && body['items'] is List) {
       return (body['items'] as List)
@@ -822,7 +836,7 @@ class ApiService {
     if (_ok(res)) {
       final body = jsonDecode(res.body);
       return (body is Map)
-          ? Map<String, dynamic>.from(body as Map)
+          ? Map<String, dynamic>.from(body)
           : <String, dynamic>{};
     }
     throw Exception('details ${res.statusCode}: ${res.body}');

@@ -62,7 +62,7 @@
 // //   /// 1) Load the employee’s profile from your backend
 // //   Future<void> _loadUserInfo() async {
 // //     final token = CompanyData.token;
-// //     final url = Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/auth/me');
+// //     final url = Uri.parse('https://api-zmj7dqloiq-el.a.run.app/api/auth/me');
 
 // //     if (kDebugMode) {
 // //       print('[AttendanceScreen] GET $url');
@@ -138,7 +138,7 @@
 // //   // Common check-in logic: calls the API, then starts the timer
 // //   Future<void> _performCheckIn(String type) async {
 // //     final token = CompanyData.token;
-// //     final url = Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/attendance/check-in');
+// //     final url = Uri.parse('https://api-zmj7dqloiq-el.a.run.app/api/attendance/check-in');
 // //     final body = jsonEncode({
 // //       'empid': userId,
 // //       'name': userName,
@@ -186,7 +186,7 @@
 // //   // Common check-out logic: calls the API, then stops the timer
 // //   Future<void> _performCheckOut() async {
 // //     final token = CompanyData.token;
-// //     final url = Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/attendance/check-out');
+// //     final url = Uri.parse('https://api-zmj7dqloiq-el.a.run.app/api/attendance/check-out');
 // //     final body = jsonEncode({'empid': userId, 'location': location});
 
 // //     if (kDebugMode) {
@@ -908,7 +908,7 @@
 // //   /// 1) Load employee profile, then load today's attendance status
 // //   Future<void> _loadUserInfo() async {
 // //     final token = CompanyData.token;
-// //     final url = Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/auth/me');
+// //     final url = Uri.parse('https://api-zmj7dqloiq-el.a.run.app/api/auth/me');
 
 // //     if (kDebugMode) {
 // //       print('[AttendanceScreen] GET $url');
@@ -977,7 +977,7 @@
 // //     final token = CompanyData.token;
 // //     if (userId.isEmpty || token.isEmpty) return;
 
-// //     final url = Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/attendance/live');
+// //     final url = Uri.parse('https://api-zmj7dqloiq-el.a.run.app/api/attendance/live');
 
 // //     try {
 // //       final res = await http.get(url, headers: {'Authorization': 'Bearer $token'});
@@ -1068,7 +1068,7 @@
 // //   // Common check-in logic: calls the API, then starts the timer
 // //   Future<void> _performCheckIn(String type) async {
 // //     final token = CompanyData.token;
-// //     final url = Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/attendance/check-in');
+// //     final url = Uri.parse('https://api-zmj7dqloiq-el.a.run.app/api/attendance/check-in');
 // //     final body = jsonEncode({'empid': userId, 'name': userName, 'location': location});
 
 // //     if (kDebugMode) {
@@ -1130,7 +1130,7 @@
 // //   // Common check-out logic: calls the API, then stops the timer
 // //   Future<void> _performCheckOut() async {
 // //     final token = CompanyData.token;
-// //     final url = Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/attendance/check-out');
+// //     final url = Uri.parse('https://api-zmj7dqloiq-el.a.run.app/api/attendance/check-out');
 // //     final body = jsonEncode({'empid': userId, 'location': location});
 
 // //     if (kDebugMode) {
@@ -1790,7 +1790,7 @@
 // const Color kTextColor = Colors.white;
 
 // // ---- API base ----
-// const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+// const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 // // ---- Local persistence keys (base; we append empid so multi-user devices are safe) ----
 // const String _kCheckedInKeyBase = 'att_checked_in_';
@@ -2938,7 +2938,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 // ---- API base ----
-const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 // ---- Local persistence keys (base; we append empid so multi-user devices are safe) ----
 const String _kCheckedInKeyBase = 'att_checked_in_';
@@ -2973,22 +2973,22 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   // User states
   bool isFaceRegistered = false;
   bool isShiftSelected = false;
-  bool isCheckedIn = false;      // drives the button: true => show "Check Out"
+  bool isCheckedIn = false; // drives the button: true => show "Check Out"
   bool isTimerRunning = false;
 
   // Dynamic user info
   String userName = "";
-  String userId = "";            // empid
+  String userId = ""; // empid
   String dept = "";
-  String location = "";          // IMPORTANT: must equal officeLocations.branchName
+  String location = ""; // IMPORTANT: must equal officeLocations.branchName
 
   // Shift selection
   String selectedShift = "Shift";
   bool shiftClicked = false;
 
   // Timer variables
-  Timer? _timer;               // screen stopwatch
-  Timer? _autoCheckoutTimer;   // auto checkout at shift end
+  Timer? _timer; // screen stopwatch
+  Timer? _autoCheckoutTimer; // auto checkout at shift end
   int totalSeconds = 0;
   String hours = "00";
   String minutes = "00";
@@ -3002,7 +3002,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _loadUserInfo();          // fetch user + server status
+    _loadUserInfo(); // fetch user + server status
     _checkUserFaceRegistration();
   }
 
@@ -3090,8 +3090,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     try {
       final hms = timeStr.split(':');
       final inDT = DateTime(
-        today.year, today.month, today.day,
-        int.parse(hms[0]), int.parse(hms[1]), int.parse(hms[2]),
+        today.year,
+        today.month,
+        today.day,
+        int.parse(hms[0]),
+        int.parse(hms[1]),
+        int.parse(hms[2]),
       );
       final diff = DateTime.now().difference(inDT).inSeconds;
       totalSeconds = diff > 0 ? diff : 0;
@@ -3136,7 +3140,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final url = Uri.parse('$_apiBase/auth/me');
 
     try {
-      final res = await http.get(url, headers: {'Authorization': 'Bearer $token'});
+      final res =
+          await http.get(url, headers: {'Authorization': 'Bearer $token'});
       if (kDebugMode) {
         print('[AttendanceScreen] /auth/me -> ${res.statusCode}');
         print('[AttendanceScreen] body: ${res.body}');
@@ -3149,17 +3154,18 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
         setState(() {
           userName = (data['name'] ?? profile['name'] ?? "") as String;
-          userId   = (data['empid'] ?? profile['empid'] ?? "") as String;
-          dept     = (profile['dept'] ?? data['dept'] ?? "") as String;
+          userId = (data['empid'] ?? profile['empid'] ?? "") as String;
+          dept = (profile['dept'] ?? data['dept'] ?? "") as String;
 
           // This must equal an officeLocations.branchName
           location = (profile['location'] ?? data['location'] ?? "") as String;
 
-          selectedShift =
-              (profile['shiftGroup'] ?? data['shiftGroup'] ?? "Shift") as String;
+          selectedShift = (profile['shiftGroup'] ??
+              data['shiftGroup'] ??
+              "Shift") as String;
 
           final hasShift = selectedShift.isNotEmpty && selectedShift != "Shift";
-          shiftClicked    = hasShift;
+          shiftClicked = hasShift;
           isShiftSelected = hasShift;
         });
 
@@ -3168,8 +3174,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       } else {
         setState(() {
           userName = "(unknown)";
-          userId   = widget.employeeDocId;
-          dept     = "";
+          userId = widget.employeeDocId;
+          dept = "";
           location = "";
         });
         await _restoreCheckInFromPrefs();
@@ -3178,8 +3184,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       if (kDebugMode) print('[AttendanceScreen] _loadUserInfo error: $e');
       setState(() {
         userName = "(error)";
-        userId   = widget.employeeDocId;
-        dept     = "";
+        userId = widget.employeeDocId;
+        dept = "";
         location = "";
       });
       await _restoreCheckInFromPrefs();
@@ -3193,10 +3199,13 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final url = Uri.parse('$_apiBase/attendance/live');
 
     try {
-      final res = await http.get(url, headers: {'Authorization': 'Bearer $token'});
+      final res =
+          await http.get(url, headers: {'Authorization': 'Bearer $token'});
       if (kDebugMode) {
         print('[AttendanceScreen] /attendance/live -> ${res.statusCode}');
-        if (res.statusCode == 200) print('[AttendanceScreen] live body: ${res.body}');
+        if (res.statusCode == 200) {
+          print('[AttendanceScreen] live body: ${res.body}');
+        }
       }
       if (res.statusCode != 200) return;
 
@@ -3206,7 +3215,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         orElse: () => const {},
       );
 
-      final checkIn  = (me['checkIn']) as String?;
+      final checkIn = (me['checkIn']) as String?;
       final checkOut = (me['checkOut']) as String?;
 
       if (checkOut != null && checkOut.isNotEmpty) {
@@ -3240,8 +3249,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     try {
       final now = DateTime.now();
       final parts = hhmmss.split(':').map((s) => int.tryParse(s) ?? 0).toList();
-      final inDT = DateTime(now.year, now.month, now.day,
-          parts.elementAt(0), parts.elementAt(1), parts.elementAt(2));
+      final inDT = DateTime(now.year, now.month, now.day, parts.elementAt(0),
+          parts.elementAt(1), parts.elementAt(2));
       final diff = now.difference(inDT).inSeconds;
       final startSeconds = diff > 0 ? diff : 0;
 
@@ -3299,9 +3308,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Location Services Disabled'),
-          content: const Text('Please enable location services to use this feature.'),
+          content: const Text(
+              'Please enable location services to use this feature.'),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel')),
             TextButton(
               onPressed: () async {
                 await Geolocator.openLocationSettings();
@@ -3324,7 +3336,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       if (permission == LocationPermission.denied) {
         if (mounted && !quiet) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Location permissions are required for this feature')),
+            const SnackBar(
+                content:
+                    Text('Location permissions are required for this feature')),
           );
         }
         return false;
@@ -3338,9 +3352,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Location Permission Required'),
-          content: const Text('Location permissions are permanently denied. Please enable them in app settings.'),
+          content: const Text(
+              'Location permissions are permanently denied. Please enable them in app settings.'),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel')),
             TextButton(
               onPressed: () async {
                 await Geolocator.openAppSettings();
@@ -3397,19 +3414,24 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   Future<_Branch?> _fetchMyBranch() async {
     try {
-      final res = await http.get(Uri.parse('$_apiBase/office/locations'), headers: _authHeaders());
+      final res = await http.get(Uri.parse('$_apiBase/office/locations'),
+          headers: _authHeaders());
       if (res.statusCode != 200) return null;
       final list = (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
       final match = list.firstWhere(
-        (m) => (m['branchName'] ?? m['name'] ?? '').toString().trim().toLowerCase() ==
-               location.trim().toLowerCase(),
+        (m) =>
+            (m['branchName'] ?? m['name'] ?? '')
+                .toString()
+                .trim()
+                .toLowerCase() ==
+            location.trim().toLowerCase(),
         orElse: () => const {},
       );
       if (match.isEmpty) return null;
       final lat = (match['latitude'] as num).toDouble();
       final lng = (match['longitude'] as num).toDouble();
       final rad = (match['radius'] as num).toDouble();
-      final nm  = (match['branchName'] ?? match['name'] ?? '').toString();
+      final nm = (match['branchName'] ?? match['name'] ?? '').toString();
       return _Branch(nm, lat, lng, rad);
     } catch (_) {
       return null;
@@ -3425,7 +3447,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     return Geolocator.distanceBetween(lat1, lng1, lat2, lng2);
   }
 
-  Future<bool> _confirmOutside(double distance, double radius, String branchName) async {
+  Future<bool> _confirmOutside(
+      double distance, double radius, String branchName) async {
     return await showDialog<bool>(
           context: context,
           builder: (c) => AlertDialog(
@@ -3436,8 +3459,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               'Do you want to proceed with check-in here?',
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-              TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Proceed')),
+              TextButton(
+                  onPressed: () => Navigator.pop(c, false),
+                  child: const Text('Cancel')),
+              TextButton(
+                  onPressed: () => Navigator.pop(c, true),
+                  child: const Text('Proceed')),
             ],
           ),
         ) ??
@@ -3504,7 +3531,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       expLng = branch.lng;
       expRad = branch.radius;
       distance = _distanceMeters(
-        lat1: pos.latitude, lng1: pos.longitude, lat2: branch.lat, lng2: branch.lng,
+        lat1: pos.latitude,
+        lng1: pos.longitude,
+        lat2: branch.lat,
+        lng2: branch.lng,
       );
       within = distance <= branch.radius;
 
@@ -3514,7 +3544,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       }
     } else {
       // No matching branch found; treat as outside & ask once
-      final ok = await _confirmOutside(0, 0, location.isEmpty ? 'Unknown' : location);
+      final ok =
+          await _confirmOutside(0, 0, location.isEmpty ? 'Unknown' : location);
       if (!ok) return;
       within = false;
     }
@@ -3525,11 +3556,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final body = jsonEncode({
       'empid': userId,
       'name': userName,
-      'location': location,          // employee’s textual location
-      'latitude': pos.latitude,      // actual GPS
+      'location': location, // employee’s textual location
+      'latitude': pos.latitude, // actual GPS
       'longitude': pos.longitude,
       'accuracy': pos.accuracy,
-      'source': type,                // manual | biometric
+      'source': type, // manual | biometric
 
       // ---- extra office snapshot (server ignores unknown fields safely) ----
       'branchName': branchName,
@@ -3541,11 +3572,18 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       'otherLocation': !within,
     });
 
-    if (kDebugMode) print('[AttendanceScreen] POST /attendance/check-in body ready');
+    if (kDebugMode) {
+      print('[AttendanceScreen] POST /attendance/check-in body ready');
+    }
     _showLoadingDialog('Checking in…');
     try {
       final res = await http.post(
-        url, headers: {'Content-Type': 'application/json','Authorization': 'Bearer $token'}, body: body,
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token'
+        },
+        body: body,
       );
       if (mounted) Navigator.of(context, rootNavigator: true).pop();
 
@@ -3602,8 +3640,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         }
       } else {
         final msg =
-            (jsonDecode(res.body)['error'] ?? jsonDecode(res.body)['message']).toString();
-        if (msg.toLowerCase().contains('already') && msg.toLowerCase().contains('checked out')) {
+            (jsonDecode(res.body)['error'] ?? jsonDecode(res.body)['message'])
+                .toString();
+        if (msg.toLowerCase().contains('already') &&
+            msg.toLowerCase().contains('checked out')) {
           _resetTimerAndState();
           _cancelAutoCheckout();
           await _clearCheckInFromPrefs();
@@ -3640,7 +3680,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       expLng = branch.lng;
       expRad = branch.radius;
       distance = _distanceMeters(
-        lat1: pos.latitude, lng1: pos.longitude, lat2: branch.lat, lng2: branch.lng,
+        lat1: pos.latitude,
+        lng1: pos.longitude,
+        lat2: branch.lat,
+        lng2: branch.lng,
       );
       within = distance <= branch.radius;
     }
@@ -3668,7 +3711,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (!silent) _showLoadingDialog('Checking out…');
     try {
       final res = await http.post(
-        url, headers: {'Content-Type': 'application/json','Authorization': 'Bearer $token'}, body: body,
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token'
+        },
+        body: body,
       );
       if (!silent && mounted) Navigator.of(context, rootNavigator: true).pop();
 
@@ -3684,9 +3732,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         if (!silent) _showSuccessDialog('Checked out successfully!');
       } else {
         final msg =
-            (jsonDecode(res.body)['error'] ?? jsonDecode(res.body)['message']).toString();
+            (jsonDecode(res.body)['error'] ?? jsonDecode(res.body)['message'])
+                .toString();
 
-        if (msg.toLowerCase().contains('already') && msg.toLowerCase().contains('checked out')) {
+        if (msg.toLowerCase().contains('already') &&
+            msg.toLowerCase().contains('checked out')) {
           _resetTimerAndState();
           _cancelAutoCheckout();
           await _clearCheckInFromPrefs();
@@ -3729,7 +3779,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   void _stopWorkTimer() {
     final h = hours, m = minutes, s = seconds;
     _resetTimerAndState();
-    _showSuccessDialog('Check-out successful!\nWork duration: ${h}h ${m}m ${s}s');
+    _showSuccessDialog(
+        'Check-out successful!\nWork duration: ${h}h ${m}m ${s}s');
   }
 
   // -------------------- Shift & auto-checkout --------------------
@@ -3737,15 +3788,19 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     switch (shift.toLowerCase()) {
       case 'shift1':
       case 'day':
-        return const ShiftTimes(TimeOfDay(hour: 9, minute: 0), TimeOfDay(hour: 18, minute: 0));
+        return const ShiftTimes(
+            TimeOfDay(hour: 9, minute: 0), TimeOfDay(hour: 18, minute: 0));
       case 'shift2':
       case 'morning':
-        return const ShiftTimes(TimeOfDay(hour: 6, minute: 0), TimeOfDay(hour: 15, minute: 0));
+        return const ShiftTimes(
+            TimeOfDay(hour: 6, minute: 0), TimeOfDay(hour: 15, minute: 0));
       case 'shift3':
       case 'evening':
-        return const ShiftTimes(TimeOfDay(hour: 14, minute: 0), TimeOfDay(hour: 23, minute: 0));
+        return const ShiftTimes(
+            TimeOfDay(hour: 14, minute: 0), TimeOfDay(hour: 23, minute: 0));
       default:
-        return const ShiftTimes(TimeOfDay(hour: 9, minute: 0), TimeOfDay(hour: 18, minute: 0));
+        return const ShiftTimes(
+            TimeOfDay(hour: 9, minute: 0), TimeOfDay(hour: 18, minute: 0));
     }
   }
 
@@ -3766,10 +3821,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
 
     final now = DateTime.now();
-    final wait = endDT.isAfter(now) ? endDT.difference(now) : const Duration(seconds: 1);
+    final wait =
+        endDT.isAfter(now) ? endDT.difference(now) : const Duration(seconds: 1);
 
     if (kDebugMode) {
-      print('[AttendanceScreen] Auto-checkout at $endDT (in ${wait.inMinutes} min) for "$selectedShift"');
+      print(
+          '[AttendanceScreen] Auto-checkout at $endDT (in ${wait.inMinutes} min) for "$selectedShift"');
     }
 
     _autoCheckoutTimer = Timer(wait, () async {
@@ -3815,7 +3872,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         child: SafeArea(
           child: Padding(
             padding: EdgeInsets.only(
-              left: 16, top: 16, right: 16,
+              left: 16,
+              top: 16,
+              right: 16,
               bottom: 16 + MediaQuery.of(context).padding.bottom,
             ),
             child: Column(
@@ -3839,19 +3898,25 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(userName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      Text(userName,
+                          style: const TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 4),
-                      Text('$userId | $dept', style: const TextStyle(fontSize: 14, color: Colors.grey)),
+                      Text('$userId | $dept',
+                          style: const TextStyle(
+                              fontSize: 14, color: Colors.grey)),
                       const SizedBox(height: 6),
                       Row(
                         children: [
-                          Icon(Icons.calendar_today, size: 14, color: Colors.grey[600]),
+                          Icon(Icons.calendar_today,
+                              size: 14, color: Colors.grey[600]),
                           const SizedBox(width: 6),
                           Text(
                             '${DateTime.now().day.toString().padLeft(2, '0')} '
                             '${_getMonthName(DateTime.now().month)} '
                             '${DateTime.now().year}',
-                            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                            style: TextStyle(
+                                fontSize: 12, color: Colors.grey[600]),
                           ),
                         ],
                       ),
@@ -3865,7 +3930,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 SizedBox(
                   width: 65,
                   height: 65,
-                  child: Image.asset('assets/images/timer1.png', fit: BoxFit.contain),
+                  child: Image.asset('assets/images/timer1.png',
+                      fit: BoxFit.contain),
                 ),
 
                 const SizedBox(height: 15),
@@ -3874,15 +3940,29 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    _buildTimeBox(hours), const SizedBox(width: 6),
-                    Text(':', style: TextStyle(fontSize: 20, color: kButtonColor, fontWeight: FontWeight.bold)),
+                    _buildTimeBox(hours),
                     const SizedBox(width: 6),
-                    _buildTimeBox(minutes), const SizedBox(width: 6),
-                    Text(':', style: TextStyle(fontSize: 20, color: kButtonColor, fontWeight: FontWeight.bold)),
+                    Text(':',
+                        style: TextStyle(
+                            fontSize: 20,
+                            color: kButtonColor,
+                            fontWeight: FontWeight.bold)),
                     const SizedBox(width: 6),
-                    _buildTimeBox(seconds), const SizedBox(width: 12),
+                    _buildTimeBox(minutes),
+                    const SizedBox(width: 6),
+                    Text(':',
+                        style: TextStyle(
+                            fontSize: 20,
+                            color: kButtonColor,
+                            fontWeight: FontWeight.bold)),
+                    const SizedBox(width: 6),
+                    _buildTimeBox(seconds),
+                    const SizedBox(width: 12),
                     Text(isTimerRunning ? 'Work' : 'Hrs',
-                        style: TextStyle(fontSize: 14, color: kButtonColor, fontWeight: FontWeight.w500)),
+                        style: TextStyle(
+                            fontSize: 14,
+                            color: kButtonColor,
+                            fontWeight: FontWeight.w500)),
                   ],
                 ),
 
@@ -3890,14 +3970,18 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
                 // SHIFT read-only
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                   decoration: BoxDecoration(
                     color: kButtonColor,
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
                     selectedShift,
-                    style: const TextStyle(color: kTextColor, fontSize: 14, fontWeight: FontWeight.w500),
+                    style: const TextStyle(
+                        color: kTextColor,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500),
                   ),
                 ),
 
@@ -3915,7 +3999,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                             onPressed: _authenticateAndCheckIn,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: kButtonColor,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8)),
                               elevation: 2,
                             ),
                             child: Column(
@@ -3923,7 +4008,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                               children: const [
                                 Icon(Icons.face, color: kTextColor, size: 14),
                                 SizedBox(height: 2),
-                                Text('Register', style: TextStyle(color: kTextColor, fontSize: 9, fontWeight: FontWeight.w500)),
+                                Text('Register',
+                                    style: TextStyle(
+                                        color: kTextColor,
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w500)),
                               ],
                             ),
                           ),
@@ -3937,15 +4026,21 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                             onPressed: () => _performCheckIn('manual'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: kButtonColor,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8)),
                               elevation: 2,
                             ),
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: const [
-                                Icon(Icons.touch_app, color: kTextColor, size: 14),
+                                Icon(Icons.touch_app,
+                                    color: kTextColor, size: 14),
                                 SizedBox(height: 2),
-                                Text('Check in', style: TextStyle(color: kTextColor, fontSize: 9, fontWeight: FontWeight.w500)),
+                                Text('Check in',
+                                    style: TextStyle(
+                                        color: kTextColor,
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w500)),
                               ],
                             ),
                           ),
@@ -3961,7 +4056,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                       onPressed: _confirmCheckOut,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFFF6B6B),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
                         elevation: 2,
                       ),
                       child: const Row(
@@ -3969,7 +4065,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                         children: [
                           Icon(Icons.logout, color: kTextColor, size: 13),
                           SizedBox(width: 8),
-                          Text('Check Out', style: TextStyle(color: kTextColor, fontSize: 12, fontWeight: FontWeight.w500)),
+                          Text('Check Out',
+                              style: TextStyle(
+                                  color: kTextColor,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500)),
                         ],
                       ),
                     ),
@@ -4019,7 +4119,21 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   String _getMonthName(int month) {
-    const months = ['', 'JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    const months = [
+      '',
+      'JAN',
+      'FEB',
+      'MAR',
+      'APR',
+      'MAY',
+      'JUN',
+      'JUL',
+      'AUG',
+      'SEP',
+      'OCT',
+      'NOV',
+      'DEC'
+    ];
     return months[month];
   }
 
@@ -4034,7 +4148,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           'Work duration: ${hours}h ${minutes}m ${seconds}s',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(c, rootNavigator: true).pop(), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.of(c, rootNavigator: true).pop(),
+              child: const Text('Cancel')),
           TextButton(
             onPressed: () {
               Navigator.of(c, rootNavigator: true).pop();
@@ -4072,7 +4188,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         title: const Text('Success'),
         content: Text(message),
         actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext, rootNavigator: true).pop(), child: const Text('OK')),
+          TextButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext, rootNavigator: true).pop(),
+              child: const Text('OK')),
         ],
       ),
     );
@@ -4086,7 +4205,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         title: Text(title),
         content: Text(message),
         actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext, rootNavigator: true).pop(), child: const Text('OK')),
+          TextButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext, rootNavigator: true).pop(),
+              child: const Text('OK')),
         ],
       ),
     );
@@ -4100,7 +4222,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         title: const Text('Error'),
         content: Text(message),
         actions: [
-          TextButton(onPressed: () => Navigator.of(dialogContext, rootNavigator: true).pop(), child: const Text('OK')),
+          TextButton(
+              onPressed: () =>
+                  Navigator.of(dialogContext, rootNavigator: true).pop(),
+              child: const Text('OK')),
         ],
       ),
     );

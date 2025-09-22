@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:serv_app/html_stub.dart'
-  if (dart.library.html) 'package:serv_app/html_web.dart' as html; // token from localStorage on web
+    if (dart.library.html) 'package:serv_app/html_web.dart'
+    as html; // token from localStorage on web
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
@@ -14,7 +15,7 @@ const Color kAppBarColor = Color(0xFF8C6EAF);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
-const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 class LeaveFormPage extends StatefulWidget {
   const LeaveFormPage({super.key});
@@ -89,7 +90,8 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
     final token = _getToken();
     if (token == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Not logged in'), backgroundColor: Colors.red),
+        const SnackBar(
+            content: Text('Not logged in'), backgroundColor: Colors.red),
       );
       return;
     }
@@ -142,8 +144,8 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar:
-          AppBar(title: const Text('Add Leave Type'), backgroundColor: kAppBarColor),
+      appBar: AppBar(
+          title: const Text('Add Leave Type'), backgroundColor: kAppBarColor),
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -246,8 +248,7 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(6),
       ),
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
     );
   }
 }

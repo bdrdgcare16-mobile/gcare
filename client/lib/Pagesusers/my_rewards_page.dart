@@ -219,7 +219,8 @@
 // }
 import 'dart:convert';
 import 'package:serv_app/html_stub.dart'
-  if (dart.library.html) 'package:serv_app/html_web.dart' as html;// for Flutter Web localStorage
+    if (dart.library.html) 'package:serv_app/html_web.dart'
+    as html; // for Flutter Web localStorage
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
@@ -227,7 +228,7 @@ import 'package:http/http.dart' as http;
 import 'package:serv_app/models/company_data.dart';
 
 // Match your Node server base
-const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 class UserRewardsPage extends StatefulWidget {
   const UserRewardsPage({super.key});

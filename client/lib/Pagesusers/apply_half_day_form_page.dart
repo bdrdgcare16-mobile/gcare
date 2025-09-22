@@ -55,7 +55,7 @@
 // // //       return;
 // // //     }
 
-// // //     final url = Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/apply-compoff');
+// // //     final url = Uri.parse('https://api-zmj7dqloiq-el.a.run.app/api/apply-compoff');
 
 // // //     final response = await http.post(
 // // //       url,
@@ -304,7 +304,7 @@
 
 // //   Future<void> _submitForm() async {
 // //     if (_formKey.currentState!.validate()) {
-// //       final url = Uri.parse("https://api-zmj7dqloiq-uc.a.run.app/api/apply-halfday");
+// //       final url = Uri.parse("https://api-zmj7dqloiq-el.a.run.app/api/apply-halfday");
 
 // //       final body = {
 // //         "date": DateFormat("yyyy-MM-dd").format(selectedDate!),
@@ -529,7 +529,7 @@
 //       return;
 //     }
 
-//     final url = Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/apply-compoff');
+//     final url = Uri.parse('https://api-zmj7dqloiq-el.a.run.app/api/apply-compoff');
 
 //     final response = await http.post(
 //       url,
@@ -982,7 +982,8 @@ import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:serv_app/html_stub.dart'
-  if (dart.library.html) 'package:serv_app/html_web.dart' as html;// for Flutter Web localStorage
+    if (dart.library.html) 'package:serv_app/html_web.dart'
+    as html; // for Flutter Web localStorage
 import 'package:serv_app/models/company_data.dart';
 
 // 🎨 Your Color Constants
@@ -993,7 +994,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 /// Match your Node server port
-const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 class ApplyHalfDayForm extends StatefulWidget {
   const ApplyHalfDayForm({super.key});
@@ -1156,8 +1157,9 @@ class _ApplyHalfDayFormState extends State<ApplyHalfDayForm> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.transparent, // ✅ let the gradient be visible edge-to-edge
-      extendBody: true,                    // ✅ extend body under bottom area
+      backgroundColor:
+          Colors.transparent, // ✅ let the gradient be visible edge-to-edge
+      extendBody: true, // ✅ extend body under bottom area
       appBar: AppBar(
         title: const Text("Apply CompOff"),
         backgroundColor: kAppBarColor,

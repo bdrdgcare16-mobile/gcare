@@ -473,7 +473,7 @@ import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
-const String _defaultApiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String _defaultApiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 const String apiBase =
     String.fromEnvironment('API_BASE', defaultValue: _defaultApiBase);
 
@@ -540,7 +540,8 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
   /* -------------------- lat/lng parsing helpers -------------------- */
 
   LatLng? _parseLatLngString(String s) {
-    final parts = s.split(RegExp(r'[,\s]+')).where((e) => e.isNotEmpty).toList();
+    final parts =
+        s.split(RegExp(r'[,\s]+')).where((e) => e.isNotEmpty).toList();
     if (parts.length < 2) return null;
     final lat = double.tryParse(parts[0]);
     final lng = double.tryParse(parts[1]);
@@ -688,7 +689,10 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
     final lat1 = a.latitude * math.pi / 180.0;
     final lat2 = b.latitude * math.pi / 180.0;
     final h = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(lat1) * math.cos(lat2) * math.sin(dLng / 2) * math.sin(dLng / 2);
+        math.cos(lat1) *
+            math.cos(lat2) *
+            math.sin(dLng / 2) *
+            math.sin(dLng / 2);
     return R * 2 * math.atan2(math.sqrt(h), math.sqrt(1 - h));
   }
 
@@ -707,12 +711,15 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
       return _haversineMeters(req, center) <= expectedRadius ? 'Yes' : 'No';
     }
     if (req != null && center != null) {
-      return _haversineMeters(req, center) <= kDefaultRadiusMeters ? 'Yes' : 'No';
+      return _haversineMeters(req, center) <= kDefaultRadiusMeters
+          ? 'Yes'
+          : 'No';
     }
     return '-';
   }
 
-  Future<void> _focusOn(LatLng target, {double zoom = 17, String? markerId}) async {
+  Future<void> _focusOn(LatLng target,
+      {double zoom = 17, String? markerId}) async {
     if (!_mapCtrl.isCompleted) {
       _pendingTarget = target;
       _pendingMarkerId = markerId;
@@ -759,25 +766,27 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
     if (t.contains('late') || t.contains('early')) return 'attendance';
     if (m.containsKey('withinRadius') ||
         m.containsKey('expectedLatitude') ||
-        m.containsKey('otherLocation')) return 'other_location';
+        m.containsKey('otherLocation')) {
+      return 'other_location';
+    }
     return 'attendance';
   }
 
   Future<void> _fetchAndMergeDetails() async {
     // Prepare query using whatever we have
     String id = (_data['id'] ??
-            _data['requestId'] ??
-            _data['docId'] ??
-            _data['attendanceId'] ??
-            _data['otherLocId'])
-        ?.toString() ??
+                _data['requestId'] ??
+                _data['docId'] ??
+                _data['attendanceId'] ??
+                _data['otherLocId'])
+            ?.toString() ??
         '';
     String empid =
         (_data['empid'] ?? _data['empId'] ?? _data['employeeId'])?.toString() ??
             '';
-    String date =
-        (_data['requestDate'] ?? _data['date'] ?? _data['onDate'])?.toString() ??
-            '';
+    String date = (_data['requestDate'] ?? _data['date'] ?? _data['onDate'])
+            ?.toString() ??
+        '';
     if (date.length > 10) date = date.substring(0, 10);
     final src = _inferSrc(_data);
 
@@ -893,8 +902,9 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
       withinFlag: withinRadiusFlag,
     );
 
-    final distanceText =
-        (distanceFromBranch != null) ? distanceFromBranch.toStringAsFixed(0) : '-';
+    final distanceText = (distanceFromBranch != null)
+        ? distanceFromBranch.toStringAsFixed(0)
+        : '-';
 
     // Map target preference
     final LatLng initialTarget =
@@ -914,7 +924,8 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
           markerId: const MarkerId('branch'),
           position: centerLL,
           infoWindow: const InfoWindow(title: 'Branch Center'),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          icon:
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
         ),
     };
 
@@ -930,11 +941,11 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
         ),
     };
 
-    void _focusRequest() {
+    void focusRequest() {
       if (reqLL != null) _focusOn(reqLL, markerId: 'request');
     }
 
-    void _focusExpected() {
+    void focusExpected() {
       if (centerLL != null) _focusOn(centerLL, markerId: 'branch');
     }
 
@@ -964,8 +975,7 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (_loadingDetails)
-              const LinearProgressIndicator(minHeight: 2),
+            if (_loadingDetails) const LinearProgressIndicator(minHeight: 2),
             // HIDE error line in UI (kept for logs only)
             const SizedBox(height: 4),
 
@@ -978,7 +988,8 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
                   children: [
                     _row('Employee Name', name, 'Request Type',
                         _pickStr(['type', 'category'])),
-                    _row('Requested Time', requestTime, 'Request Date', requestDate),
+                    _row('Requested Time', requestTime, 'Request Date',
+                        requestDate),
                     _row(
                       'Employee Reason',
                       freeTextReason.isEmpty ? '-' : freeTextReason,
@@ -987,7 +998,7 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
                     ),
                     const SizedBox(height: 10),
                     InkWell(
-                      onTap: _focusRequest,
+                      onTap: focusRequest,
                       child: const Padding(
                         padding: EdgeInsets.only(bottom: 6),
                         child: Text('Location Preview',
@@ -997,10 +1008,10 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
                     _rowTap(
                       leftLabel: 'Request location',
                       leftValue: requestLocationText,
-                      leftOnTap: _focusRequest,
+                      leftOnTap: focusRequest,
                       rightLabel: 'Branch location',
                       rightValue: branchLocationText,
-                      rightOnTap: _focusExpected,
+                      rightOnTap: focusExpected,
                     ),
                     _row('Within radius', withinRadiusText,
                         'Distance from branch (m)', distanceText),
@@ -1015,11 +1026,12 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
                             final id = _pendingMarkerId;
                             _pendingTarget = null;
                             _pendingMarkerId = null;
-                            await Future.microtask(() => _focusOn(t, markerId: id));
+                            await Future.microtask(
+                                () => _focusOn(t, markerId: id));
                           }
                         },
-                        initialCameraPosition:
-                            CameraPosition(target: initialTarget, zoom: initialZoom),
+                        initialCameraPosition: CameraPosition(
+                            target: initialTarget, zoom: initialZoom),
                         markers: markers,
                         circles: circles,
                         myLocationEnabled: false,
@@ -1044,17 +1056,18 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
                     onPressed: () => Navigator.pop(context),
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: kButtonColor),
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 12),
                     ),
-                    child: const Text('Cancel', style: TextStyle(color: kButtonColor)),
+                    child: const Text('Cancel',
+                        style: TextStyle(color: kButtonColor)),
                   ),
                   ElevatedButton(
                     onPressed: () => Navigator.pop(context, 'rejected'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red,
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 12),
                     ),
                     child: const Text('Reject'),
                   ),
@@ -1062,8 +1075,8 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
                     onPressed: () => Navigator.pop(context, 'approved'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 12),
                     ),
                     child: const Text('Approve'),
                   ),

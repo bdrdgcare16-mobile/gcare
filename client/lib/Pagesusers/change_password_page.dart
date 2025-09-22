@@ -1,4 +1,3 @@
-
 // import 'package:flutter/material.dart';
 
 // // Theme Colors
@@ -194,7 +193,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 // If you already declare this elsewhere, you can remove this line.
-const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 // Theme Colors
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -225,8 +224,12 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
   String? validateStrongPassword(String? value) {
     if (value == null || value.isEmpty) return 'Enter new password';
     if (value.length < 8) return 'Minimum 8 characters required';
-    if (!RegExp(r'[a-z]').hasMatch(value)) return 'Include at least one lowercase letter';
-    if (!RegExp(r'[A-Z]').hasMatch(value)) return 'Include at least one uppercase letter';
+    if (!RegExp(r'[a-z]').hasMatch(value)) {
+      return 'Include at least one lowercase letter';
+    }
+    if (!RegExp(r'[A-Z]').hasMatch(value)) {
+      return 'Include at least one uppercase letter';
+    }
     if (!RegExp(r'[0-9]').hasMatch(value)) return 'Include at least one number';
     if (!RegExp(r'[!@#\$%^&*(),.?":{}|<>]').hasMatch(value)) {
       return 'Include at least one special character';
@@ -279,7 +282,8 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
 
       if (emailLower == null || emailLower.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('User not found (no email). Please login again.')),
+          const SnackBar(
+              content: Text('User not found (no email). Please login again.')),
         );
         setState(() => _submitting = false);
         return;
@@ -301,11 +305,15 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
         _newPassController.clear();
         _confirmPassController.clear();
       } else {
-        final msg = (data['error'] ?? data['message'] ?? 'Change password failed').toString();
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+        final msg =
+            (data['error'] ?? data['message'] ?? 'Change password failed')
+                .toString();
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(msg)));
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Error: $e')));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -331,7 +339,9 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
               text: labelText,
               style: const TextStyle(color: Colors.black, fontSize: 16),
               children: requiredMark
-                  ? const [TextSpan(text: ' *', style: TextStyle(color: Colors.red))]
+                  ? const [
+                      TextSpan(text: ' *', style: TextStyle(color: Colors.red))
+                    ]
                   : const [],
             ),
           ),
@@ -358,7 +368,8 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
       child: const Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Password must contain:', style: TextStyle(fontWeight: FontWeight.bold)),
+          Text('Password must contain:',
+              style: TextStyle(fontWeight: FontWeight.bold)),
           SizedBox(height: 8),
           Text('• Minimum of 8 characters'),
           Text('• At least one lowercase letter (a-z)'),
@@ -409,9 +420,10 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
                   labelText: 'Old Password',
                   controller: _oldPassController,
                   obscureText: _isOldObscure,
-                  toggleObscure: () => setState(() => _isOldObscure = !_isOldObscure),
-                  validator: null,           // <- optional
-                  requiredMark: false,       // <- remove red *
+                  toggleObscure: () =>
+                      setState(() => _isOldObscure = !_isOldObscure),
+                  validator: null, // <- optional
+                  requiredMark: false, // <- remove red *
                 ),
 
                 // NEW PASSWORD — STRONG VALIDATION
@@ -419,7 +431,8 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
                   labelText: 'New Password',
                   controller: _newPassController,
                   obscureText: _isNewObscure,
-                  toggleObscure: () => setState(() => _isNewObscure = !_isNewObscure),
+                  toggleObscure: () =>
+                      setState(() => _isNewObscure = !_isNewObscure),
                   validator: validateStrongPassword,
                 ),
 
@@ -428,10 +441,15 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
                   labelText: 'Confirm New Password',
                   controller: _confirmPassController,
                   obscureText: _isConfirmObscure,
-                  toggleObscure: () => setState(() => _isConfirmObscure = !_isConfirmObscure),
+                  toggleObscure: () =>
+                      setState(() => _isConfirmObscure = !_isConfirmObscure),
                   validator: (value) {
-                    if (value == null || value.isEmpty) return 'Confirm your password';
-                    if (value != _newPassController.text) return 'Passwords do not match';
+                    if (value == null || value.isEmpty) {
+                      return 'Confirm your password';
+                    }
+                    if (value != _newPassController.text) {
+                      return 'Passwords do not match';
+                    }
                     return null;
                   },
                 ),
@@ -446,7 +464,10 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
                   ),
                   child: _submitting
                       ? const SizedBox(
-                          width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                              color: Colors.white, strokeWidth: 2))
                       : const Text('Change Password'),
                 ),
               ],

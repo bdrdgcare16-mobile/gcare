@@ -14,7 +14,7 @@
 // const Color kTextColor = Colors.white;
 
 // // ===== Backend base =====
-// const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+// const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 // class LocationModel {
 //   final String docId;    // Firestore doc id
@@ -467,10 +467,10 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 // ===== Backend base =====
-const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 class LocationModel {
-  final String docId;    // Firestore doc id
+  final String docId; // Firestore doc id
   final String branchName;
   final String address;
   final double radius;
@@ -527,7 +527,8 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
         Uri.parse('$_apiBase/office/locations'),
         headers: _authHeaders(),
       );
-      debugPrint('[Office] GET /office/locations -> ${res.statusCode} ${res.body}');
+      debugPrint(
+          '[Office] GET /office/locations -> ${res.statusCode} ${res.body}');
       if (res.statusCode == 200) {
         final List data = jsonDecode(res.body) as List;
         _locations
@@ -541,7 +542,8 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
             final rad = (m['radius'] as num).toDouble();
             return LocationModel(
               docId: (m['docId'] ?? m['id'] ?? '').toString(),
-              branchName: (m['branchName'] ?? m['name'] ?? m['branch'] ?? '').toString(),
+              branchName: (m['branchName'] ?? m['name'] ?? m['branch'] ?? '')
+                  .toString(),
               address: (m['address'] ?? '').toString(),
               radius: rad,
               latLng: LatLng(lat, lng),
@@ -576,7 +578,7 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
         headers: _authHeaders(),
         body: jsonEncode({
           'branchName': branchName, // preferred key
-          'name': branchName,       // compatibility
+          'name': branchName, // compatibility
           'address': address,
           'radius': radius,
           'latitude': latitude,
@@ -598,7 +600,8 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
         Uri.parse('$_apiBase/office/delete/$docId'),
         headers: _authHeaders(),
       );
-      debugPrint('[Office] DELETE /office/delete/$docId -> ${res.statusCode} ${res.body}');
+      debugPrint(
+          '[Office] DELETE /office/delete/$docId -> ${res.statusCode} ${res.body}');
       if (res.statusCode == 200) return true;
       _toast('Delete failed (${res.statusCode})');
     } catch (e) {
@@ -629,7 +632,8 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
       'https://nominatim.openstreetmap.org/search?q=$address&format=json&limit=1',
     );
     try {
-      final response = await http.get(url, headers: {'User-Agent': 'FlutterApp'});
+      final response =
+          await http.get(url, headers: {'User-Agent': 'FlutterApp'});
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data is List && data.isNotEmpty) {
@@ -672,7 +676,8 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
             children: [
               TextField(
                 controller: branchController,
-                decoration: const InputDecoration(labelText: 'Branch location name'),
+                decoration:
+                    const InputDecoration(labelText: 'Branch location name'),
                 textCapitalization: TextCapitalization.words,
               ),
               TextField(
@@ -688,32 +693,44 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
               TextField(
                 controller: latController,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Latitude (optional)'),
+                decoration:
+                    const InputDecoration(labelText: 'Latitude (optional)'),
               ),
               TextField(
                 controller: lngController,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Longitude (optional)'),
+                decoration:
+                    const InputDecoration(labelText: 'Longitude (optional)'),
               ),
             ],
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: kButtonColor, foregroundColor: kTextColor),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: kButtonColor, foregroundColor: kTextColor),
             onPressed: () async {
               final branch = branchController.text.trim();
               final address = addressController.text.trim();
               final radius = double.tryParse(radiusController.text) ?? 100.0;
 
-              if (branch.isEmpty) { _toast('Please enter branch location name'); return; }
-              if (address.isEmpty) { _toast('Please enter address'); return; }
+              if (branch.isEmpty) {
+                _toast('Please enter branch location name');
+                return;
+              }
+              if (address.isEmpty) {
+                _toast('Please enter address');
+                return;
+              }
 
               double? lat = double.tryParse(latController.text.trim());
               double? lng = double.tryParse(lngController.text.trim());
-              LatLng? coords =
-                  (lat != null && lng != null) ? LatLng(lat, lng) : await _geocodeAddress(address);
+              LatLng? coords = (lat != null && lng != null)
+                  ? LatLng(lat, lng)
+                  : await _geocodeAddress(address);
 
               if (coords == null) {
                 _toast('Could not determine location');
@@ -781,7 +798,8 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
         backgroundColor: Colors.transparent,
         appBar: AppBar(
           backgroundColor: kAppBarColor,
-          title: const Text('Office Location', style: TextStyle(color: kTextColor)),
+          title: const Text('Office Location',
+              style: TextStyle(color: kTextColor)),
           leading: const BackButton(color: kTextColor),
           actions: [
             IconButton(
@@ -811,7 +829,8 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
                     Expanded(
                       child: TextField(
                         controller: _searchController,
-                        decoration: const InputDecoration(hintText: 'Search Location'),
+                        decoration:
+                            const InputDecoration(hintText: 'Search Location'),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -827,7 +846,6 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
                   ],
                 ),
                 const SizedBox(height: 10),
-
                 if (_loading)
                   const Padding(
                     padding: EdgeInsets.all(24.0),
@@ -851,8 +869,7 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (loc.branchName.isNotEmpty)
-                              Text(loc.address),
+                            if (loc.branchName.isNotEmpty) Text(loc.address),
                             Text('Radius: ${loc.radius.toStringAsFixed(0)}M'),
                           ],
                         ),
@@ -865,7 +882,8 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
                           children: [
                             IconButton(
                               icon: const Icon(Icons.edit),
-                              onPressed: () => _addOrEditLocation(indexToEdit: index),
+                              onPressed: () =>
+                                  _addOrEditLocation(indexToEdit: index),
                             ),
                             IconButton(
                               icon: const Icon(Icons.delete),
@@ -876,7 +894,6 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
                       );
                     },
                   ),
-
                 const SizedBox(height: 10),
                 SizedBox(
                   height: 260,
@@ -891,7 +908,8 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
                         ),
                         children: [
                           TileLayer(
-                            urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            urlTemplate:
+                                'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
                             subdomains: const ['a', 'b', 'c'],
                           ),
                           MarkerLayer(

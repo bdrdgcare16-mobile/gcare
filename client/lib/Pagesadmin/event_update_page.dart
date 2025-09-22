@@ -3,13 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:serv_app/html_stub.dart'
-  if (dart.library.html) 'package:serv_app/html_web.dart' as html;// Web-only APIs (fine for Flutter Web builds)
+    if (dart.library.html) 'package:serv_app/html_web.dart'
+    as html; // Web-only APIs (fine for Flutter Web builds)
 
 import 'event_model_page.dart';
 import 'add_event_page.dart';
 
 // ====== CONFIG ======
-const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 // Derive the origin (no /api) so we can resolve /uploads/...
 final String _apiOrigin = apiBase.replaceFirst(RegExp(r'/api/?$'), '');
 
@@ -132,7 +133,8 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.broken_image, size: 48, color: Colors.grey),
+                          const Icon(Icons.broken_image,
+                              size: 48, color: Colors.grey),
                           const SizedBox(height: 8),
                           Text(
                             'Could not load image',
@@ -141,7 +143,8 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
                           const SizedBox(height: 4),
                           Text(
                             link,
-                            style: const TextStyle(fontSize: 12, color: Colors.grey),
+                            style: const TextStyle(
+                                fontSize: 12, color: Colors.grey),
                             textAlign: TextAlign.center,
                           ),
                         ],
@@ -179,8 +182,12 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
         ),
         title: const Text('Event Updates', style: TextStyle(color: kTextColor)),
         actions: [
-          IconButton(icon: const Icon(Icons.search, color: kTextColor), onPressed: _search),
-          IconButton(icon: const Icon(Icons.refresh, color: kTextColor), onPressed: _load),
+          IconButton(
+              icon: const Icon(Icons.search, color: kTextColor),
+              onPressed: _search),
+          IconButton(
+              icon: const Icon(Icons.refresh, color: kTextColor),
+              onPressed: _load),
         ],
       ),
       body: Padding(
@@ -193,27 +200,35 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
               children: [
                 ElevatedButton.icon(
                   onPressed: _downloadCsv,
-                  style: ElevatedButton.styleFrom(backgroundColor: kButtonColor, foregroundColor: kTextColor),
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: kButtonColor,
+                      foregroundColor: kTextColor),
                   icon: const Icon(Icons.download),
                   label: const Text("Download"),
                 ),
                 const SizedBox(width: 10),
                 ElevatedButton.icon(
                   onPressed: () async {
-                    await Navigator.push(context, MaterialPageRoute(builder: (_) => const EventUploadPage()));
+                    await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const EventUploadPage()));
                     await _load();
                   },
-                  style: ElevatedButton.styleFrom(backgroundColor: kButtonColor, foregroundColor: kTextColor),
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: kButtonColor,
+                      foregroundColor: kTextColor),
                   icon: const Icon(Icons.add),
                   label: const Text("Add"),
                 ),
               ],
             ),
             const SizedBox(height: 10),
-
             Expanded(
               child: Container(
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10)),
+                decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10)),
                 child: _loading
                     ? const Center(child: CircularProgressIndicator())
                     : SingleChildScrollView(
@@ -223,8 +238,10 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
                           child: Column(
                             children: [
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                color: kPrimaryBackgroundBottom.withOpacity(0.5),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 8),
+                                color:
+                                    kPrimaryBackgroundBottom.withOpacity(0.5),
                                 child: Row(
                                   children: const [
                                     _HeaderCell('Event Name', width: 160),
@@ -246,40 +263,61 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
                                         itemBuilder: (_, i) {
                                           final e = _filtered[i];
                                           return Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 10, vertical: 10),
                                             decoration: BoxDecoration(
-                                              border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
+                                              border: Border(
+                                                  bottom: BorderSide(
+                                                      color: Colors
+                                                          .grey.shade300)),
                                             ),
                                             child: Row(
                                               children: [
                                                 _BodyCell(e.title, width: 160),
                                                 _BodyCell(
-                                                  e.fromDate.toIso8601String().split('T').first,
+                                                  e.fromDate
+                                                      .toIso8601String()
+                                                      .split('T')
+                                                      .first,
                                                   width: 120,
                                                 ),
                                                 _BodyCell(
-                                                  e.toDate.toIso8601String().split('T').first,
+                                                  e.toDate
+                                                      .toIso8601String()
+                                                      .split('T')
+                                                      .first,
                                                   width: 120,
                                                 ),
-                                                _BodyCell(e.location, width: 150),
+                                                _BodyCell(e.location,
+                                                    width: 150),
 
                                                 // ====== VIEW BUTTON (in-app preview) ======
                                                 SizedBox(
                                                   width: 100,
-                                                  child: (e.imageUrl ?? '').isEmpty
-                                                      ? const Text('—', textAlign: TextAlign.center)
+                                                  child: (e.imageUrl ?? '')
+                                                          .isEmpty
+                                                      ? const Text('—',
+                                                          textAlign:
+                                                              TextAlign.center)
                                                       : TextButton(
-                                                          onPressed: () => _showImagePreview(e.imageUrl),
-                                                          child: const Text('View'),
+                                                          onPressed: () =>
+                                                              _showImagePreview(
+                                                                  e.imageUrl),
+                                                          child: const Text(
+                                                              'View'),
                                                         ),
                                                 ),
 
-                                                _BodyCell(e.description, width: 260),
+                                                _BodyCell(e.description,
+                                                    width: 260),
                                                 SizedBox(
                                                   width: 60,
                                                   child: IconButton(
-                                                    icon: const Icon(Icons.delete, color: Colors.red),
-                                                    onPressed: () => _delete(e.id),
+                                                    icon: const Icon(
+                                                        Icons.delete,
+                                                        color: Colors.red),
+                                                    onPressed: () =>
+                                                        _delete(e.id),
                                                   ),
                                                 ),
                                               ],
@@ -315,7 +353,10 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
           TextButton(
             onPressed: () {
               setState(() {
-                _filtered = eventsList.where((e) => e.title.toLowerCase().contains(q.toLowerCase())).toList();
+                _filtered = eventsList
+                    .where(
+                        (e) => e.title.toLowerCase().contains(q.toLowerCase()))
+                    .toList();
               });
               Navigator.of(context).pop();
             },

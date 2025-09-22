@@ -8,7 +8,7 @@ import 'package:http/http.dart' as http;
 
 // Web-only storage shims (safe on non-web due to conditional import)
 import 'package:serv_app/html_stub.dart'
-  if (dart.library.html) 'package:serv_app/html_web.dart' as html;
+    if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
 import 'package:serv_app/models/company_data.dart'; // shared model with static fields
 
@@ -20,7 +20,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 // ===== Backend base (same as the rest of the app) =====
-const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 class CompanyProfilePage extends StatefulWidget {
   const CompanyProfilePage({super.key});
@@ -42,19 +42,19 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
   late final TextEditingController _adminRoleCtrl;
 
   final ImagePicker _picker = ImagePicker();
-  XFile? _logoFile;       // persisted via CompanyData too
-  Uint8List? _logoBytes;  // for avatar preview
+  XFile? _logoFile; // persisted via CompanyData too
+  Uint8List? _logoBytes; // for avatar preview
 
   @override
   void initState() {
     super.initState();
 
     // Seed from CompanyData so the UI has something immediately.
-    _logoFile      = CompanyData.logoFile;
-    _nameCtrl      = TextEditingController(text: CompanyData.companyName);
-    _emailCtrl     = TextEditingController(text: CompanyData.email);
-    _phoneCtrl     = TextEditingController(text: CompanyData.phone);
-    _websiteCtrl   = TextEditingController(text: CompanyData.website);
+    _logoFile = CompanyData.logoFile;
+    _nameCtrl = TextEditingController(text: CompanyData.companyName);
+    _emailCtrl = TextEditingController(text: CompanyData.email);
+    _phoneCtrl = TextEditingController(text: CompanyData.phone);
+    _websiteCtrl = TextEditingController(text: CompanyData.website);
     _adminNameCtrl = TextEditingController(text: CompanyData.adminName);
     _adminRoleCtrl = TextEditingController(text: CompanyData.adminRole);
 
@@ -113,10 +113,10 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
 
         // Map server -> UI fields
         final companyName = (data['companyName'] ?? '').toString();
-        final email       = (data['email'] ?? '').toString();
-        final phone       = (data['phone'] ?? '').toString();
-        final website     = (data['website'] ?? '').toString();
-        final adminName   = (data['adminName'] ?? '').toString();
+        final email = (data['email'] ?? '').toString();
+        final phone = (data['phone'] ?? '').toString();
+        final website = (data['website'] ?? '').toString();
+        final adminName = (data['adminName'] ?? '').toString();
         final designation = (data['designation'] ?? '').toString();
 
         // Optional image: server may store logoBase64 OR logoUrl
@@ -131,19 +131,19 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
         }
 
         // Update controllers and memory model
-        _nameCtrl.text      = companyName;
-        _emailCtrl.text     = email;
-        _phoneCtrl.text     = phone;
-        _websiteCtrl.text   = website;
+        _nameCtrl.text = companyName;
+        _emailCtrl.text = email;
+        _phoneCtrl.text = phone;
+        _websiteCtrl.text = website;
         _adminNameCtrl.text = adminName;
         _adminRoleCtrl.text = designation;
 
         CompanyData.companyName = companyName;
-        CompanyData.email       = email;
-        CompanyData.phone       = phone;
-        CompanyData.website     = website;
-        CompanyData.adminName   = adminName;
-        CompanyData.adminRole   = designation;
+        CompanyData.email = email;
+        CompanyData.phone = phone;
+        CompanyData.website = website;
+        CompanyData.adminName = adminName;
+        CompanyData.adminRole = designation;
 
         if (logoBytes != null) {
           setState(() => _logoBytes = logoBytes);
@@ -164,7 +164,8 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
       } else if (res.statusCode == 401) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Unauthorized. Please sign in again.')),
+            const SnackBar(
+                content: Text('Unauthorized. Please sign in again.')),
           );
         }
       } else {
@@ -200,10 +201,10 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
 
       // Fields expected by backend
       req.fields['companyName'] = _nameCtrl.text.trim();
-      req.fields['email']       = _emailCtrl.text.trim();
-      req.fields['phone']       = _phoneCtrl.text.trim();
-      req.fields['website']     = _websiteCtrl.text.trim();
-      req.fields['adminName']   = _adminNameCtrl.text.trim();
+      req.fields['email'] = _emailCtrl.text.trim();
+      req.fields['phone'] = _phoneCtrl.text.trim();
+      req.fields['website'] = _websiteCtrl.text.trim();
+      req.fields['adminName'] = _adminNameCtrl.text.trim();
       req.fields['designation'] = _adminRoleCtrl.text.trim();
 
       // Optional logo file — multer looks for 'logo'
@@ -220,13 +221,13 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
 
       if (res.statusCode == 200) {
         // Persist back to CompanyData so the rest of the app can read it
-        CompanyData.logoFile    = _logoFile;
+        CompanyData.logoFile = _logoFile;
         CompanyData.companyName = _nameCtrl.text.trim();
-        CompanyData.email       = _emailCtrl.text.trim();
-        CompanyData.phone       = _phoneCtrl.text.trim();
-        CompanyData.website     = _websiteCtrl.text.trim();
-        CompanyData.adminName   = _adminNameCtrl.text.trim();
-        CompanyData.adminRole   = _adminRoleCtrl.text.trim();
+        CompanyData.email = _emailCtrl.text.trim();
+        CompanyData.phone = _phoneCtrl.text.trim();
+        CompanyData.website = _websiteCtrl.text.trim();
+        CompanyData.adminName = _adminNameCtrl.text.trim();
+        CompanyData.adminRole = _adminRoleCtrl.text.trim();
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -241,7 +242,8 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
           msg = (b['message'] ?? b['error'] ?? msg).toString();
         } catch (_) {}
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(msg)));
         }
       }
     } catch (e) {
@@ -301,18 +303,23 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
       backgroundColor: kPrimaryBackgroundTop,
       appBar: AppBar(
         backgroundColor: kAppBarColor,
-        title: const Text('Company Profile', style: TextStyle(color: kTextColor)),
+        title:
+            const Text('Company Profile', style: TextStyle(color: kTextColor)),
         iconTheme: const IconThemeData(color: kTextColor),
         actions: [
           IconButton(
             icon: (_isEditing
-                    ? (_saving ? const SizedBox(
-                        width: 20, height: 20,
+                ? (_saving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
                         child: CircularProgressIndicator(
-                          strokeWidth: 2, color: kTextColor,
+                          strokeWidth: 2,
+                          color: kTextColor,
                         ),
-                      ) : const Icon(Icons.check, color: kTextColor))
-                    : const Icon(Icons.edit, color: kTextColor)),
+                      )
+                    : const Icon(Icons.check, color: kTextColor))
+                : const Icon(Icons.edit, color: kTextColor)),
             onPressed: _saving ? null : _toggleEdit,
             tooltip: _isEditing ? 'Save' : 'Edit',
           ),
@@ -345,7 +352,8 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
                           backgroundImage: avatar,
                           backgroundColor: Colors.grey[200],
                           child: avatar == null
-                              ? const Icon(Icons.apartment, size: 36, color: Colors.grey)
+                              ? const Icon(Icons.apartment,
+                                  size: 36, color: Colors.grey)
                               : null,
                         ),
                         Positioned(
@@ -354,7 +362,8 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
                             child: const CircleAvatar(
                               radius: 16,
                               backgroundColor: kButtonColor,
-                              child: Icon(Icons.camera_alt, size: 16, color: kTextColor),
+                              child: Icon(Icons.camera_alt,
+                                  size: 16, color: kTextColor),
                             ),
                           ),
                         ),
@@ -368,13 +377,12 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
                       backgroundImage: avatar,
                       backgroundColor: Colors.grey[200],
                       child: avatar == null
-                          ? const Icon(Icons.apartment, size: 36, color: Colors.grey)
+                          ? const Icon(Icons.apartment,
+                              size: 36, color: Colors.grey)
                           : null,
                     ),
                   ),
-
                 SizedBox(height: spacing),
-
                 if (_loading)
                   const Center(child: CircularProgressIndicator())
                 else
@@ -394,24 +402,34 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
                             SizedBox(height: spacing),
                             _buildEditField('Admin Full Name', _adminNameCtrl),
                             SizedBox(height: spacing),
-                            _buildEditField('Admin Designation', _adminRoleCtrl),
+                            _buildEditField(
+                                'Admin Designation', _adminRoleCtrl),
                           ],
                         )
                       : Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            _buildDisplayField('Company Name', _nameCtrl.text, isWide),
+                            _buildDisplayField(
+                                'Company Name', _nameCtrl.text, isWide),
                             SizedBox(height: spacing),
-                            _buildDisplayField('Official Email', _emailCtrl.text, isWide),
+                            _buildDisplayField(
+                                'Official Email', _emailCtrl.text, isWide),
                             SizedBox(height: spacing),
-                            _buildDisplayField('Phone Number', _phoneCtrl.text, isWide),
+                            _buildDisplayField(
+                                'Phone Number', _phoneCtrl.text, isWide),
                             SizedBox(height: spacing),
-                            _buildDisplayField('Website',
-                                _websiteCtrl.text.isNotEmpty ? _websiteCtrl.text : '—', isWide),
+                            _buildDisplayField(
+                                'Website',
+                                _websiteCtrl.text.isNotEmpty
+                                    ? _websiteCtrl.text
+                                    : '—',
+                                isWide),
                             SizedBox(height: spacing),
-                            _buildDisplayField('Admin Full Name', _adminNameCtrl.text, isWide),
+                            _buildDisplayField(
+                                'Admin Full Name', _adminNameCtrl.text, isWide),
                             SizedBox(height: spacing),
-                            _buildDisplayField('Admin Designation', _adminRoleCtrl.text, isWide),
+                            _buildDisplayField('Admin Designation',
+                                _adminRoleCtrl.text, isWide),
                           ],
                         )),
               ],
@@ -427,7 +445,8 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: isWide ? 16 : 14)),
+            style: TextStyle(
+                fontWeight: FontWeight.bold, fontSize: isWide ? 16 : 14)),
         const SizedBox(height: 4),
         Text(value, style: TextStyle(fontSize: isWide ? 18 : 16)),
       ],
@@ -445,7 +464,8 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
       decoration: InputDecoration(
         labelText: label,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       ),
     );
   }

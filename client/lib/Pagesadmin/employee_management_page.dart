@@ -7,7 +7,7 @@ import 'report_scheduler_page.dart';
 // Use localStorage only when targeting Web
 // ignore: avoid_web_libraries_in_flutter
 import 'package:serv_app/html_stub.dart'
-  if (dart.library.html) 'package:serv_app/html_web.dart' as html;
+    if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
 // ===== Theme =====
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -17,22 +17,23 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 // ===== API base =====
-const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api'; // keep /api here
+const String apiBase =
+    'https://api-zmj7dqloiq-el.a.run.app/api'; // keep /api here
 
 // ===== Model =====
 class Employee {
   final String name;
-  final String id;           // <-- Employee ID (empid)
+  final String id; // <-- Employee ID (empid)
   final String email;
-  final String mobile;       // phone
+  final String mobile; // phone
   final String location;
   final String dept;
   final String designation;
-  final String status;       // "Active"/"Inactive" (UI)
+  final String status; // "Active"/"Inactive" (UI)
   final String shiftGroup;
-  final String? docId;       // Firestore document id (server generated)
-  final String? password;    // only used on create
-  final String role;         // defaults to "employee"
+  final String? docId; // Firestore document id (server generated)
+  final String? password; // only used on create
+  final String role; // defaults to "employee"
 
   Employee({
     required this.name,
@@ -107,18 +108,18 @@ class EmployeeService {
 
   static Future<List<Employee>> fetchEmployees() async {
     // NOTE: correct path (no double /api)
-    final res = await http.get(Uri.parse('$apiBase/employees'), headers: _headers());
+    final res =
+        await http.get(Uri.parse('$apiBase/employees'), headers: _headers());
 
     if (res.statusCode == 200) {
       final decoded = jsonDecode(res.body);
 
       // Accept either a bare list OR { data: [...] }
-      final List<dynamic> list =
-          decoded is List
-              ? decoded
-              : (decoded is Map<String, dynamic> && decoded['data'] is List)
-                  ? decoded['data'] as List
-                  : <dynamic>[];
+      final List<dynamic> list = decoded is List
+          ? decoded
+          : (decoded is Map<String, dynamic> && decoded['data'] is List)
+              ? decoded['data'] as List
+              : <dynamic>[];
 
       return list
           .map((e) => Employee.fromServer(e as Map<String, dynamic>))
@@ -126,7 +127,8 @@ class EmployeeService {
     }
 
     if (res.statusCode == 404) return <Employee>[];
-    throw Exception('Failed to fetch employees (${res.statusCode}): ${res.body}');
+    throw Exception(
+        'Failed to fetch employees (${res.statusCode}): ${res.body}');
   }
 
   static Future<String> createEmployee(Employee e) async {
@@ -148,7 +150,8 @@ class EmployeeService {
     throw Exception('Create failed (${res.statusCode}): ${res.body}');
   }
 
-  static Future<void> updateEmployee(String docId, Map<String, dynamic> updates) async {
+  static Future<void> updateEmployee(
+      String docId, Map<String, dynamic> updates) async {
     final res = await http.put(
       Uri.parse('$apiBase/employees/$docId'), // correct path
       headers: _headers(),
@@ -201,8 +204,9 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
     });
   }
 
-  int countStatus(String status) =>
-      employees.where((e) => e.status.toLowerCase() == status.toLowerCase()).length;
+  int countStatus(String status) => employees
+      .where((e) => e.status.toLowerCase() == status.toLowerCase())
+      .length;
 
   Widget statButton(String label, int count, Color color) {
     return SizedBox(
@@ -212,11 +216,13 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
         style: ElevatedButton.styleFrom(
           backgroundColor: color,
           foregroundColor: kTextColor,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
           padding: EdgeInsets.zero,
         ),
         onPressed: () {},
-        child: Text('$label $count', textAlign: TextAlign.center, style: const TextStyle(fontSize: 11)),
+        child: Text('$label $count',
+            textAlign: TextAlign.center, style: const TextStyle(fontSize: 11)),
       ),
     );
   }
@@ -241,9 +247,11 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
         toolbarHeight: 50,
         backgroundColor: kAppBarColor,
         foregroundColor: Colors.white,
-        leading: IconButton(icon: const Icon(Icons.arrow_back, size: 0), onPressed: () {}),
+        leading: IconButton(
+            icon: const Icon(Icons.arrow_back, size: 0), onPressed: () {}),
         titleSpacing: 0,
-        title: const Text("Employee Management", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+        title: const Text("Employee Management",
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
       ),
       body: Container(
         decoration: const BoxDecoration(
@@ -275,7 +283,8 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
                   onPressed: () async {
                     final result = await Navigator.push<Employee>(
                       context,
-                      MaterialPageRoute(builder: (_) => const CreateEmployeeScreen()),
+                      MaterialPageRoute(
+                          builder: (_) => const CreateEmployeeScreen()),
                     );
                     if (result != null) {
                       try {
@@ -299,9 +308,11 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
                     backgroundColor: kButtonColor,
                     foregroundColor: kTextColor,
                     minimumSize: const Size(120, 36),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20)),
                   ),
-                  child: const Text("Create Employee", style: TextStyle(fontSize: 12)),
+                  child: const Text("Create Employee",
+                      style: TextStyle(fontSize: 12)),
                 ),
                 const SizedBox(height: 10),
                 ElevatedButton(
@@ -315,9 +326,11 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
                     backgroundColor: kButtonColor,
                     foregroundColor: kTextColor,
                     minimumSize: const Size(120, 36),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20)),
                   ),
-                  child: const Text("Create Report Scheduler", style: TextStyle(fontSize: 12)),
+                  child: const Text("Create Report Scheduler",
+                      style: TextStyle(fontSize: 12)),
                 ),
               ],
             ),
@@ -331,7 +344,8 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
                   hintText: 'Search',
                   filled: true,
                   fillColor: Colors.white,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10)),
                 ),
               ),
             ),
@@ -344,20 +358,67 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
                     children: [
                       Container(
                         color: Colors.grey[300],
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
                         child: const Row(
                           children: [
-                            Expanded(flex: 4, child: Text("ID", style: TextStyle(fontWeight: FontWeight.bold))),
-                            Expanded(flex: 6, child: Text("Name", style: TextStyle(fontWeight: FontWeight.bold))),
-                            Expanded(flex: 8, child: Text("Email", style: TextStyle(fontWeight: FontWeight.bold))),
-                            Expanded(flex: 7, child: Text("Mobile", style: TextStyle(fontWeight: FontWeight.bold))),
-                            Expanded(flex: 6, child: Text("Shift Group", style: TextStyle(fontWeight: FontWeight.bold))),
-                            Expanded(flex: 6, child: Text("Location", style: TextStyle(fontWeight: FontWeight.bold))),
-                            Expanded(flex: 6, child: Text("Department", style: TextStyle(fontWeight: FontWeight.bold))),
-                            Expanded(flex: 6, child: Text("Designation", style: TextStyle(fontWeight: FontWeight.bold))),
-                            Expanded(flex: 4, child: Text("Status", style: TextStyle(fontWeight: FontWeight.bold))),
-                            Expanded(flex: 5, child: Center(child: Text("Delete", style: TextStyle(fontWeight: FontWeight.bold)))),
-                            Expanded(flex: 5, child: Center(child: Text("Edit", style: TextStyle(fontWeight: FontWeight.bold)))),
+                            Expanded(
+                                flex: 4,
+                                child: Text("ID",
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold))),
+                            Expanded(
+                                flex: 6,
+                                child: Text("Name",
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold))),
+                            Expanded(
+                                flex: 8,
+                                child: Text("Email",
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold))),
+                            Expanded(
+                                flex: 7,
+                                child: Text("Mobile",
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold))),
+                            Expanded(
+                                flex: 6,
+                                child: Text("Shift Group",
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold))),
+                            Expanded(
+                                flex: 6,
+                                child: Text("Location",
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold))),
+                            Expanded(
+                                flex: 6,
+                                child: Text("Department",
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold))),
+                            Expanded(
+                                flex: 6,
+                                child: Text("Designation",
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold))),
+                            Expanded(
+                                flex: 4,
+                                child: Text("Status",
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold))),
+                            Expanded(
+                                flex: 5,
+                                child: Center(
+                                    child: Text("Delete",
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.bold)))),
+                            Expanded(
+                                flex: 5,
+                                child: Center(
+                                    child: Text("Edit",
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.bold)))),
                           ],
                         ),
                       ),
@@ -368,7 +429,8 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
                             final e = filtered[i];
                             return Container(
                               color: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: 6, horizontal: 10),
                               child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.center,
                                 children: [
@@ -385,11 +447,15 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
                                     flex: 5,
                                     child: Center(
                                       child: IconButton(
-                                        icon: const Icon(Icons.delete, color: Colors.red),
+                                        icon: const Icon(Icons.delete,
+                                            color: Colors.red),
                                         onPressed: () {
                                           setState(() {
-                                            employees.removeWhere((emp) => emp.docId == e.docId || emp.id == e.id);
-                                            updateFiltered(searchController.text);
+                                            employees.removeWhere((emp) =>
+                                                emp.docId == e.docId ||
+                                                emp.id == e.id);
+                                            updateFiltered(
+                                                searchController.text);
                                           });
                                         },
                                       ),
@@ -399,33 +465,44 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
                                     flex: 5,
                                     child: Center(
                                       child: IconButton(
-                                        icon: const Icon(Icons.edit, color: Colors.blue),
+                                        icon: const Icon(Icons.edit,
+                                            color: Colors.blue),
                                         onPressed: () async {
-                                          final edited = await Navigator.push<Employee>(
+                                          final edited =
+                                              await Navigator.push<Employee>(
                                             context,
                                             MaterialPageRoute(
-                                              builder: (_) => CreateEmployeeScreen(editEmployee: e),
+                                              builder: (_) =>
+                                                  CreateEmployeeScreen(
+                                                      editEmployee: e),
                                             ),
                                           );
                                           if (edited != null) {
                                             if (e.docId != null) {
                                               try {
-                                                await EmployeeService.updateEmployee(e.docId!, {
+                                                await EmployeeService
+                                                    .updateEmployee(e.docId!, {
                                                   'name': edited.name,
                                                   'empid': edited.id,
                                                   'email': edited.email,
                                                   'phone': edited.mobile,
                                                   'location': edited.location,
                                                   'dept': edited.dept,
-                                                  'designation': edited.designation,
-                                                  'shiftGroup': edited.shiftGroup,
-                                                  'status': edited.status.toLowerCase(),
+                                                  'designation':
+                                                      edited.designation,
+                                                  'shiftGroup':
+                                                      edited.shiftGroup,
+                                                  'status': edited.status
+                                                      .toLowerCase(),
                                                 });
                                                 await _loadEmployees();
                                               } catch (err) {
                                                 if (context.mounted) {
-                                                  ScaffoldMessenger.of(context).showSnackBar(
-                                                    SnackBar(content: Text('Update failed: $err')),
+                                                  ScaffoldMessenger.of(context)
+                                                      .showSnackBar(
+                                                    SnackBar(
+                                                        content: Text(
+                                                            'Update failed: $err')),
                                                   );
                                                 }
                                               }
@@ -502,7 +579,8 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
     }
   }
 
-  Widget formField(String label, TextEditingController ctrl, {TextInputType type = TextInputType.text}) {
+  Widget formField(String label, TextEditingController ctrl,
+      {TextInputType type = TextInputType.text}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: TextFormField(
@@ -511,7 +589,8 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
         validator: (v) {
           if (v == null || v.trim().isEmpty) return 'Required';
           if (label == "Email") {
-            final emailRegex = RegExp(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$");
+            final emailRegex =
+                RegExp(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$");
             if (!emailRegex.hasMatch(v.trim())) return 'Enter valid email';
           }
           return null;
@@ -521,7 +600,9 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
             text: TextSpan(
               text: label,
               style: const TextStyle(color: Colors.black),
-              children: const [TextSpan(text: ' *', style: TextStyle(color: Colors.red))],
+              children: const [
+                TextSpan(text: ' *', style: TextStyle(color: Colors.red))
+              ],
             ),
           ),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -537,23 +618,29 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
         controller: password,
         obscureText: _obscurePassword,
         validator: (v) {
-          if (widget.editEmployee != null && (v == null || v.isEmpty)) return null; // allow empty on edit
+          if (widget.editEmployee != null && (v == null || v.isEmpty)) {
+            return null; // allow empty on edit
+          }
           if (v == null || v.trim().isEmpty) return 'Required';
           if (v.trim().length < 6) return 'Password too short';
           return null;
         },
         decoration: InputDecoration(
-          label:  RichText(
+          label: RichText(
             text: TextSpan(
               text: "Password",
               style: TextStyle(color: Colors.black),
-              children: [TextSpan(text: ' *', style: TextStyle(color: Colors.red))],
+              children: [
+                TextSpan(text: ' *', style: TextStyle(color: Colors.red))
+              ],
             ),
           ),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
           suffixIcon: IconButton(
-            icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
-            onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+            icon: Icon(
+                _obscurePassword ? Icons.visibility_off : Icons.visibility),
+            onPressed: () =>
+                setState(() => _obscurePassword = !_obscurePassword),
           ),
         ),
       ),
@@ -565,15 +652,21 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: DropdownButtonFormField<String>(
         initialValue: shiftgroup.text.isNotEmpty ? shiftgroup.text : null,
-        items: shiftOptions.map((value) => DropdownMenuItem<String>(value: value, child: Text(value))).toList(),
+        items: shiftOptions
+            .map((value) =>
+                DropdownMenuItem<String>(value: value, child: Text(value)))
+            .toList(),
         onChanged: (value) => setState(() => shiftgroup.text = value ?? ''),
-        validator: (value) => value == null || value.isEmpty ? 'Required' : null,
+        validator: (value) =>
+            value == null || value.isEmpty ? 'Required' : null,
         decoration: InputDecoration(
-          label:  RichText(
+          label: RichText(
             text: TextSpan(
               text: 'Shift Group',
               style: TextStyle(color: Colors.black),
-              children: [TextSpan(text: ' *', style: TextStyle(color: Colors.red))],
+              children: [
+                TextSpan(text: ' *', style: TextStyle(color: Colors.red))
+              ],
             ),
           ),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -629,12 +722,17 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
                 formField("Email", email, type: TextInputType.emailAddress),
                 IntlPhoneField(
                   decoration: InputDecoration(
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                    label:  RichText(
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                    label: RichText(
                       text: TextSpan(
                         text: 'Mobile',
                         style: TextStyle(color: Colors.black, fontSize: 16),
-                        children: [TextSpan(text: ' *', style: TextStyle(color: Colors.red, fontSize: 16))],
+                        children: [
+                          TextSpan(
+                              text: ' *',
+                              style: TextStyle(color: Colors.red, fontSize: 16))
+                        ],
                       ),
                     ),
                   ),
@@ -672,13 +770,16 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
                   children: [
                     ElevatedButton(
                       onPressed: () => Navigator.pop(context),
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.grey),
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.grey),
                       child: const Text("Cancel"),
                     ),
                     ElevatedButton(
                       onPressed: submit,
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                      child: Text(widget.editEmployee == null ? "Create" : "Update"),
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green),
+                      child: Text(
+                          widget.editEmployee == null ? "Create" : "Update"),
                     ),
                   ],
                 ),

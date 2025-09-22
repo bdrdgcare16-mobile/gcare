@@ -17,7 +17,7 @@
 // const Color kTextColor = Colors.white;
 
 // // ✅ Backend base (already ends with /api)
-// const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+// const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 // // ---------- helpers ----------
 // String? _readToken() {
@@ -403,7 +403,8 @@
 // }
 import 'dart:convert';
 import 'package:serv_app/html_stub.dart'
-  if (dart.library.html) 'package:serv_app/html_web.dart' as html; // Web: localStorage/sessionStorage
+    if (dart.library.html) 'package:serv_app/html_web.dart'
+    as html; // Web: localStorage/sessionStorage
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -420,7 +421,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 // ✅ Backend base (already ends with /api)
-const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 // ---------- helpers ----------
 String? _readToken() {
@@ -448,7 +449,9 @@ DateTime? _parseAnyDate(dynamic v) {
     if (v is Map && v.containsKey('_seconds')) {
       final sec = v['_seconds'];
       if (sec is num) {
-        return DateTime.fromMillisecondsSinceEpoch((sec * 1000).round(), isUtc: true).toLocal();
+        return DateTime.fromMillisecondsSinceEpoch((sec * 1000).round(),
+                isUtc: true)
+            .toLocal();
       }
     }
     if (v is String && v.trim().isNotEmpty) {
@@ -458,7 +461,8 @@ DateTime? _parseAnyDate(dynamic v) {
   return null;
 }
 
-String _fmtDDMMYYYY(DateTime? d) => d == null ? '' : DateFormat('dd-MM-yyyy').format(d);
+String _fmtDDMMYYYY(DateTime? d) =>
+    d == null ? '' : DateFormat('dd-MM-yyyy').format(d);
 
 // ===================================================================
 
@@ -517,10 +521,13 @@ class _LeavePageState extends State<LeavePage> {
           for (final item in body) {
             if (item is Map<String, dynamic>) {
               final String type = (item['type'] ?? '').toString();
-              final String shift = (item['shift'] ?? item['dept'] ?? '').toString();
+              final String shift =
+                  (item['shift'] ?? item['dept'] ?? '').toString();
 
-              final DateTime? fromDt = _parseAnyDate(item['fromDate'] ?? item['from']);
-              final DateTime? toDt   = _parseAnyDate(item['toDate']   ?? item['to']);
+              final DateTime? fromDt =
+                  _parseAnyDate(item['fromDate'] ?? item['from']);
+              final DateTime? toDt =
+                  _parseAnyDate(item['toDate'] ?? item['to']);
 
               int? allowedDays;
               final dynamic ad = item['allowedDays'] ?? item['days'];
@@ -557,7 +564,8 @@ class _LeavePageState extends State<LeavePage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             backgroundColor: Colors.red,
-            content: Text('Failed to load leave types: 401 (Unauthorized). Please login again.'),
+            content: Text(
+                'Failed to load leave types: 401 (Unauthorized). Please login again.'),
           ),
         );
       } else {
@@ -572,14 +580,17 @@ class _LeavePageState extends State<LeavePage> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(backgroundColor: Colors.red, content: Text('Error fetching leave types: $e')),
+        SnackBar(
+            backgroundColor: Colors.red,
+            content: Text('Error fetching leave types: $e')),
       );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  Future<void> _selectDate(TextEditingController controller, {DateTime? minDate, bool isFrom = false}) async {
+  Future<void> _selectDate(TextEditingController controller,
+      {DateTime? minDate, bool isFrom = false}) async {
     DateTime initialDate = DateTime.now();
     if (controller.text.isNotEmpty) {
       try {
@@ -613,13 +624,17 @@ class _LeavePageState extends State<LeavePage> {
 
     if (fromDate == null || toDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please select both From Date and To Date"), backgroundColor: Colors.red),
+        const SnackBar(
+            content: Text("Please select both From Date and To Date"),
+            backgroundColor: Colors.red),
       );
       return;
     }
     if (toDate!.isBefore(fromDate!)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("To Date cannot be before From Date"), backgroundColor: Colors.red),
+        const SnackBar(
+            content: Text("To Date cannot be before From Date"),
+            backgroundColor: Colors.red),
       );
       return;
     }
@@ -683,13 +698,17 @@ class _LeavePageState extends State<LeavePage> {
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: kButtonColor, foregroundColor: Colors.white),
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: kButtonColor,
+                          foregroundColor: Colors.white),
                       onPressed: () {
                         setState(() {
                           showWeekOffForm = !showWeekOffForm;
                         });
                       },
-                      child: Text(showWeekOffForm ? "Close Week Off Form" : "Add Week Off"),
+                      child: Text(showWeekOffForm
+                          ? "Close Week Off Form"
+                          : "Add Week Off"),
                     ),
                   ],
                 ),
@@ -701,12 +720,16 @@ class _LeavePageState extends State<LeavePage> {
                       children: [
                         _buildTextField("Name", nameController),
                         _buildTextField("Location", locationController),
-                        _buildDateField("From Date", fromDateController, isFrom: true),
-                        _buildDateField("To Date", toDateController, minDate: fromDate),
+                        _buildDateField("From Date", fromDateController,
+                            isFrom: true),
+                        _buildDateField("To Date", toDateController,
+                            minDate: fromDate),
                         _buildTextField("Department", deptController),
                         const SizedBox(height: 10),
                         ElevatedButton(
-                          style: ElevatedButton.styleFrom(backgroundColor: kButtonColor, foregroundColor: Colors.white),
+                          style: ElevatedButton.styleFrom(
+                              backgroundColor: kButtonColor,
+                              foregroundColor: Colors.white),
                           onPressed: _addWeekOff,
                           child: const Text("Submit"),
                         ),
@@ -715,17 +738,20 @@ class _LeavePageState extends State<LeavePage> {
                   ),
                   const SizedBox(height: 20),
                 ],
-                const Text("Leave", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                const Text("Leave",
+                    style:
+                        TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 10),
-
                 if (_loading)
-                  const Center(child: Padding(
+                  const Center(
+                      child: Padding(
                     padding: EdgeInsets.symmetric(vertical: 40),
                     child: CircularProgressIndicator(),
                   ))
                 else
                   (leaveList.isEmpty
-                      ? const Center(child: Padding(
+                      ? const Center(
+                          child: Padding(
                           padding: EdgeInsets.symmetric(vertical: 24),
                           child: Text("No leave data available"),
                         ))
@@ -749,13 +775,15 @@ class _LeavePageState extends State<LeavePage> {
                                     offset: const Offset(0, 3),
                                   ),
                                 ],
-                                border: Border.all(color: Colors.deepPurple.shade100),
+                                border: Border.all(
+                                    color: Colors.deepPurple.shade100),
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
                                     children: [
                                       Expanded(
                                         child: Text(
@@ -769,7 +797,8 @@ class _LeavePageState extends State<LeavePage> {
                                         ),
                                       ),
                                       IconButton(
-                                        icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                        icon: const Icon(Icons.delete_outline,
+                                            color: Colors.red),
                                         onPressed: () {
                                           setState(() {
                                             leaveList.removeAt(index);
@@ -779,13 +808,19 @@ class _LeavePageState extends State<LeavePage> {
                                     ],
                                   ),
                                   const SizedBox(height: 5),
-                                  Text("Shift: ${leave['shift']}", style: const TextStyle(color: Colors.black87)),
+                                  Text("Shift: ${leave['shift']}",
+                                      style: const TextStyle(
+                                          color: Colors.black87)),
                                   const SizedBox(height: 5),
-                                  Text("From: ${leave['fromDate']}   To: ${leave['toDate']}",
-                                      style: const TextStyle(color: Colors.black54)),
+                                  Text(
+                                      "From: ${leave['fromDate']}   To: ${leave['toDate']}",
+                                      style: const TextStyle(
+                                          color: Colors.black54)),
                                   const SizedBox(height: 5),
                                   Text("No of Days: ${leave['allowedDays']}",
-                                      style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w500)),
+                                      style: const TextStyle(
+                                          color: Colors.redAccent,
+                                          fontWeight: FontWeight.w500)),
                                 ],
                               ),
                             );
@@ -823,14 +858,16 @@ class _LeavePageState extends State<LeavePage> {
   }
 
   // Date Field with optional minDate
-  Widget _buildDateField(String label, TextEditingController controller, {DateTime? minDate, bool isFrom = false}) {
+  Widget _buildDateField(String label, TextEditingController controller,
+      {DateTime? minDate, bool isFrom = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: TextFormField(
         controller: controller,
         readOnly: true,
         onTap: () => _selectDate(controller, minDate: minDate, isFrom: isFrom),
-        decoration: _buildInputDecoration(label).copyWith(suffixIcon: const Icon(Icons.calendar_today)),
+        decoration: _buildInputDecoration(label)
+            .copyWith(suffixIcon: const Icon(Icons.calendar_today)),
         validator: (val) => val == null || val.isEmpty ? 'Select a date' : null,
       ),
     );

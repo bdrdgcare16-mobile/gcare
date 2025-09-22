@@ -25,7 +25,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 // ===== API BASE =====
-const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -72,22 +72,28 @@ class _LoginPageState extends State<LoginPage> {
   }) async {
     Map<String, dynamic> norm(dynamic body) {
       final m = (body is Map) ? body : <String, dynamic>{};
-      final exists = (m['exists'] == true) || (m['filled'] == true) || (m['hasProfile'] == true);
+      final exists = (m['exists'] == true) ||
+          (m['filled'] == true) ||
+          (m['hasProfile'] == true);
       final data = (m['data'] is Map)
           ? (m['data'] as Map).cast<String, dynamic>()
           : <String, dynamic>{};
       return {'exists': exists, 'data': data, 'raw': m};
     }
 
-    Future<Map<String, dynamic>> treat404() async =>
-        {'exists': false, 'data': <String, dynamic>{}, 'raw': <String, dynamic>{}};
+    Future<Map<String, dynamic>> treat404() async => {
+          'exists': false,
+          'data': <String, dynamic>{},
+          'raw': <String, dynamic>{}
+        };
 
     // 1) Try /company/profile/check
     final u1 = Uri.parse('$_apiBase/company/profile/check');
     try {
-      final r1 = await http
-          .get(u1, headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'})
-          .timeout(const Duration(seconds: 15));
+      final r1 = await http.get(u1, headers: {
+        'Authorization': 'Bearer $token',
+        'Accept': 'application/json'
+      }).timeout(const Duration(seconds: 15));
       dev.log('[GET] $u1 -> ${r1.statusCode}');
       if (r1.statusCode == 200) return norm(jsonDecode(r1.body));
       if (r1.statusCode == 404) return treat404();
@@ -99,9 +105,10 @@ class _LoginPageState extends State<LoginPage> {
     // 2) Fallback /company/profile?email=...
     final u2 = Uri.parse('$_apiBase/company/profile')
         .replace(queryParameters: {'email': adminEmail.trim().toLowerCase()});
-    final r2 = await http
-        .get(u2, headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'})
-        .timeout(const Duration(seconds: 15));
+    final r2 = await http.get(u2, headers: {
+      'Authorization': 'Bearer $token',
+      'Accept': 'application/json'
+    }).timeout(const Duration(seconds: 15));
 
     dev.log('[GET] $u2 -> ${r2.statusCode}');
     if (r2.statusCode == 200) return norm(jsonDecode(r2.body));
@@ -171,7 +178,8 @@ class _LoginPageState extends State<LoginPage> {
           startTimer(setDlgState);
           _showSnack('OTP sent to your email.');
         } else {
-          final msg = (jsonDecode(res.body)['error'] ?? 'Failed to send OTP').toString();
+          final msg = (jsonDecode(res.body)['error'] ?? 'Failed to send OTP')
+              .toString();
           _showSnack(msg);
         }
       } catch (e) {
@@ -201,7 +209,8 @@ class _LoginPageState extends State<LoginPage> {
           otpVerified = true;
           _showSnack('OTP verified. Please set new password.');
         } else {
-          final msg = (jsonDecode(res.body)['error'] ?? 'Invalid OTP').toString();
+          final msg =
+              (jsonDecode(res.body)['error'] ?? 'Invalid OTP').toString();
           _showSnack(msg);
         }
       } catch (e) {
@@ -211,7 +220,8 @@ class _LoginPageState extends State<LoginPage> {
       }
     }
 
-    Future<void> resetPassword(void Function(VoidCallback fn) setDlgState) async {
+    Future<void> resetPassword(
+        void Function(VoidCallback fn) setDlgState) async {
       if (!resetKey.currentState!.validate()) return;
       setDlgState(() => resetting = true);
       try {
@@ -229,7 +239,8 @@ class _LoginPageState extends State<LoginPage> {
           countdown?.cancel();
           if (mounted) Navigator.of(context).pop();
         } else {
-          final msg = (jsonDecode(res.body)['error'] ?? 'Reset failed').toString();
+          final msg =
+              (jsonDecode(res.body)['error'] ?? 'Reset failed').toString();
           _showSnack(msg);
         }
       } catch (e) {
@@ -254,7 +265,8 @@ class _LoginPageState extends State<LoginPage> {
                 controller: emailCtrl,
                 decoration: InputDecoration(
                   hintText: "Enter your registered email",
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8)),
                 ),
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) return "Email required";
@@ -265,13 +277,20 @@ class _LoginPageState extends State<LoginPage> {
               ),
             );
             actions = [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text("Cancel")),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: kAppBarColor),
                 onPressed: sending ? null : () => sendOtp(setDlgState),
                 child: sending
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                    : const Text("Send OTP", style: TextStyle(color: kTextColor)),
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                            color: Colors.white, strokeWidth: 2))
+                    : const Text("Send OTP",
+                        style: TextStyle(color: kTextColor)),
               ),
             ];
           } else if (!otpVerified) {
@@ -287,11 +306,14 @@ class _LoginPageState extends State<LoginPage> {
                     decoration: InputDecoration(
                       hintText: "Enter 6-digit OTP",
                       counterText: "",
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8)),
                     ),
                     validator: (v) {
                       if (v == null || v.trim().isEmpty) return "OTP required";
-                      if (!RegExp(r'^\d{6}$').hasMatch(v.trim())) return "Enter 6-digit OTP";
+                      if (!RegExp(r'^\d{6}$').hasMatch(v.trim())) {
+                        return "Enter 6-digit OTP";
+                      }
                       return null;
                     },
                   ),
@@ -300,13 +322,20 @@ class _LoginPageState extends State<LoginPage> {
               ],
             );
             actions = [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text("Cancel")),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: kAppBarColor),
                 onPressed: verifying ? null : () => verifyOtp(setDlgState),
                 child: verifying
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                    : const Text("Verify OTP", style: TextStyle(color: kTextColor)),
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                            color: Colors.white, strokeWidth: 2))
+                    : const Text("Verify OTP",
+                        style: TextStyle(color: kTextColor)),
               ),
             ];
           } else {
@@ -320,7 +349,8 @@ class _LoginPageState extends State<LoginPage> {
                     obscureText: true,
                     decoration: InputDecoration(
                       hintText: "Enter new password",
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8)),
                     ),
                     validator: (v) {
                       if (v == null || v.isEmpty) return "Password required";
@@ -334,7 +364,8 @@ class _LoginPageState extends State<LoginPage> {
                     obscureText: true,
                     decoration: InputDecoration(
                       hintText: "Confirm new password",
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8)),
                     ),
                     validator: (v) {
                       if (v == null || v.isEmpty) return "Confirm password";
@@ -346,12 +377,18 @@ class _LoginPageState extends State<LoginPage> {
               ),
             );
             actions = [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text("Cancel")),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: kAppBarColor),
                 onPressed: resetting ? null : () => resetPassword(setDlgState),
                 child: resetting
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                            color: Colors.white, strokeWidth: 2))
                     : const Text("Submit", style: TextStyle(color: kTextColor)),
               ),
             ];
@@ -361,7 +398,8 @@ class _LoginPageState extends State<LoginPage> {
             title: const Text("Forgot Password"),
             content: content,
             actions: actions,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           );
         },
       ),
@@ -423,9 +461,11 @@ class _LoginPageState extends State<LoginPage> {
         if (isAdmin) {
           // ADMIN FLOW
           try {
-            final result = await _checkCompanyProfile(token: tok, adminEmail: email);
+            final result =
+                await _checkCompanyProfile(token: tok, adminEmail: email);
             final exists = result['exists'] == true;
-            final companyData = result['data'] as Map<String, dynamic>? ?? const {};
+            final companyData =
+                result['data'] as Map<String, dynamic>? ?? const {};
 
             if (exists) {
               if (!mounted) return;
@@ -445,7 +485,8 @@ class _LoginPageState extends State<LoginPage> {
               if (!mounted) return;
               Navigator.pushReplacement(
                 context,
-                MaterialPageRoute(builder: (_) => const CompanyDetailsFormPage()),
+                MaterialPageRoute(
+                    builder: (_) => const CompanyDetailsFormPage()),
               );
             }
           } catch (e) {
@@ -543,14 +584,16 @@ class _LoginPageState extends State<LoginPage> {
             context,
             MaterialPageRoute(
               builder: (_) => HomeScreen(
-                userName: nameSeed.isNotEmpty ? nameSeed : email.split('@').first,
+                userName:
+                    nameSeed.isNotEmpty ? nameSeed : email.split('@').first,
                 employeeDocId: docId,
               ),
             ),
           );
         }
       } else {
-        final msg = (data['message'] ?? data['error'] ?? 'Login failed').toString();
+        final msg =
+            (data['message'] ?? data['error'] ?? 'Login failed').toString();
         _showSnack(msg);
       }
     } catch (e) {
@@ -588,7 +631,8 @@ class _LoginPageState extends State<LoginPage> {
                 child: ConstrainedBox(
                   constraints: BoxConstraints(minHeight: constraints.maxHeight),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 10),
                     child: Form(
                       key: _formKey,
                       child: Column(
@@ -603,10 +647,13 @@ class _LoginPageState extends State<LoginPage> {
                               borderRadius: BorderRadius.circular(16),
                             ),
                             clipBehavior: Clip.antiAlias,
-                            child: Image.asset('assets/images/loginlogo.png', fit: BoxFit.cover),
+                            child: Image.asset('assets/images/loginlogo.png',
+                                fit: BoxFit.cover),
                           ),
                           const SizedBox(height: 10),
-                          const Text('Sign In', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                          const Text('Sign In',
+                              style: TextStyle(
+                                  fontSize: 22, fontWeight: FontWeight.bold)),
                           const SizedBox(height: 30),
 
                           // Email
@@ -615,25 +662,32 @@ class _LoginPageState extends State<LoginPage> {
                             keyboardType: TextInputType.emailAddress,
                             decoration: InputDecoration(
                               labelText: "Enter email",
-                              prefixIcon: const Icon(Icons.email, color: kButtonColor),
+                              prefixIcon:
+                                  const Icon(Icons.email, color: kButtonColor),
                               filled: true,
                               fillColor: Colors.white,
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: kButtonColor, width: 1.5),
+                                borderSide: const BorderSide(
+                                    color: kButtonColor, width: 1.5),
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: kButtonColor, width: 2),
+                                borderSide: const BorderSide(
+                                    color: kButtonColor, width: 2),
                               ),
                             ),
                             validator: (val) {
-                              if (val == null || val.trim().isEmpty) return "Email required";
+                              if (val == null || val.trim().isEmpty) {
+                                return "Email required";
+                              }
                               final emailRegex = RegExp(
                                 r"^[\w._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$",
                                 caseSensitive: false,
                               );
-                              if (!emailRegex.hasMatch(val.trim())) return "Enter valid email";
+                              if (!emailRegex.hasMatch(val.trim())) {
+                                return "Enter valid email";
+                              }
                               return null;
                             },
                           ),
@@ -645,32 +699,41 @@ class _LoginPageState extends State<LoginPage> {
                             obscureText: !isPasswordVisible,
                             decoration: InputDecoration(
                               labelText: "Enter password",
-                              prefixIcon: const Icon(Icons.lock, color: kButtonColor),
+                              prefixIcon:
+                                  const Icon(Icons.lock, color: kButtonColor),
                               suffixIcon: IconButton(
                                 icon: Icon(
-                                  isPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                                  isPasswordVisible
+                                      ? Icons.visibility
+                                      : Icons.visibility_off,
                                   color: kButtonColor,
                                 ),
-                                onPressed: () => setState(() => isPasswordVisible = !isPasswordVisible),
+                                onPressed: () => setState(() =>
+                                    isPasswordVisible = !isPasswordVisible),
                               ),
                               filled: true,
                               fillColor: Colors.white,
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: kButtonColor, width: 1.5),
+                                borderSide: const BorderSide(
+                                    color: kButtonColor, width: 1.5),
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(color: kButtonColor, width: 2),
+                                borderSide: const BorderSide(
+                                    color: kButtonColor, width: 2),
                               ),
                             ),
-                            validator: (val) => (val == null || val.isEmpty) ? "Password required" : null,
+                            validator: (val) => (val == null || val.isEmpty)
+                                ? "Password required"
+                                : null,
                           ),
 
                           Align(
                             alignment: Alignment.centerRight,
                             child: TextButton(
-                              onPressed: () => _showForgotPasswordDialog(context),
+                              onPressed: () =>
+                                  _showForgotPasswordDialog(context),
                               child: const Text(
                                 "Forgot password?",
                                 style: TextStyle(
@@ -688,14 +751,19 @@ class _LoginPageState extends State<LoginPage> {
                             width: double.infinity,
                             height: 44,
                             child: ElevatedButton(
-                              onPressed: _isEmpLoading ? null : () => _login(isAdmin: false),
+                              onPressed: _isEmpLoading
+                                  ? null
+                                  : () => _login(isAdmin: false),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: kButtonColor,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8)),
                               ),
                               child: _isEmpLoading
-                                  ? const CircularProgressIndicator(color: Colors.white)
-                                  : const Text("Sign in as employee", style: TextStyle(color: kTextColor)),
+                                  ? const CircularProgressIndicator(
+                                      color: Colors.white)
+                                  : const Text("Sign in as employee",
+                                      style: TextStyle(color: kTextColor)),
                             ),
                           ),
                           const SizedBox(height: 10),
@@ -705,14 +773,19 @@ class _LoginPageState extends State<LoginPage> {
                             width: double.infinity,
                             height: 44,
                             child: ElevatedButton(
-                              onPressed: _isAdminLoading ? null : () => _login(isAdmin: true),
+                              onPressed: _isAdminLoading
+                                  ? null
+                                  : () => _login(isAdmin: true),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: kButtonColor,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8)),
                               ),
                               child: _isAdminLoading
-                                  ? const CircularProgressIndicator(color: Colors.white)
-                                  : const Text("Sign in as admin", style: TextStyle(color: kTextColor)),
+                                  ? const CircularProgressIndicator(
+                                      color: Colors.white)
+                                  : const Text("Sign in as admin",
+                                      style: TextStyle(color: kTextColor)),
                             ),
                           ),
                           const SizedBox(height: 12),

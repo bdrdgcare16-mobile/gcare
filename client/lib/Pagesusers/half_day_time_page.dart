@@ -163,7 +163,8 @@ import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:serv_app/html_stub.dart'
-  if (dart.library.html) 'package:serv_app/html_web.dart' as html; // for Flutter Web localStorage
+    if (dart.library.html) 'package:serv_app/html_web.dart'
+    as html; // for Flutter Web localStorage
 import 'package:serv_app/models/company_data.dart';
 
 // Colors (unchanged)
@@ -174,7 +175,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 /// Match your Node server port
-const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 class HalfDayTimePage extends StatefulWidget {
   final bool isPopup;
@@ -251,8 +252,8 @@ class _HalfDayTimePageState extends State<HalfDayTimePage> {
 
   // ---------- JWT helpers ----------
   bool _looksLikeJwt(String v) => RegExp(
-    r'^[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+$',
-  ).hasMatch(v);
+        r'^[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+$',
+      ).hasMatch(v);
 
   Future<String?> _getJwt() async {
     // 1) From your in-memory model (set at login)

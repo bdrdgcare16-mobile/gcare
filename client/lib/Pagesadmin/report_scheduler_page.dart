@@ -6,7 +6,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 // ignore: avoid_web_libraries_in_flutter
 import 'package:serv_app/html_stub.dart'
-  if (dart.library.html) 'package:serv_app/html_web.dart' as html;
+    if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
@@ -15,7 +15,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 // ==== API base (same as the rest of your app) ====
-const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 // ==== Small helpers (token + headers) ====
 String? _readToken() {
@@ -144,9 +144,10 @@ class ScheduledReport {
       'name': name,
       'reportType': reportType,
       'scheduleTime': hhmm24,
-      'recipient': email,          // REQUIRED by backend
-      'recipientEmail': email,     // extra tolerance
-      if (mobile != null && mobile.trim().isNotEmpty) 'recipientMobile': mobile.trim(),
+      'recipient': email, // REQUIRED by backend
+      'recipientEmail': email, // extra tolerance
+      if (mobile != null && mobile.trim().isNotEmpty)
+        'recipientMobile': mobile.trim(),
       'templateId': 'default-template',
     };
   }
@@ -166,11 +167,18 @@ class _ReportSchedulerPageState extends State<ReportSchedulerPage> {
   Future<void> _fetchSchedules() async {
     try {
       // FIX: no double /api
-      final res = await http.get(Uri.parse('$apiBase/reports'), headers: _headers());
+      final res =
+          await http.get(Uri.parse('$apiBase/reports'), headers: _headers());
       if (res.statusCode == 200) {
         final body = jsonDecode(res.body);
-        final List list = body is List ? body : (body is Map && body['data'] is List ? body['data'] : <dynamic>[]);
-        final items = list.map((e) => ScheduledReport.fromServer(e as Map<String, dynamic>)).toList();
+        final List list = body is List
+            ? body
+            : (body is Map && body['data'] is List
+                ? body['data']
+                : <dynamic>[]);
+        final items = list
+            .map((e) => ScheduledReport.fromServer(e as Map<String, dynamic>))
+            .toList();
         setState(() => scheduledReports = items);
       }
     } catch (_) {}
@@ -194,7 +202,8 @@ class _ReportSchedulerPageState extends State<ReportSchedulerPage> {
         ),
       );
       // FIX: no double /api
-      final res = await http.post(Uri.parse('$apiBase/reports'), headers: _headers(), body: body);
+      final res = await http.post(Uri.parse('$apiBase/reports'),
+          headers: _headers(), body: body);
       return res.statusCode == 201;
     } catch (_) {
       return false;
@@ -204,7 +213,8 @@ class _ReportSchedulerPageState extends State<ReportSchedulerPage> {
   Future<bool> _deleteOnServer(String id) async {
     try {
       // FIX: no double /api
-      final res = await http.delete(Uri.parse('$apiBase/reports/$id'), headers: _headers());
+      final res = await http.delete(Uri.parse('$apiBase/reports/$id'),
+          headers: _headers());
       return res.statusCode == 200;
     } catch (_) {
       return false;
@@ -222,11 +232,13 @@ class _ReportSchedulerPageState extends State<ReportSchedulerPage> {
     if (ok) {
       setState(() => scheduledReports.removeWhere((r) => r.id == id));
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Schedule deleted')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Schedule deleted')));
       }
     } else {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Delete failed')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Delete failed')));
       }
     }
   }
@@ -245,7 +257,8 @@ class _ReportSchedulerPageState extends State<ReportSchedulerPage> {
           alignment: Alignment.center,
           widthFactor: 0.85,
           heightFactor: 0.8,
-          child: CreateScheduledReportModal(onReportCreated: _addReportAndRefresh),
+          child:
+              CreateScheduledReportModal(onReportCreated: _addReportAndRefresh),
         ),
       ),
     );
@@ -256,7 +269,8 @@ class _ReportSchedulerPageState extends State<ReportSchedulerPage> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: kAppBarColor,
-        title: const Text('Report Scheduler', style: TextStyle(color: kTextColor)),
+        title:
+            const Text('Report Scheduler', style: TextStyle(color: kTextColor)),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: kTextColor),
           onPressed: () => Navigator.of(context).maybePop(),
@@ -285,7 +299,8 @@ class _ReportSchedulerPageState extends State<ReportSchedulerPage> {
                         backgroundColor: kButtonColor,
                         foregroundColor: kTextColor,
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
                       ),
                       icon: const Icon(Icons.add),
                       label: const Text("Create Report Scheduler"),
@@ -296,17 +311,35 @@ class _ReportSchedulerPageState extends State<ReportSchedulerPage> {
                   const Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Expanded(flex: 3, child: Text('Report Schedule Name', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
-                      Expanded(flex: 2, child: Text('Created Date', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
-                      Expanded(flex: 2, child: Text('Scheduled Time', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
-                      Expanded(flex: 1, child: Text('Delete', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                      Expanded(
+                          flex: 3,
+                          child: Text('Report Schedule Name',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 12))),
+                      Expanded(
+                          flex: 2,
+                          child: Text('Created Date',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 12))),
+                      Expanded(
+                          flex: 2,
+                          child: Text('Scheduled Time',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 12))),
+                      Expanded(
+                          flex: 1,
+                          child: Text('Delete',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 12))),
                     ],
                   ),
                   const SizedBox(height: 10),
                   if (scheduledReports.isEmpty)
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 24.0),
-                      child: Center(child: Text('No scheduled reports yet', style: TextStyle(color: Colors.black54))),
+                      child: Center(
+                          child: Text('No scheduled reports yet',
+                              style: TextStyle(color: Colors.black54))),
                     )
                   else
                     ListView.builder(
@@ -319,13 +352,23 @@ class _ReportSchedulerPageState extends State<ReportSchedulerPage> {
                           padding: const EdgeInsets.symmetric(vertical: 8.0),
                           child: Row(
                             children: [
-                              Expanded(flex: 3, child: Text(report.scheduleName, style: const TextStyle(fontSize: 12))),
-                              Expanded(flex: 2, child: Text(report.createdDate, style: const TextStyle(fontSize: 12))),
-                              Expanded(flex: 2, child: Text(report.schedulerTime, style: const TextStyle(fontSize: 12))),
+                              Expanded(
+                                  flex: 3,
+                                  child: Text(report.scheduleName,
+                                      style: const TextStyle(fontSize: 12))),
+                              Expanded(
+                                  flex: 2,
+                                  child: Text(report.createdDate,
+                                      style: const TextStyle(fontSize: 12))),
+                              Expanded(
+                                  flex: 2,
+                                  child: Text(report.schedulerTime,
+                                      style: const TextStyle(fontSize: 12))),
                               Expanded(
                                 flex: 1,
                                 child: IconButton(
-                                  icon: Icon(Icons.delete_outline, color: Colors.red[400]),
+                                  icon: Icon(Icons.delete_outline,
+                                      color: Colors.red[400]),
                                   onPressed: () => _deleteReport(report.id),
                                 ),
                               ),
@@ -350,10 +393,12 @@ class CreateScheduledReportModal extends StatefulWidget {
   const CreateScheduledReportModal({super.key, required this.onReportCreated});
 
   @override
-  State<CreateScheduledReportModal> createState() => _CreateScheduledReportModalState();
+  State<CreateScheduledReportModal> createState() =>
+      _CreateScheduledReportModalState();
 }
 
-class _CreateScheduledReportModalState extends State<CreateScheduledReportModal> {
+class _CreateScheduledReportModalState
+    extends State<CreateScheduledReportModal> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
@@ -362,21 +407,25 @@ class _CreateScheduledReportModalState extends State<CreateScheduledReportModal>
   String? selectedReportType;
   String? selectedTime;
 
-  bool isValidEmail(String email) => RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w]{2,4}$').hasMatch(email);
+  bool isValidEmail(String email) =>
+      RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w]{2,4}$').hasMatch(email);
 
   Future<void> _createSchedule() async {
     if (!_formKey.currentState!.validate()) return;
     if (selectedTime == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select schedule time")));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Please select schedule time")));
       return;
     }
     if (selectedReportType == null || selectedReportType!.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select report type")));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Please select report type")));
       return;
     }
     final email = _emailController.text.trim();
     if (email.isEmpty || !isValidEmail(email)) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter a valid recipient email")));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("Please enter a valid recipient email")));
       return;
     }
 
@@ -385,12 +434,15 @@ class _CreateScheduledReportModalState extends State<CreateScheduledReportModal>
       reportType: _mapReportTypeToApi(selectedReportType!),
       uiTime: selectedTime!,
       email: email,
-      mobile: _mobileController.text.trim().isEmpty ? null : _mobileController.text.trim(),
+      mobile: _mobileController.text.trim().isEmpty
+          ? null
+          : _mobileController.text.trim(),
     );
 
     if (!ok) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Create failed')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Create failed')));
       }
       return;
     }
@@ -424,7 +476,8 @@ class _CreateScheduledReportModalState extends State<CreateScheduledReportModal>
         ),
       );
       // FIX: no double /api
-      final res = await http.post(Uri.parse('$apiBase/reports'), headers: _headers(), body: body);
+      final res = await http.post(Uri.parse('$apiBase/reports'),
+          headers: _headers(), body: body);
       return res.statusCode == 201;
     } catch (_) {
       return false;
@@ -474,7 +527,10 @@ class _CreateScheduledReportModalState extends State<CreateScheduledReportModal>
                   const Expanded(
                     child: Text(
                       'Report Scheduler',
-                      style: TextStyle(color: kTextColor, fontSize: 15, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                          color: kTextColor,
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -492,16 +548,27 @@ class _CreateScheduledReportModalState extends State<CreateScheduledReportModal>
                         controller: _nameController,
                         style: const TextStyle(fontSize: 12),
                         decoration: denseInputDecoration('Schedule Name'),
-                        validator: (value) => value == null || value.trim().isEmpty ? 'Please enter schedule name' : null,
+                        validator: (value) =>
+                            value == null || value.trim().isEmpty
+                                ? 'Please enter schedule name'
+                                : null,
                       ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
                         decoration: denseInputDecoration('Choose Report List'),
                         style: const TextStyle(fontSize: 12),
-                        items: ['Check-in', 'Check-out', 'Late check-in', 'On leave', 'Absent']
-                            .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                        items: [
+                          'Check-in',
+                          'Check-out',
+                          'Late check-in',
+                          'On leave',
+                          'Absent'
+                        ]
+                            .map((e) =>
+                                DropdownMenuItem(value: e, child: Text(e)))
                             .toList(),
-                        onChanged: (val) => setState(() => selectedReportType = val),
+                        onChanged: (val) =>
+                            setState(() => selectedReportType = val),
                       ),
                       const SizedBox(height: 12),
                       TextFormField(
@@ -510,7 +577,9 @@ class _CreateScheduledReportModalState extends State<CreateScheduledReportModal>
                         decoration: denseInputDecoration('Email (Optional)'),
                         validator: (value) {
                           if (value != null && value.trim().isNotEmpty) {
-                            final ok = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w]{2,4}$').hasMatch(value.trim());
+                            final ok =
+                                RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w]{2,4}$')
+                                    .hasMatch(value.trim());
                             if (!ok) return 'Enter a valid email';
                           }
                           return null;
@@ -522,11 +591,16 @@ class _CreateScheduledReportModalState extends State<CreateScheduledReportModal>
                         style: const TextStyle(fontSize: 12),
                         decoration: denseInputDecoration('Mobile (Optional)'),
                         keyboardType: TextInputType.phone,
-                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly
+                        ],
                         validator: (value) {
                           if (value != null && value.trim().isNotEmpty) {
-                            final ok = RegExp(r'^[0-9]{10}$').hasMatch(value.trim());
-                            if (!ok) return 'Please enter a valid 10 digit mobile number';
+                            final ok =
+                                RegExp(r'^[0-9]{10}$').hasMatch(value.trim());
+                            if (!ok) {
+                              return 'Please enter a valid 10 digit mobile number';
+                            }
                           }
                           return null;
                         },
@@ -536,7 +610,8 @@ class _CreateScheduledReportModalState extends State<CreateScheduledReportModal>
                         decoration: denseInputDecoration('Schedule Time'),
                         style: const TextStyle(fontSize: 12),
                         items: ['07:00 PM', '08:00 PM', '09:00 PM', '10:00 PM']
-                            .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                            .map((e) =>
+                                DropdownMenuItem(value: e, child: Text(e)))
                             .toList(),
                         onChanged: (val) => setState(() => selectedTime = val),
                       ),
@@ -548,7 +623,8 @@ class _CreateScheduledReportModalState extends State<CreateScheduledReportModal>
                             width: 70,
                             child: OutlinedButton(
                               style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
                                 textStyle: const TextStyle(fontSize: 12),
                               ),
                               onPressed: () => Navigator.pop(context),
@@ -559,12 +635,14 @@ class _CreateScheduledReportModalState extends State<CreateScheduledReportModal>
                             width: 70,
                             child: ElevatedButton(
                               style: ElevatedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
                                 backgroundColor: kButtonColor,
                                 textStyle: const TextStyle(fontSize: 12),
                               ),
                               onPressed: _createSchedule,
-                              child: const Text('Create', style: TextStyle(color: Colors.white)),
+                              child: const Text('Create',
+                                  style: TextStyle(color: Colors.white)),
                             ),
                           ),
                         ],

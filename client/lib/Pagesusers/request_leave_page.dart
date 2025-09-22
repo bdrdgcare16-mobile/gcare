@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:serv_app/html_stub.dart'
-  if (dart.library.html) 'package:serv_app/html_web.dart' as html;
+    if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
@@ -14,7 +14,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 // Backend base
-const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 bool _looksLikeJwt(String v) =>
     RegExp(r'^[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+$').hasMatch(v);
@@ -110,8 +110,10 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
     final list = _rules.where((r) => r.active && r.type == type).toList();
     if (list.isEmpty) return null;
     list.sort((a, b) {
-      final ca = a.createdAt ?? a.fromDate ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final cb = b.createdAt ?? b.fromDate ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final ca =
+          a.createdAt ?? a.fromDate ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final cb =
+          b.createdAt ?? b.fromDate ?? DateTime.fromMillisecondsSinceEpoch(0);
       return cb.compareTo(ca);
     });
     return list.first;
@@ -171,7 +173,8 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
       if (resp.statusCode == 200) {
         final List data = jsonDecode(resp.body) as List;
         final rules = data.map((e) => LeaveTypeRule.fromJson(e)).toList();
-        final names = rules.where((r) => r.active).map((r) => r.type).toSet().toList();
+        final names =
+            rules.where((r) => r.active).map((r) => r.type).toSet().toList();
 
         setState(() {
           _rules = rules;
@@ -187,7 +190,9 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
       } else {
         setState(() => _loadingTypes = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No leave types available (status: ${resp.statusCode})')),
+          SnackBar(
+              content: Text(
+                  'No leave types available (status: ${resp.statusCode})')),
         );
       }
     } catch (e) {
@@ -292,7 +297,8 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
     return s
         .trim()
         .split(RegExp(r'\s+'))
-        .map((w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1).toLowerCase())
+        .map((w) =>
+            w.isEmpty ? w : w[0].toUpperCase() + w.substring(1).toLowerCase())
         .join(' ');
   }
 
@@ -461,7 +467,6 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
                     ),
                   ),
                   const SizedBox(height: 24),
-
                   DropdownButtonFormField<String>(
                     initialValue: selectedLeaveType,
                     decoration: _inputDecorationWithLabel("Leave Type"),
@@ -471,14 +476,16 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
                     onChanged: (val) {
                       setState(() {
                         selectedLeaveType = val;
-                        _currentRule = (val == null) ? null : _latestRuleForType(val);
+                        _currentRule =
+                            (val == null) ? null : _latestRuleForType(val);
                         selectedLeaveDuration = null;
                         fromDate = null;
                         toDate = null;
                         errorMessage = null;
                       });
                     },
-                    validator: (val) => val == null ? "Please select leave type" : null,
+                    validator: (val) =>
+                        val == null ? "Please select leave type" : null,
                   ),
                   if (_loadingTypes)
                     const Padding(
@@ -486,13 +493,13 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
                       child: Text('Loading leave types...'),
                     ),
                   const SizedBox(height: 16),
-
                   if (selectedLeaveType != null && _currentRule != null)
                     DropdownButtonFormField<String>(
                       initialValue: selectedLeaveDuration,
                       decoration: _inputDecorationWithLabel("Leave Duration"),
                       items: durationOptions
-                          .map((d) => DropdownMenuItem(value: d, child: Text(d)))
+                          .map(
+                              (d) => DropdownMenuItem(value: d, child: Text(d)))
                           .toList(),
                       onChanged: (val) {
                         setState(() {
@@ -502,15 +509,16 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
                           errorMessage = null;
                         });
                       },
-                      validator: (val) => val == null ? "Select duration" : null,
+                      validator: (val) =>
+                          val == null ? "Select duration" : null,
                     ),
                   const SizedBox(height: 16),
-
                   DropdownButtonFormField<String>(
                     initialValue: selectedShift,
                     decoration: _inputDecorationWithLabel("Shift"),
                     items: shifts
-                        .map((shift) => DropdownMenuItem(value: shift, child: Text(shift)))
+                        .map((shift) =>
+                            DropdownMenuItem(value: shift, child: Text(shift)))
                         .toList(),
                     onChanged: (val) => setState(() => selectedShift = val),
                     validator: (val) => val == null ? "Select shift" : null,
@@ -524,20 +532,19 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
                       ),
                     ),
                   const SizedBox(height: 16),
-
                   GestureDetector(
                     onTap: () => pickDate(context, true),
                     child: AbsorbPointer(
                       child: TextFormField(
                         decoration: _inputDecorationWithLabel("From Date"),
                         controller: TextEditingController(text: _fmt(fromDate)),
-                        validator: (val) =>
-                            val == null || val.isEmpty ? "Select From Date" : null,
+                        validator: (val) => val == null || val.isEmpty
+                            ? "Select From Date"
+                            : null,
                       ),
                     ),
                   ),
                   const SizedBox(height: 16),
-
                   GestureDetector(
                     onTap: () => pickDate(context, false),
                     child: AbsorbPointer(
@@ -545,7 +552,9 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
                         decoration: _inputDecorationWithLabel("To Date"),
                         controller: TextEditingController(text: _fmt(toDate)),
                         validator: (val) {
-                          if (val == null || val.isEmpty) return "Select To Date";
+                          if (val == null || val.isEmpty) {
+                            return "Select To Date";
+                          }
                           if (errorMessage != null) return errorMessage!;
                           return null;
                         },
@@ -561,16 +570,15 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
                       ),
                     ),
                   const SizedBox(height: 16),
-
                   TextFormField(
                     controller: reasonController,
                     maxLines: 2,
                     decoration: _inputDecorationWithLabel("Reason")
                         .copyWith(hintText: "Enter your reason"),
-                    validator: (val) => val == null || val.isEmpty ? "Enter reason" : null,
+                    validator: (val) =>
+                        val == null || val.isEmpty ? "Enter reason" : null,
                   ),
                   const SizedBox(height: 24),
-
                   SizedBox(
                     width: double.infinity,
                     height: 44,
@@ -582,7 +590,8 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      child: const Text("Submit", style: TextStyle(color: kTextColor)),
+                      child: const Text("Submit",
+                          style: TextStyle(color: kTextColor)),
                     ),
                   ),
                 ],

@@ -200,7 +200,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 // Web localStorage (ignored on mobile/desktop)
 import 'package:serv_app/html_stub.dart'
-  if (dart.library.html) 'package:serv_app/html_web.dart' as html;
+    if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
 import 'change_password_page.dart';
 import 'multi_language_page.dart';
@@ -211,7 +211,7 @@ import 'permissions_page.dart';
 import 'log_out_page.dart';
 
 /// ===== API base; adjust if needed =====
-const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 /// Order of endpoints to try for the current user's profile.
 /// Keep the path only (we'll prefix with _apiBase).

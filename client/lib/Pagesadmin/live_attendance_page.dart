@@ -9,7 +9,7 @@ import 'package:serv_app/models/company_data.dart';
 // 🔹 use the same API helper as approvals screen
 import '../services/api_service.dart';
 
-const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 /// Record returned by /api/attendance/live
 class AttendanceRecord {
@@ -68,7 +68,7 @@ class _EmployeeMeta {
 class _CheckedInRow {
   final String empid;
   final String name;
-  final String date;    // yyyy-MM-dd
+  final String date; // yyyy-MM-dd
   final String checkIn; // as returned by attendance
   final String? dept;
   final String? shiftGroup;
@@ -292,7 +292,8 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text("Close", style: TextStyle(color: Color(0xFF6A1B9A))),
+            child:
+                const Text("Close", style: TextStyle(color: Color(0xFF6A1B9A))),
           ),
         ],
       ),
@@ -351,7 +352,8 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Close', style: TextStyle(color: Color(0xFF6A1B9A))),
+              child: const Text('Close',
+                  style: TextStyle(color: Color(0xFF6A1B9A))),
             ),
           ],
         ),
@@ -368,7 +370,8 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
         title: const Text('Info'),
         content: Text(msg),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
         ],
       ),
     );
@@ -439,14 +442,16 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
             ),
           ),
           const SizedBox(height: 8),
-          Text(widget.companyProfile.name, style: const TextStyle(color: Colors.white)),
+          Text(widget.companyProfile.name,
+              style: const TextStyle(color: Colors.white)),
           Text("ID | ${widget.companyProfile.adminName}",
               style: const TextStyle(color: Colors.white70)),
           const SizedBox(height: 16),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              const _HeaderIcon(label: 'Map', icon: Icons.map, color: Colors.green),
+              const _HeaderIcon(
+                  label: 'Map', icon: Icons.map, color: Colors.green),
               const SizedBox(width: 16),
               GestureDetector(
                 onTap: _showCheckedInEmployeesPopup,
@@ -488,8 +493,8 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
                 borderRadius: BorderRadius.circular(20),
               ),
             ),
-            child:
-                Text("Check-in $checkInCount", style: const TextStyle(color: Colors.white)),
+            child: Text("Check-in $checkInCount",
+                style: const TextStyle(color: Colors.white)),
           ),
           ElevatedButton(
             onPressed: () => _showEmployeePopup(
@@ -552,7 +557,9 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
           _activityCard(
             "Half Day",
             halfDayCount,
-            _records.where((r) => r.checkIn != null && r.checkOut == null).toList(),
+            _records
+                .where((r) => r.checkIn != null && r.checkOut == null)
+                .toList(),
           ),
           _activityCard(
             "Late Check-in",
@@ -607,9 +614,10 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
                   backgroundColor: Color(0xFFCE93D8),
                   child: Icon(Icons.person, color: Colors.white),
                 ),
-                title: Text(r.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle:
-                    Text("ID: ${r.empid}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                title: Text(r.name,
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: Text("ID: ${r.empid}",
+                    style: const TextStyle(fontWeight: FontWeight.bold)),
               );
             },
           ),
@@ -617,7 +625,8 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text("Close", style: TextStyle(color: Color(0xFF6A1B9A))),
+            child:
+                const Text("Close", style: TextStyle(color: Color(0xFF6A1B9A))),
           ),
         ],
       ),
@@ -652,7 +661,9 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(title, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+                Text(title,
+                    style:
+                        TextStyle(color: color, fontWeight: FontWeight.bold)),
               ],
             ),
           ),
@@ -680,11 +691,13 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text("$value",
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
               Text(
                 title,
-                style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.bold),
+                style:
+                    TextStyle(fontSize: fontSize, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -697,7 +710,8 @@ class _HeaderIcon extends StatelessWidget {
   final String label;
   final IconData icon;
   final Color color;
-  const _HeaderIcon({required this.label, required this.icon, required this.color});
+  const _HeaderIcon(
+      {required this.label, required this.icon, required this.color});
 
   @override
   Widget build(BuildContext context) {

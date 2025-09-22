@@ -6,7 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 // Only available on web; safely ignored on mobile/desktop.
 import 'package:serv_app/html_stub.dart'
-  if (dart.library.html) 'package:serv_app/html_web.dart' as html;
+    if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
 import 'package:excel/excel.dart' as xls;
 import 'package:file_saver/file_saver.dart';
@@ -17,7 +17,7 @@ const Color kAppBarColor = Color(0xFF8c6eaf);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
-const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 class AttendanceReport extends StatefulWidget {
   const AttendanceReport({super.key});
@@ -80,7 +80,8 @@ class _AttendanceReportState extends State<AttendanceReport> {
       final start = _ymd(_fromDate);
       final end = _ymd(_toDate);
 
-      final uri = Uri.parse('$_apiBase/attendance/range-summary?start=$start&end=$end');
+      final uri =
+          Uri.parse('$_apiBase/attendance/range-summary?start=$start&end=$end');
       final res = await http.get(uri, headers: headers);
 
       if (res.statusCode != 200) {
@@ -97,15 +98,15 @@ class _AttendanceReportState extends State<AttendanceReport> {
       _allRecords = rows.map<AttendanceRecord>((raw) {
         final m = raw as Map<String, dynamic>;
         return AttendanceRecord(
-          employeeId:   (m['employeeId'] ?? m['empid'] ?? '').toString(),
+          employeeId: (m['employeeId'] ?? m['empid'] ?? '').toString(),
           employeeName: (m['employeeName'] ?? m['name'] ?? '').toString(),
-          shift:        (m['shift'] ?? m['shiftGroup'] ?? '').toString(),
-          date:         (m['date'] ?? '').toString(),
-          checkIn:      (m['checkIn'] ?? '-').toString(),
-          checkOut:     (m['checkOut'] ?? '-').toString(),
-          department:   (m['department'] ?? m['dept'] ?? '').toString(),
-          attendance:   (m['attendance'] ?? m['status'] ?? '').toString(),
-          workedHours:  (m['workedHours'] ?? '-').toString(),
+          shift: (m['shift'] ?? m['shiftGroup'] ?? '').toString(),
+          date: (m['date'] ?? '').toString(),
+          checkIn: (m['checkIn'] ?? '-').toString(),
+          checkOut: (m['checkOut'] ?? '-').toString(),
+          department: (m['department'] ?? m['dept'] ?? '').toString(),
+          attendance: (m['attendance'] ?? m['status'] ?? '').toString(),
+          workedHours: (m['workedHours'] ?? '-').toString(),
         );
       }).toList();
 
@@ -144,7 +145,8 @@ class _AttendanceReportState extends State<AttendanceReport> {
       case 'Holiday':
         return record.attendance == 'Holiday';
       case 'Week Off':
-        return record.attendance == 'Week Off' || record.attendance == 'WeekOff';
+        return record.attendance == 'Week Off' ||
+            record.attendance == 'WeekOff';
       case 'Half Day':
         return record.attendance == 'Half Day';
       case 'Regularized':
@@ -156,7 +158,7 @@ class _AttendanceReportState extends State<AttendanceReport> {
 
   int _getCountForType(String type) {
     return _allRecords.where((r) => _matchesFilter(r, type)).length;
-    }
+  }
 
   void _filterByAttendanceType(String attendanceType) {
     setState(() {
@@ -166,8 +168,9 @@ class _AttendanceReportState extends State<AttendanceReport> {
       if (_selectedFilter.isEmpty) {
         _filteredRecords = _allRecords;
       } else {
-        _filteredRecords =
-            _allRecords.where((r) => _matchesFilter(r, _selectedFilter)).toList();
+        _filteredRecords = _allRecords
+            .where((r) => _matchesFilter(r, _selectedFilter))
+            .toList();
       }
     });
 
@@ -187,17 +190,20 @@ class _AttendanceReportState extends State<AttendanceReport> {
     setState(() {
       final baseRecords = _selectedFilter.isEmpty
           ? _allRecords
-          : _allRecords.where((r) => _matchesFilter(r, _selectedFilter)).toList();
+          : _allRecords
+              .where((r) => _matchesFilter(r, _selectedFilter))
+              .toList();
 
       if (query.isEmpty) {
         _filteredRecords = baseRecords;
       } else {
         final q = query.toLowerCase();
-        _filteredRecords = baseRecords.where((r) =>
-          r.employeeName.toLowerCase().contains(q) ||
-          r.employeeId.toLowerCase().contains(q) ||
-          r.department.toLowerCase().contains(q)
-        ).toList();
+        _filteredRecords = baseRecords
+            .where((r) =>
+                r.employeeName.toLowerCase().contains(q) ||
+                r.employeeId.toLowerCase().contains(q) ||
+                r.department.toLowerCase().contains(q))
+            .toList();
       }
     });
   }
@@ -238,7 +244,9 @@ class _AttendanceReportState extends State<AttendanceReport> {
     final rows = _filteredRecords.isNotEmpty ? _filteredRecords : _allRecords;
     if (rows.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: const Text('No data to export'), backgroundColor: kButtonColor),
+        SnackBar(
+            content: const Text('No data to export'),
+            backgroundColor: kButtonColor),
       );
       return;
     }
@@ -276,7 +284,8 @@ class _AttendanceReportState extends State<AttendanceReport> {
         'Worked Hours'
       ];
       const headerRowIndex = 2; // after the two meta rows
-      sheet.appendRow(headers.map<xls.CellValue?>((h) => xls.TextCellValue(h)).toList());
+      sheet.appendRow(
+          headers.map<xls.CellValue?>((h) => xls.TextCellValue(h)).toList());
 
       // Data rows
       for (final r in rows) {
@@ -303,7 +312,8 @@ class _AttendanceReportState extends State<AttendanceReport> {
       );
       for (int c = 0; c < headers.length; c++) {
         sheet
-            .cell(xls.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: headerRowIndex))
+            .cell(xls.CellIndex.indexByColumnRow(
+                columnIndex: c, rowIndex: headerRowIndex))
             .cellStyle = headerStyle;
       }
 
@@ -333,11 +343,15 @@ class _AttendanceReportState extends State<AttendanceReport> {
       );
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Report downloaded: $fileName'), backgroundColor: kButtonColor),
+        SnackBar(
+            content: Text('Report downloaded: $fileName'),
+            backgroundColor: kButtonColor),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Download failed: $e'), backgroundColor: Colors.redAccent),
+        SnackBar(
+            content: Text('Download failed: $e'),
+            backgroundColor: Colors.redAccent),
       );
     }
   }
@@ -371,7 +385,8 @@ class _AttendanceReportState extends State<AttendanceReport> {
                 if (_selectedFilter.isNotEmpty) ...[
                   const SizedBox(width: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: kButtonColor.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(12),
@@ -381,7 +396,8 @@ class _AttendanceReportState extends State<AttendanceReport> {
                         const SizedBox(width: 4),
                         GestureDetector(
                           onTap: () => _filterByAttendanceType(_selectedFilter),
-                          child: Icon(Icons.close, size: 14, color: kButtonColor),
+                          child:
+                              Icon(Icons.close, size: 14, color: kButtonColor),
                         ),
                       ],
                     ),
@@ -414,7 +430,8 @@ class _AttendanceReportState extends State<AttendanceReport> {
                                     // From
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           Text(
                                             'From',
@@ -426,7 +443,8 @@ class _AttendanceReportState extends State<AttendanceReport> {
                                           ),
                                           SizedBox(height: isWeb ? 8 : 6),
                                           GestureDetector(
-                                            onTap: () => _selectDate(context, true),
+                                            onTap: () =>
+                                                _selectDate(context, true),
                                             child: _DateBox(
                                               text: _formatDate(_fromDate),
                                               isWeb: isWeb,
@@ -441,7 +459,8 @@ class _AttendanceReportState extends State<AttendanceReport> {
                                     // To
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           Text(
                                             'To',
@@ -453,7 +472,8 @@ class _AttendanceReportState extends State<AttendanceReport> {
                                           ),
                                           SizedBox(height: isWeb ? 8 : 6),
                                           GestureDetector(
-                                            onTap: () => _selectDate(context, false),
+                                            onTap: () =>
+                                                _selectDate(context, false),
                                             child: _DateBox(
                                               text: _formatDate(_toDate),
                                               isWeb: isWeb,
@@ -468,7 +488,8 @@ class _AttendanceReportState extends State<AttendanceReport> {
 
                               // Buttons
                               Padding(
-                                padding: EdgeInsets.symmetric(horizontal: isWeb ? 16 : 12),
+                                padding: EdgeInsets.symmetric(
+                                    horizontal: isWeb ? 16 : 12),
                                 child: Row(
                                   children: [
                                     Expanded(
@@ -487,7 +508,8 @@ class _AttendanceReportState extends State<AttendanceReport> {
                                           ),
                                         ),
                                         style: ElevatedButton.styleFrom(
-                                          backgroundColor: kPrimaryBackgroundBottom,
+                                          backgroundColor:
+                                              kPrimaryBackgroundBottom,
                                           foregroundColor: kButtonColor,
                                           elevation: 0,
                                           padding: EdgeInsets.symmetric(
@@ -500,7 +522,8 @@ class _AttendanceReportState extends State<AttendanceReport> {
                                     ),
                                     SizedBox(width: isWeb ? 12 : 8),
                                     ElevatedButton(
-                                      onPressed: _fetchRange, // re-fetch using selected dates
+                                      onPressed:
+                                          _fetchRange, // re-fetch using selected dates
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: kButtonColor,
                                         foregroundColor: kTextColor,
@@ -512,7 +535,8 @@ class _AttendanceReportState extends State<AttendanceReport> {
                                       ),
                                       child: Text(
                                         'Apply',
-                                        style: TextStyle(fontSize: isWeb ? 14 : 12),
+                                        style: TextStyle(
+                                            fontSize: isWeb ? 14 : 12),
                                       ),
                                     ),
                                   ],
@@ -523,7 +547,8 @@ class _AttendanceReportState extends State<AttendanceReport> {
 
                               // Summary Cards
                               Container(
-                                padding: EdgeInsets.symmetric(horizontal: isWeb ? 16 : 12),
+                                padding: EdgeInsets.symmetric(
+                                    horizontal: isWeb ? 16 : 12),
                                 child: LayoutBuilder(
                                   builder: (context, constraints) {
                                     int crossAxisCount = isWeb ? 4 : 2;
@@ -536,7 +561,8 @@ class _AttendanceReportState extends State<AttendanceReport> {
 
                                     return GridView.count(
                                       shrinkWrap: true,
-                                      physics: const NeverScrollableScrollPhysics(),
+                                      physics:
+                                          const NeverScrollableScrollPhysics(),
                                       crossAxisCount: crossAxisCount,
                                       crossAxisSpacing: isWeb ? 8 : 6,
                                       mainAxisSpacing: isWeb ? 8 : 6,
@@ -544,7 +570,8 @@ class _AttendanceReportState extends State<AttendanceReport> {
                                       children: [
                                         _buildSummaryCard(
                                           'Present',
-                                          _getCountForType('Present').toString(),
+                                          _getCountForType('Present')
+                                              .toString(),
                                           const Color(0xFFB39DDB),
                                           isWeb,
                                         ),
@@ -556,31 +583,36 @@ class _AttendanceReportState extends State<AttendanceReport> {
                                         ),
                                         _buildSummaryCard(
                                           'On Leave',
-                                          _getCountForType('On Leave').toString(),
+                                          _getCountForType('On Leave')
+                                              .toString(),
                                           const Color(0xFFCE93D8),
                                           isWeb,
                                         ),
                                         _buildSummaryCard(
                                           'Holiday',
-                                          _getCountForType('Holiday').toString(),
+                                          _getCountForType('Holiday')
+                                              .toString(),
                                           const Color(0xFFE1BEE7),
                                           isWeb,
                                         ),
                                         _buildSummaryCard(
                                           'Week Off',
-                                          _getCountForType('Week Off').toString(),
+                                          _getCountForType('Week Off')
+                                              .toString(),
                                           const Color(0xFFBA68C8),
                                           isWeb,
                                         ),
                                         _buildSummaryCard(
                                           'Half Day',
-                                          _getCountForType('Half Day').toString(),
+                                          _getCountForType('Half Day')
+                                              .toString(),
                                           const Color(0xFFF8BBD0),
                                           isWeb,
                                         ),
                                         _buildSummaryCard(
                                           'Regularized',
-                                          _getCountForType('Regularized').toString(),
+                                          _getCountForType('Regularized')
+                                              .toString(),
                                           const Color(0xFFF06292),
                                           isWeb,
                                         ),
@@ -594,7 +626,8 @@ class _AttendanceReportState extends State<AttendanceReport> {
 
                               // Search
                               Container(
-                                padding: EdgeInsets.symmetric(horizontal: isWeb ? 16 : 12),
+                                padding: EdgeInsets.symmetric(
+                                    horizontal: isWeb ? 16 : 12),
                                 child: Row(
                                   children: [
                                     Expanded(
@@ -607,7 +640,8 @@ class _AttendanceReportState extends State<AttendanceReport> {
                                           decoration: InputDecoration(
                                             hintText: 'Search',
                                             hintStyle: TextStyle(
-                                              color: kButtonColor.withOpacity(0.6),
+                                              color:
+                                                  kButtonColor.withOpacity(0.6),
                                             ),
                                             prefixIcon: Icon(
                                               Icons.search,
@@ -615,22 +649,29 @@ class _AttendanceReportState extends State<AttendanceReport> {
                                               color: kButtonColor,
                                             ),
                                             border: OutlineInputBorder(
-                                              borderRadius: BorderRadius.circular(6),
-                                              borderSide: BorderSide(color: kButtonColor),
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
+                                              borderSide: BorderSide(
+                                                  color: kButtonColor),
                                             ),
                                             enabledBorder: OutlineInputBorder(
-                                              borderRadius: BorderRadius.circular(6),
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
                                               borderSide: BorderSide(
-                                                color: kButtonColor.withOpacity(0.5),
+                                                color: kButtonColor
+                                                    .withOpacity(0.5),
                                               ),
                                             ),
                                             focusedBorder: OutlineInputBorder(
-                                              borderRadius: BorderRadius.circular(6),
-                                              borderSide: BorderSide(color: kButtonColor),
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
+                                              borderSide: BorderSide(
+                                                  color: kButtonColor),
                                             ),
                                             filled: true,
                                             fillColor: Colors.white,
-                                            contentPadding: EdgeInsets.symmetric(
+                                            contentPadding:
+                                                EdgeInsets.symmetric(
                                               horizontal: isWeb ? 12 : 8,
                                               vertical: isWeb ? 8 : 6,
                                             ),
@@ -649,7 +690,8 @@ class _AttendanceReportState extends State<AttendanceReport> {
                               // === ATTENDANCE TABLE ===
                               Container(
                                 height: 400,
-                                margin: EdgeInsets.symmetric(horizontal: isWeb ? 16 : 12),
+                                margin: EdgeInsets.symmetric(
+                                    horizontal: isWeb ? 16 : 12),
                                 decoration: BoxDecoration(
                                   color: kPrimaryBackgroundTop,
                                   borderRadius: BorderRadius.circular(8),
@@ -665,25 +707,38 @@ class _AttendanceReportState extends State<AttendanceReport> {
                                       children: [
                                         // Header Row
                                         Container(
-                                          padding: EdgeInsets.all(isWeb ? 12 : 8),
+                                          padding:
+                                              EdgeInsets.all(isWeb ? 12 : 8),
                                           decoration: BoxDecoration(
                                             color: kPrimaryBackgroundBottom,
-                                            borderRadius: const BorderRadius.only(
+                                            borderRadius:
+                                                const BorderRadius.only(
                                               topLeft: Radius.circular(8),
                                               topRight: Radius.circular(8),
                                             ),
                                           ),
                                           child: Row(
                                             children: [
-                                              _buildHeaderCell('Employee ID', isWeb ? 80 : 70, isWeb),
-                                              _buildHeaderCell('Employee Name', isWeb ? 100 : 90, isWeb),
-                                              _buildHeaderCell('Shift', isWeb ? 70 : 60, isWeb),
-                                              _buildHeaderCell('Date', isWeb ? 80 : 70, isWeb),
-                                              _buildHeaderCell('CheckIn', isWeb ? 70 : 60, isWeb),
-                                              _buildHeaderCell('CheckOut', isWeb ? 70 : 60, isWeb),
-                                              _buildHeaderCell('Department', isWeb ? 80 : 70, isWeb),
-                                              _buildHeaderCell('Attendance', isWeb ? 80 : 70, isWeb),
-                                              _buildHeaderCell('Total Worked Hours', isWeb ? 110 : 110, isWeb),
+                                              _buildHeaderCell('Employee ID',
+                                                  isWeb ? 80 : 70, isWeb),
+                                              _buildHeaderCell('Employee Name',
+                                                  isWeb ? 100 : 90, isWeb),
+                                              _buildHeaderCell('Shift',
+                                                  isWeb ? 70 : 60, isWeb),
+                                              _buildHeaderCell('Date',
+                                                  isWeb ? 80 : 70, isWeb),
+                                              _buildHeaderCell('CheckIn',
+                                                  isWeb ? 70 : 60, isWeb),
+                                              _buildHeaderCell('CheckOut',
+                                                  isWeb ? 70 : 60, isWeb),
+                                              _buildHeaderCell('Department',
+                                                  isWeb ? 80 : 70, isWeb),
+                                              _buildHeaderCell('Attendance',
+                                                  isWeb ? 80 : 70, isWeb),
+                                              _buildHeaderCell(
+                                                  'Total Worked Hours',
+                                                  isWeb ? 110 : 110,
+                                                  isWeb),
                                             ],
                                           ),
                                         ),
@@ -696,35 +751,69 @@ class _AttendanceReportState extends State<AttendanceReport> {
                                                     'No records found${_selectedFilter.isNotEmpty ? ' for $_selectedFilter' : ''}',
                                                     style: TextStyle(
                                                       fontSize: isWeb ? 14 : 12,
-                                                      color: kButtonColor.withOpacity(0.7),
+                                                      color: kButtonColor
+                                                          .withOpacity(0.7),
                                                     ),
                                                   ),
                                                 )
                                               : ListView.builder(
-                                                  itemCount: _filteredRecords.length,
+                                                  itemCount:
+                                                      _filteredRecords.length,
                                                   itemBuilder: (ctx, i) {
-                                                    final r = _filteredRecords[i];
+                                                    final r =
+                                                        _filteredRecords[i];
                                                     return Container(
-                                                      padding: EdgeInsets.all(isWeb ? 12 : 8),
+                                                      padding: EdgeInsets.all(
+                                                          isWeb ? 12 : 8),
                                                       decoration: BoxDecoration(
                                                         border: Border(
                                                           bottom: BorderSide(
-                                                            color: kPrimaryBackgroundBottom.withOpacity(0.5),
+                                                            color:
+                                                                kPrimaryBackgroundBottom
+                                                                    .withOpacity(
+                                                                        0.5),
                                                             width: 1,
                                                           ),
                                                         ),
                                                       ),
                                                       child: Row(
                                                         children: [
-                                                          _buildDataCell(r.employeeId, isWeb ? 80 : 70, isWeb),
-                                                          _buildDataCell(r.employeeName, isWeb ? 100 : 90, isWeb),
-                                                          _buildDataCell(r.shift, isWeb ? 70 : 60, isWeb),
-                                                          _buildDataCell(r.date, isWeb ? 80 : 70, isWeb),
-                                                          _buildDataCell(r.checkIn, isWeb ? 70 : 60, isWeb),
-                                                          _buildDataCell(r.checkOut, isWeb ? 70 : 60, isWeb),
-                                                          _buildDataCell(r.department, isWeb ? 80 : 70, isWeb),
-                                                          _buildDataCell(r.attendance, isWeb ? 80 : 70, isWeb),
-                                                          _buildDataCell(r.workedHours, isWeb ? 90 : 80, isWeb),
+                                                          _buildDataCell(
+                                                              r.employeeId,
+                                                              isWeb ? 80 : 70,
+                                                              isWeb),
+                                                          _buildDataCell(
+                                                              r.employeeName,
+                                                              isWeb ? 100 : 90,
+                                                              isWeb),
+                                                          _buildDataCell(
+                                                              r.shift,
+                                                              isWeb ? 70 : 60,
+                                                              isWeb),
+                                                          _buildDataCell(
+                                                              r.date,
+                                                              isWeb ? 80 : 70,
+                                                              isWeb),
+                                                          _buildDataCell(
+                                                              r.checkIn,
+                                                              isWeb ? 70 : 60,
+                                                              isWeb),
+                                                          _buildDataCell(
+                                                              r.checkOut,
+                                                              isWeb ? 70 : 60,
+                                                              isWeb),
+                                                          _buildDataCell(
+                                                              r.department,
+                                                              isWeb ? 80 : 70,
+                                                              isWeb),
+                                                          _buildDataCell(
+                                                              r.attendance,
+                                                              isWeb ? 80 : 70,
+                                                              isWeb),
+                                                          _buildDataCell(
+                                                              r.workedHours,
+                                                              isWeb ? 90 : 80,
+                                                              isWeb),
                                                         ],
                                                       ),
                                                     );
@@ -873,7 +962,8 @@ class _DateBox extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: isWeb ? 12 : 8, vertical: isWeb ? 10 : 8),
+      padding: EdgeInsets.symmetric(
+          horizontal: isWeb ? 12 : 8, vertical: isWeb ? 10 : 8),
       decoration: BoxDecoration(
         border: Border.all(color: kButtonColor.withOpacity(0.5)),
         borderRadius: BorderRadius.circular(6),
@@ -889,7 +979,8 @@ class _DateBox extends StatelessWidget {
               style: TextStyle(fontSize: isWeb ? 14 : 12, color: kButtonColor),
             ),
           ),
-          Icon(Icons.calendar_today, size: isWeb ? 16 : 14, color: kButtonColor),
+          Icon(Icons.calendar_today,
+              size: isWeb ? 16 : 14, color: kButtonColor),
         ],
       ),
     );

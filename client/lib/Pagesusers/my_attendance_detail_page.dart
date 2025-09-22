@@ -603,12 +603,12 @@ import 'package:http/http.dart' as http;
 // === Brand Colors (as per your purple/lavender theme) ===
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-const Color kAppBarColor = Color(0xFF8C6EAF);   // Purple app bar
-const Color kButtonColor = Color(0xFF655193);   // Darker purple for action bars
+const Color kAppBarColor = Color(0xFF8C6EAF); // Purple app bar
+const Color kButtonColor = Color(0xFF655193); // Darker purple for action bars
 const Color kTextOnDark = Colors.white;
 
 // Point to your backend
-const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 class MyAttendanceDetailPage extends StatefulWidget {
   const MyAttendanceDetailPage({
@@ -616,7 +616,7 @@ class MyAttendanceDetailPage extends StatefulWidget {
     required this.empId,
     required this.date, // date for which to show detail
     this.baseUrl = _apiBase,
-    this.bearerToken,   // optional: if you want to pass token explicitly
+    this.bearerToken, // optional: if you want to pass token explicitly
   });
 
   final String empId;
@@ -631,13 +631,13 @@ class MyAttendanceDetailPage extends StatefulWidget {
 class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
   // ---- Loaded values (bound to the static UI) ----
   late String _displayDateText;
-  String _shiftName = '';              // keep field but default empty so it's hidden
+  String _shiftName = ''; // keep field but default empty so it's hidden
   String _checkInTime = '-';
   String _checkOutTime = '-';
   String _permissionTime = '-';
   String _overTime = '-';
   String _statusText = '-';
-  String _shiftGroup = '-';            // fetched from backend (employees/me)
+  String _shiftGroup = '-'; // fetched from backend (employees/me)
   String _totalHoursText = '-';
 
   bool _loading = true;
@@ -674,7 +674,8 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
         meUri,
         headers: {
           'Content-Type': 'application/json',
-          if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+          if (token != null && token.isNotEmpty)
+            'Authorization': 'Bearer $token',
         },
       );
       if (meRes.statusCode == 200 && meRes.body.isNotEmpty) {
@@ -692,7 +693,8 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
         mvUri,
         headers: {
           'Content-Type': 'application/json',
-          if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+          if (token != null && token.isNotEmpty)
+            'Authorization': 'Bearer $token',
         },
       );
 
@@ -736,7 +738,8 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
         sumUri,
         headers: {
           'Content-Type': 'application/json',
-          if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+          if (token != null && token.isNotEmpty)
+            'Authorization': 'Bearer $token',
         },
       );
 
@@ -815,8 +818,11 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
         final hhmmss = RegExp(r'^\d{1,2}:\d{2}:\d{2}$');
         if (hhmm.hasMatch(s) || hhmmss.hasMatch(s)) {
           final parts = s.split(':').map(int.parse).toList();
-          final hh = parts[0], mm = parts[1], ss = parts.length > 2 ? parts[2] : 0;
-          return DateTime(widget.date.year, widget.date.month, widget.date.day, hh, mm, ss);
+          final hh = parts[0],
+              mm = parts[1],
+              ss = parts.length > 2 ? parts[2] : 0;
+          return DateTime(
+              widget.date.year, widget.date.month, widget.date.day, hh, mm, ss);
         }
 
         return DateTime.parse(s).toLocal();
@@ -868,11 +874,8 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
     }
 
     // Permission / OT minutes (optional)
-    final permMins = get<int>([
-          'permissionMinutes',
-          'permission_minutes',
-          'permissionMins'
-        ]) ??
+    final permMins = get<int>(
+            ['permissionMinutes', 'permission_minutes', 'permissionMins']) ??
         0;
     final otMins =
         get<int>(['overtimeMinutes', 'overtime_minutes', 'ot_minutes']) ?? 0;
@@ -960,7 +963,18 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
 
   static String _formatDateLong(DateTime d) {
     const months = [
-      'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
     ];
     final dd = d.day.toString().padLeft(2, '0');
     return '$dd ${months[d.month - 1]} ${d.year}';
@@ -1001,7 +1015,7 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                   child: _ShiftCard(
-                    title: _shiftName,                 // same API as before
+                    title: _shiftName, // same API as before
                     checkInTime: _checkInTime,
                     checkOutTime: _checkOutTime,
                     permissionTime: _permissionTime,
@@ -1136,7 +1150,8 @@ class _ShiftCard extends StatelessWidget {
 
           // Total hours banner (purple)
           ClipRRect(
-            borderRadius: const BorderRadius.vertical(bottom: Radius.circular(14)),
+            borderRadius:
+                const BorderRadius.vertical(bottom: Radius.circular(14)),
             child: Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 14),

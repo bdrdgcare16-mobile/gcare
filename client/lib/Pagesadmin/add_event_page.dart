@@ -6,7 +6,7 @@
 // import 'package:intl/intl.dart';
 
 // // ⬇️ Adjust base URL
-// const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+// const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 // const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 // const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
@@ -221,7 +221,7 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
 // ⬇️ Adjust base URL if needed
-const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
@@ -270,8 +270,8 @@ class _EventUploadPageState extends State<EventUploadPage> {
     bytes[8] = (bytes[8] & 0x3F) | 0x80; // variant
     String h(int b) => b.toRadixString(16).padLeft(2, '0');
     final hex = bytes.map(h).join();
-    return '${hex.substring(0,8)}-${hex.substring(8,12)}-${hex.substring(12,16)}-'
-        '${hex.substring(16,20)}-${hex.substring(20)}';
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-'
+        '${hex.substring(16, 20)}-${hex.substring(20)}';
   }
 
   Future<void> _submit() async {
@@ -415,8 +415,8 @@ class _EventUploadPageState extends State<EventUploadPage> {
               if (hasStar)
                 const TextSpan(
                   text: ' *',
-                  style: TextStyle(
-                      color: Colors.red, fontWeight: FontWeight.bold),
+                  style:
+                      TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
                 ),
             ],
           ),
@@ -441,8 +441,7 @@ class _LabelWithStar extends StatelessWidget {
             ),
             const TextSpan(
               text: ' *',
-              style:
-                  TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
             ),
           ],
         ),

@@ -129,14 +129,14 @@ class _CompanyDetailsFormPageState extends State<CompanyDetailsFormPage> {
         final Uint8List bytes = await _logoFile!.readAsBytes();
         final String base64Image = base64Encode(bytes);
         final String mimeType = _getMimeType(_logoFile!.path);
-        
+
         requestBody['logoBase64'] = base64Image;
         requestBody['logoMimeType'] = mimeType;
       }
 
       // Send the request
       final response = await http.post(
-        Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/company/profile'),
+        Uri.parse('https://api-zmj7dqloiq-el.a.run.app/api/company/profile'),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',
@@ -149,17 +149,22 @@ class _CompanyDetailsFormPageState extends State<CompanyDetailsFormPage> {
       if (response.statusCode == 200) {
         final responseData = jsonDecode(response.body);
         print('Response data: $responseData'); // Debug log
-        
+
         // Check for success message in the response
-        final bool isSuccess = responseData['message']?.toString().toLowerCase().contains('success') ?? false;
-        
+        final bool isSuccess = responseData['message']
+                ?.toString()
+                .toLowerCase()
+                .contains('success') ??
+            false;
+
         if (isSuccess) {
-          print('Company profile saved successfully, navigating to AdminDashboard...');
+          print(
+              'Company profile saved successfully, navigating to AdminDashboard...');
           if (mounted) {
             // Add a small delay to ensure the UI updates before navigation
             await Future.delayed(const Duration(milliseconds: 300));
             if (!mounted) return;
-            
+
             // Navigate to AdminDashboard with the company profile data
             Navigator.of(context).pushAndRemoveUntil(
               MaterialPageRoute(
@@ -180,7 +185,9 @@ class _CompanyDetailsFormPageState extends State<CompanyDetailsFormPage> {
           print('Server returned success: false'); // Debug log
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(responseData['message'] ?? 'Submission failed')),
+              SnackBar(
+                  content:
+                      Text(responseData['message'] ?? 'Submission failed')),
             );
           }
         }
@@ -190,8 +197,8 @@ class _CompanyDetailsFormPageState extends State<CompanyDetailsFormPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                errorData['message'] ?? 
-                'Submission failed: ${response.statusCode}',
+                errorData['message'] ??
+                    'Submission failed: ${response.statusCode}',
               ),
             ),
           );

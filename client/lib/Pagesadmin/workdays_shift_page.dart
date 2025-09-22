@@ -1,4 +1,3 @@
-
 // // import 'package:flutter/material.dart';
 // // import 'create_shift_page.dart';
 // // import 'shift_permission_page.dart';
@@ -625,7 +624,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 // Web localStorage (ignored on mobile/desktop builds)
 import 'package:serv_app/html_stub.dart'
-  if (dart.library.html) 'package:serv_app/html_web.dart' as html;
+    if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
 import 'create_shift_page.dart';
 import 'shift_permission_page.dart';
@@ -638,7 +637,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 // ==== API ====
-const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 class WorkdaysShiftPage extends StatefulWidget {
   const WorkdaysShiftPage({super.key});
@@ -683,7 +682,8 @@ class _WorkdaysShiftPageState extends State<WorkdaysShiftPage> {
       final headers = <String, String>{'Content-Type': 'application/json'};
       if (token != null) headers['Authorization'] = 'Bearer $token';
 
-      final res = await http.get(Uri.parse('$_apiBase/shifts'), headers: headers);
+      final res =
+          await http.get(Uri.parse('$_apiBase/shifts'), headers: headers);
       if (res.statusCode != 200) {
         setState(() {
           _loading = false;
@@ -724,7 +724,10 @@ class _WorkdaysShiftPageState extends State<WorkdaysShiftPage> {
       // Optimistic add (also still freshen from server)
       setState(() => _shifts.insert(0, created));
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Shift "${created["name"] ?? created["shiftname"] ?? ""}" created'), backgroundColor: kButtonColor),
+        SnackBar(
+            content: Text(
+                'Shift "${created["name"] ?? created["shiftname"] ?? ""}" created'),
+            backgroundColor: kButtonColor),
       );
       // Make sure we’re in sync with DB
       await _fetchShifts();
@@ -767,16 +770,20 @@ class _WorkdaysShiftPageState extends State<WorkdaysShiftPage> {
     final token = await _getToken();
     final headers = <String, String>{'Content-Type': 'application/json'};
     if (token != null) headers['Authorization'] = 'Bearer $token';
-    final res = await http.delete(Uri.parse('$_apiBase/shifts/$id'), headers: headers);
+    final res =
+        await http.delete(Uri.parse('$_apiBase/shifts/$id'), headers: headers);
     if (!mounted) return;
     if (res.statusCode == 200) {
       setState(() => _shifts.removeWhere((s) => s['id'] == id));
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Shift deleted'), backgroundColor: kButtonColor),
+        const SnackBar(
+            content: Text('Shift deleted'), backgroundColor: kButtonColor),
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Delete failed: ${res.statusCode}'), backgroundColor: Colors.red),
+        SnackBar(
+            content: Text('Delete failed: ${res.statusCode}'),
+            backgroundColor: Colors.red),
       );
     }
   }
@@ -808,23 +815,30 @@ class _WorkdaysShiftPageState extends State<WorkdaysShiftPage> {
         child: _loading
             ? const Center(child: CircularProgressIndicator())
             : _error != null
-                ? Center(child: Text(_error!, style: const TextStyle(color: Colors.red)))
+                ? Center(
+                    child: Text(_error!,
+                        style: const TextStyle(color: Colors.red)))
                 : SingleChildScrollView(
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text("Shift Configuration", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                        const Text("Shift Configuration",
+                            style: TextStyle(
+                                fontSize: 20, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 8),
-                        const Text("Choose your shift", style: TextStyle(fontSize: 14, color: Colors.black54)),
+                        const Text("Choose your shift",
+                            style:
+                                TextStyle(fontSize: 14, color: Colors.black54)),
                         const SizedBox(height: 16),
 
-                     
                         // Live from DB
                         for (int i = 0; i < _shifts.length; i++) ...[
                           _ShiftTemplateCard(
-                            title: " ${_shifts[i]["name"] ?? _shifts[i]["shiftname"] ?? "Shift"}",
-                            time: "${_hm12(_shifts[i]["startTime"] ?? '-') } - ${_hm12(_shifts[i]["endTime"] ?? '-')}",
+                            title:
+                                " ${_shifts[i]["name"] ?? _shifts[i]["shiftname"] ?? "Shift"}",
+                            time:
+                                "${_hm12(_shifts[i]["startTime"] ?? '-')} - ${_hm12(_shifts[i]["endTime"] ?? '-')}",
                           ),
                           const SizedBox(height: 10),
                         ],
@@ -834,11 +848,17 @@ class _WorkdaysShiftPageState extends State<WorkdaysShiftPage> {
                           children: [
                             OutlinedButton(
                               style: OutlinedButton.styleFrom(
-                                backgroundColor: _isShiftPermissionClicked ? kButtonColor : Colors.transparent,
-                                foregroundColor: _isShiftPermissionClicked ? kTextColor : Colors.black,
+                                backgroundColor: _isShiftPermissionClicked
+                                    ? kButtonColor
+                                    : Colors.transparent,
+                                foregroundColor: _isShiftPermissionClicked
+                                    ? kTextColor
+                                    : Colors.black,
                                 side: const BorderSide(color: kButtonColor),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(20)),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 24, vertical: 14),
                               ),
                               onPressed: () {
                                 setState(() {
@@ -851,11 +871,17 @@ class _WorkdaysShiftPageState extends State<WorkdaysShiftPage> {
                             ),
                             OutlinedButton(
                               style: OutlinedButton.styleFrom(
-                                backgroundColor: _isCreateShiftClicked ? kButtonColor : Colors.transparent,
-                                foregroundColor: _isCreateShiftClicked ? kTextColor : Colors.black,
+                                backgroundColor: _isCreateShiftClicked
+                                    ? kButtonColor
+                                    : Colors.transparent,
+                                foregroundColor: _isCreateShiftClicked
+                                    ? kTextColor
+                                    : Colors.black,
                                 side: const BorderSide(color: kButtonColor),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(20)),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 24, vertical: 14),
                               ),
                               onPressed: _handleCreateShift,
                               child: const Text("Create Shift"),
@@ -877,7 +903,8 @@ class _WorkdaysShiftPageState extends State<WorkdaysShiftPage> {
                                 children: _shifts.map((s) {
                                   final id = (s['id'] ?? '').toString();
                                   final name = (s['name'] ?? '').toString();
-                                  final group = (s['shiftname'] ?? '').toString(); // using shiftname as "Group Name"
+                                  final group = (s['shiftname'] ?? '')
+                                      .toString(); // using shiftname as "Group Name"
                                   final st = (s['startTime'] ?? '').toString();
                                   final et = (s['endTime'] ?? '').toString();
 
@@ -887,8 +914,10 @@ class _WorkdaysShiftPageState extends State<WorkdaysShiftPage> {
                                       _CustomDataCell(_hm12(st)),
                                       _CustomDataCell(_hm12(et)),
                                       _CustomDataCell(_hoursBetween(st, et)),
-                                      _CustomDataCell('0'), // OT (mins) — no rule yet
-                                      _CustomDataCell('4 hrs'), // Half Day Time (example)
+                                      _CustomDataCell(
+                                          '0'), // OT (mins) — no rule yet
+                                      _CustomDataCell(
+                                          '4 hrs'), // Half Day Time (example)
                                       _CustomDataCell('15 mins'), // Min PT
                                       _CustomDataCell('60 mins'), // Max PT
                                       _CustomDataCell('—'), // Max OT
@@ -900,8 +929,11 @@ class _WorkdaysShiftPageState extends State<WorkdaysShiftPage> {
                                       _CustomDataCell(group),
                                       _CustomDataCell('—'), // Break Count
                                       IconButton(
-                                        icon: const Icon(Icons.delete, color: Colors.red),
-                                        onPressed: id.isEmpty ? null : () => _deleteShift(id),
+                                        icon: const Icon(Icons.delete,
+                                            color: Colors.red),
+                                        onPressed: id.isEmpty
+                                            ? null
+                                            : () => _deleteShift(id),
                                       ),
                                     ],
                                   );
@@ -962,7 +994,9 @@ class _ShiftTemplateCard extends StatelessWidget {
             children: [
               Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
               const Spacer(),
-              Text(time, style: const TextStyle(fontSize: 12), textAlign: TextAlign.right),
+              Text(time,
+                  style: const TextStyle(fontSize: 12),
+                  textAlign: TextAlign.right),
             ],
           ),
         ),
@@ -985,7 +1019,8 @@ class _HeaderCell extends StatelessWidget {
       child: Text(
         label,
         textAlign: TextAlign.center,
-        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: kButtonColor),
+        style: const TextStyle(
+            fontWeight: FontWeight.w600, fontSize: 12, color: kButtonColor),
       ),
     );
   }
@@ -1002,7 +1037,8 @@ class _CustomDataCell extends StatelessWidget {
       width: 120,
       padding: const EdgeInsets.all(8),
       alignment: Alignment.center,
-      child: Text(value, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
+      child: Text(value,
+          textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
     );
   }
 }

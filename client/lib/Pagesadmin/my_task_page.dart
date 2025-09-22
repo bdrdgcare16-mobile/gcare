@@ -19,7 +19,7 @@
 
 // class _MyTasksPageState extends State<MyTasksPage> {
 //   // API base
-//   static const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+//   static const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 //   // local preview list (unchanged UI)
 //   List<PlatformFile> uploadedFiles = [];
@@ -411,7 +411,7 @@ class MyTasksPage extends StatefulWidget {
 
 class _MyTasksPageState extends State<MyTasksPage> {
   // API base
-  static const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+  static const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
   // Daily updates (from API)
   List<Map<String, dynamic>> dailyUpdates = [];
@@ -465,7 +465,7 @@ class _MyTasksPageState extends State<MyTasksPage> {
         daily.sort((a, b) {
           final ad = DateTime.tryParse((a['createdAt'] ?? '').toString()) ??
               DateTime.fromMillisecondsSinceEpoch(0);
-        final bd = DateTime.tryParse((b['createdAt'] ?? '').toString()) ??
+          final bd = DateTime.tryParse((b['createdAt'] ?? '').toString()) ??
               DateTime.fromMillisecondsSinceEpoch(0);
           return bd.compareTo(ad);
         });
@@ -490,7 +490,8 @@ class _MyTasksPageState extends State<MyTasksPage> {
       } else {
         setState(() => isLoadingUpdates = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to fetch updates: ${resp.statusCode}')),
+          SnackBar(
+              content: Text('Failed to fetch updates: ${resp.statusCode}')),
         );
       }
     } catch (e) {
@@ -582,8 +583,8 @@ class _MyTasksPageState extends State<MyTasksPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Close",
-                style: TextStyle(color: Colors.deepPurple)),
+            child:
+                const Text("Close", style: TextStyle(color: Colors.deepPurple)),
           ),
         ],
       ),
@@ -703,8 +704,8 @@ class _MyTasksPageState extends State<MyTasksPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Close",
-                style: TextStyle(color: Colors.deepPurple)),
+            child:
+                const Text("Close", style: TextStyle(color: Colors.deepPurple)),
           ),
         ],
       ),

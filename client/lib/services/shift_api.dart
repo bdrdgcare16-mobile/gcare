@@ -4,17 +4,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 // Only available on Flutter Web; harmless try/catch elsewhere
 import 'package:serv_app/html_stub.dart'
-  if (dart.library.html) 'package:serv_app/html_web.dart' as html;
+    if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
 /// Change only this if your API base moves.
-const String kApiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String kApiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 class ShiftModel {
   final String id;
-  final String name;       // UI "Shift Name"
-  final String startTime;  // "HH:mm"
-  final String endTime;    // "HH:mm"
-  final String shiftname;  // Group / Shift Group display name
+  final String name; // UI "Shift Name"
+  final String startTime; // "HH:mm"
+  final String endTime; // "HH:mm"
+  final String shiftname; // Group / Shift Group display name
 
   ShiftModel({
     required this.id,
@@ -63,7 +63,9 @@ class ShiftApi {
       throw Exception('Fetch shifts failed: ${res.statusCode} ${res.body}');
     }
     final list = (jsonDecode(res.body) as List).cast<dynamic>();
-    return list.map((e) => ShiftModel.fromJson(e as Map<String, dynamic>)).toList();
+    return list
+        .map((e) => ShiftModel.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   static Future<ShiftModel> create({

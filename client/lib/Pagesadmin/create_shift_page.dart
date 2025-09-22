@@ -1,7 +1,3 @@
-
-
-
-
 // // import 'package:flutter/material.dart';
 // // import 'package:serv_app/Pagesadmin/AddGroupNameDialog.dart';
 
@@ -106,13 +102,13 @@
 // //               crossAxisAlignment: CrossAxisAlignment.start,
 // //               children: [
 // //                 // Shift Name
-                
+
 // //                 const SizedBox(height: 6),
 // //                 TextField(
 // //                   controller: _shiftNameController,
 // //                   decoration: const InputDecoration(
 // //                     labelText: "Shift Name",
-                   
+
 // //                     border: OutlineInputBorder(),
 // //                   ),
 // //                 ),
@@ -161,7 +157,7 @@
 // //                 const SizedBox(height: 16),
 
 // //                 // Group Name
-                
+
 // //                 const SizedBox(height: 6),
 // //                 GestureDetector(
 // //                   onTap: _openGroupNameDialog,
@@ -232,7 +228,6 @@
 // //     );
 // //   }
 // // }
-
 
 // import 'package:flutter/material.dart';
 // import 'package:serv_app/Pagesadmin/AddGroupNameDialog.dart';
@@ -481,7 +476,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 // Web localStorage (ignored on mobile/desktop)
 import 'package:serv_app/html_stub.dart'
-  if (dart.library.html) 'package:serv_app/html_web.dart' as html;
+    if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
 import 'package:serv_app/Pagesadmin/AddGroupNameDialog.dart';
 
@@ -493,7 +488,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 // ==== API ====
-const String _apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 class CreateShiftPage extends StatefulWidget {
   const CreateShiftPage({super.key});
@@ -584,26 +579,35 @@ class _CreateShiftPageState extends State<CreateShiftPage> {
       if (res.statusCode == 201) {
         final created = jsonDecode(res.body) as Map<String, dynamic>;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Shift created successfully"), backgroundColor: kButtonColor),
+          const SnackBar(
+              content: Text("Shift created successfully"),
+              backgroundColor: kButtonColor),
         );
         Navigator.pop(context, created); // pop with the created object
       } else if (res.statusCode == 403) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Forbidden: admin only"), backgroundColor: Colors.red),
+          const SnackBar(
+              content: Text("Forbidden: admin only"),
+              backgroundColor: Colors.red),
         );
       } else if (res.statusCode == 401) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Unauthorized: missing/invalid token"), backgroundColor: Colors.red),
+          const SnackBar(
+              content: Text("Unauthorized: missing/invalid token"),
+              backgroundColor: Colors.red),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Failed (${res.statusCode}): ${res.body}"), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text("Failed (${res.statusCode}): ${res.body}"),
+              backgroundColor: Colors.red),
         );
       }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Network error: $e"), backgroundColor: Colors.red),
+        SnackBar(
+            content: Text("Network error: $e"), backgroundColor: Colors.red),
       );
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -667,13 +671,17 @@ class _CreateShiftPageState extends State<CreateShiftPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text("Start Time", style: TextStyle(fontWeight: FontWeight.bold)),
+                            const Text("Start Time",
+                                style: TextStyle(fontWeight: FontWeight.bold)),
                             const SizedBox(height: 6),
                             ElevatedButton(
-                              style: ElevatedButton.styleFrom(backgroundColor: kButtonColor),
+                              style: ElevatedButton.styleFrom(
+                                  backgroundColor: kButtonColor),
                               onPressed: _saving ? null : () => _pickTime(true),
                               child: Text(
-                                _startTime == null ? "Start Time" : _startTime!.format(context),
+                                _startTime == null
+                                    ? "Start Time"
+                                    : _startTime!.format(context),
                                 style: const TextStyle(color: kTextColor),
                               ),
                             ),
@@ -685,13 +693,18 @@ class _CreateShiftPageState extends State<CreateShiftPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text("End Time", style: TextStyle(fontWeight: FontWeight.bold)),
+                            const Text("End Time",
+                                style: TextStyle(fontWeight: FontWeight.bold)),
                             const SizedBox(height: 6),
                             ElevatedButton(
-                              style: ElevatedButton.styleFrom(backgroundColor: kButtonColor),
-                              onPressed: _saving ? null : () => _pickTime(false),
+                              style: ElevatedButton.styleFrom(
+                                  backgroundColor: kButtonColor),
+                              onPressed:
+                                  _saving ? null : () => _pickTime(false),
                               child: Text(
-                                _endTime == null ? "End Time" : _endTime!.format(context),
+                                _endTime == null
+                                    ? "End Time"
+                                    : _endTime!.format(context),
                                 style: const TextStyle(color: kTextColor),
                               ),
                             ),
@@ -718,7 +731,8 @@ class _CreateShiftPageState extends State<CreateShiftPage> {
                   const SizedBox(height: 16),
                   CheckboxListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text("Extra Time Management", style: TextStyle(fontWeight: FontWeight.bold)),
+                    title: const Text("Extra Time Management",
+                        style: TextStyle(fontWeight: FontWeight.bold)),
                     value: _extraTimeManagement,
                     onChanged: _saving
                         ? null
@@ -729,7 +743,8 @@ class _CreateShiftPageState extends State<CreateShiftPage> {
                           },
                   ),
                   const SizedBox(height: 10),
-                  const Text("Break Configuration", style: TextStyle(fontWeight: FontWeight.bold)),
+                  const Text("Break Configuration",
+                      style: TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 6),
                   Wrap(
                     crossAxisAlignment: WrapCrossAlignment.center,
@@ -742,7 +757,10 @@ class _CreateShiftPageState extends State<CreateShiftPage> {
                           Radio<String>(
                             value: "Define",
                             groupValue: _breakConfig,
-                            onChanged: _saving ? null : (value) => setState(() => _breakConfig = value),
+                            onChanged: _saving
+                                ? null
+                                : (value) =>
+                                    setState(() => _breakConfig = value),
                           ),
                           const Text("Define Break"),
                         ],
@@ -753,7 +771,10 @@ class _CreateShiftPageState extends State<CreateShiftPage> {
                           Radio<String>(
                             value: "Flexible",
                             groupValue: _breakConfig,
-                            onChanged: _saving ? null : (value) => setState(() => _breakConfig = value),
+                            onChanged: _saving
+                                ? null
+                                : (value) =>
+                                    setState(() => _breakConfig = value),
                           ),
                           const Text("Flexible Break"),
                         ],
@@ -765,12 +786,18 @@ class _CreateShiftPageState extends State<CreateShiftPage> {
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: kButtonColor,
-                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 32, vertical: 12),
                       ),
                       onPressed: _saving ? null : _submitForm,
                       child: _saving
-                          ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Text("Submit", style: TextStyle(color: kTextColor)),
+                          ? const SizedBox(
+                              height: 18,
+                              width: 18,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white))
+                          : const Text("Submit",
+                              style: TextStyle(color: kTextColor)),
                     ),
                   ),
                 ],

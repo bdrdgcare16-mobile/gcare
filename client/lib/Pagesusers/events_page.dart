@@ -1,5 +1,3 @@
-
-
 // // import 'package:flutter/material.dart';
 
 // // // Theme Colors
@@ -116,9 +114,7 @@
 // //   }
 // // }
 
-
 // import 'package:flutter/material.dart';
-
 
 // class UserEventUpdatesPage extends StatefulWidget {
 //   const UserEventUpdatesPage({super.key});
@@ -269,7 +265,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 // ------- API base (must match your backend) -------
-const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 // To resolve /uploads/... into a full URL
 final String _apiOrigin = apiBase.replaceFirst(RegExp(r'/api/?$'), '');
 
@@ -317,20 +313,20 @@ class _UserEventUpdatesPageState extends State<UserEventUpdatesPage> {
       // Map backend fields to UI’s existing keys without changing layout
       // Backend returns: title, description, location, fromDate, toDate, imageUrl, fileUrl, id
       return data.map<Map<String, String>>((e) {
-        final title       = (e['title'] ?? '').toString();
-        final location    = (e['location'] ?? '').toString();
-        final desc        = (e['description'] ?? '').toString();
+        final title = (e['title'] ?? '').toString();
+        final location = (e['location'] ?? '').toString();
+        final desc = (e['description'] ?? '').toString();
         final fromDateStr = (e['fromDate'] ?? '').toString();
-        final toDateStr   = (e['toDate'] ?? '').toString();
-        final imageUrl    = _resolveUrl((e['imageUrl'] ?? '').toString());
+        final toDateStr = (e['toDate'] ?? '').toString();
+        final imageUrl = _resolveUrl((e['imageUrl'] ?? '').toString());
 
         return {
           'event': title,
           'from': _fmtDate(fromDateStr),
-          'to'  : _fmtDate(toDateStr),
+          'to': _fmtDate(toDateStr),
           'location': location,
           'image': imageUrl, // may be empty -> Image builder shows broken icon
-          'desc' : desc,
+          'desc': desc,
         };
       }).toList();
     } catch (e) {
@@ -367,19 +363,38 @@ class _UserEventUpdatesPageState extends State<UserEventUpdatesPage> {
                 children: [
                   // Header (unchanged)
                   Container(
-                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                    padding:
+                        const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
                     decoration: BoxDecoration(
                       color: Colors.purple.shade300,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: const Row(
                       children: [
-                        SizedBox(width: 130, child: Text("Event Name", style: TextStyle(fontWeight: FontWeight.bold))),
-                        SizedBox(width: 90, child: Text("From", style: TextStyle(fontWeight: FontWeight.bold))),
-                        SizedBox(width: 90, child: Text("To", style: TextStyle(fontWeight: FontWeight.bold))),
-                        SizedBox(width: 110, child: Text("Location", style: TextStyle(fontWeight: FontWeight.bold))),
-                        SizedBox(width: 80, child: Text("Image", style: TextStyle(fontWeight: FontWeight.bold))),
-                        SizedBox(width: 160, child: Text("Description", style: TextStyle(fontWeight: FontWeight.bold))),
+                        SizedBox(
+                            width: 130,
+                            child: Text("Event Name",
+                                style: TextStyle(fontWeight: FontWeight.bold))),
+                        SizedBox(
+                            width: 90,
+                            child: Text("From",
+                                style: TextStyle(fontWeight: FontWeight.bold))),
+                        SizedBox(
+                            width: 90,
+                            child: Text("To",
+                                style: TextStyle(fontWeight: FontWeight.bold))),
+                        SizedBox(
+                            width: 110,
+                            child: Text("Location",
+                                style: TextStyle(fontWeight: FontWeight.bold))),
+                        SizedBox(
+                            width: 80,
+                            child: Text("Image",
+                                style: TextStyle(fontWeight: FontWeight.bold))),
+                        SizedBox(
+                            width: 160,
+                            child: Text("Description",
+                                style: TextStyle(fontWeight: FontWeight.bold))),
                       ],
                     ),
                   ),
@@ -393,14 +408,18 @@ class _UserEventUpdatesPageState extends State<UserEventUpdatesPage> {
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(8),
-                        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 2)],
+                        boxShadow: const [
+                          BoxShadow(color: Colors.black12, blurRadius: 2)
+                        ],
                       ),
                       child: Row(
                         children: [
-                          SizedBox(width: 130, child: Text(event['event'] ?? '')),
+                          SizedBox(
+                              width: 130, child: Text(event['event'] ?? '')),
                           SizedBox(width: 90, child: Text(event['from'] ?? '')),
                           SizedBox(width: 90, child: Text(event['to'] ?? '')),
-                          SizedBox(width: 110, child: Text(event['location'] ?? '')),
+                          SizedBox(
+                              width: 110, child: Text(event['location'] ?? '')),
                           SizedBox(
                             width: 80,
                             child: (event['image'] ?? '').isEmpty
@@ -410,11 +429,13 @@ class _UserEventUpdatesPageState extends State<UserEventUpdatesPage> {
                                     width: 50,
                                     height: 50,
                                     fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) =>
-                                        const Icon(Icons.broken_image),
+                                    errorBuilder:
+                                        (context, error, stackTrace) =>
+                                            const Icon(Icons.broken_image),
                                   ),
                           ),
-                          SizedBox(width: 160, child: Text(event['desc'] ?? '')),
+                          SizedBox(
+                              width: 160, child: Text(event['desc'] ?? '')),
                         ],
                       ),
                     );

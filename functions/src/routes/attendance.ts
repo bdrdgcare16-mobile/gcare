@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import * as attendanceController from '../controllers/attendanceController';
 import { authMiddleware } from '../middlewares/authMiddleware';
-
 const router = Router();
 
 // Apply auth middleware to all routes
@@ -18,5 +17,8 @@ router.get('/range-summary', attendanceController.getRangeSummary);
 router.get('/month-view/:empid/:year/:month', attendanceController.getMonthView);
 router.post('/check-in', attendanceController.checkIn);
 router.post('/check-out', attendanceController.checkOut);
+router.get('/other-location', attendanceController.listOtherLocationEvents);
+router.post('/other-location/decision', attendanceController.decideOtherLocationEvent);
+router.get('/other-location/ping', (_req, res) => res.json({ ok: true }));
 
 export default router;

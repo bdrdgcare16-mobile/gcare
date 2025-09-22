@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:serv_app/html_stub.dart'
-  if (dart.library.html) 'package:serv_app/html_web.dart' as html;
+    if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
 // If you keep the JWT centrally after login, import it.
 // Adjust the path if your project structure differs.
@@ -15,7 +15,7 @@ const Color kTextColor = Colors.white;
 const Color kHighlightBoxColor = Color(0xFF655193);
 
 // ---- API ----
-const String apiBase = 'https://api-zmj7dqloiq-uc.a.run.app/api';
+const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 class RewardsPage extends StatefulWidget {
   const RewardsPage({super.key});
@@ -27,7 +27,8 @@ class RewardsPage extends StatefulWidget {
 class _RewardsPageState extends State<RewardsPage> {
   final TextEditingController nameController = TextEditingController();
   final TextEditingController employeeIdController = TextEditingController();
-  final TextEditingController emailController = TextEditingController(); // used for Department
+  final TextEditingController emailController =
+      TextEditingController(); // used for Department
   final TextEditingController descriptionController = TextEditingController();
 
   // ---------------- JWT helpers ----------------
@@ -66,10 +67,14 @@ class _RewardsPageState extends State<RewardsPage> {
   Future<void> _handleSubmit() async {
     final name = nameController.text.trim();
     final empid = employeeIdController.text.trim();
-    final department = emailController.text.trim(); // field labeled "Department"
+    final department =
+        emailController.text.trim(); // field labeled "Department"
     final description = descriptionController.text.trim();
 
-    if (name.isEmpty || empid.isEmpty || department.isEmpty || description.isEmpty) {
+    if (name.isEmpty ||
+        empid.isEmpty ||
+        department.isEmpty ||
+        description.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text("Please fill all fields."),
@@ -142,7 +147,8 @@ class _RewardsPageState extends State<RewardsPage> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text("Submission failed (${resp.statusCode}): ${resp.body}"),
+            content:
+                Text("Submission failed (${resp.statusCode}): ${resp.body}"),
             backgroundColor: Colors.red,
           ),
         );
@@ -161,8 +167,9 @@ class _RewardsPageState extends State<RewardsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.transparent,      // ensure no scaffold color peeks through
-      extendBody: true,                          // let body extend to bottom
+      backgroundColor:
+          Colors.transparent, // ensure no scaffold color peeks through
+      extendBody: true, // let body extend to bottom
       appBar: AppBar(
         backgroundColor: kHighlightBoxColor,
         leading: IconButton(

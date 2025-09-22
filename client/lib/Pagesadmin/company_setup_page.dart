@@ -69,7 +69,7 @@ class _CompanySetupPageState extends State<CompanySetupPage> {
 
         // Send the request to save the company profile
         final response = await http.post(
-          Uri.parse('https://api-zmj7dqloiq-uc.a.run.app/api/company/profile'),
+          Uri.parse('https://api-zmj7dqloiq-el.a.run.app/api/company/profile'),
           headers: {
             'Authorization': 'Bearer $token',
             'Content-Type': 'application/json',
@@ -97,10 +97,12 @@ class _CompanySetupPageState extends State<CompanySetupPage> {
               ),
             );
           } else {
-            throw Exception(responseData['message'] ?? 'Failed to save company profile');
+            throw Exception(
+                responseData['message'] ?? 'Failed to save company profile');
           }
         } else {
-          throw Exception('Server responded with status: ${response.statusCode}');
+          throw Exception(
+              'Server responded with status: ${response.statusCode}');
         }
       } catch (e) {
         if (mounted) {
@@ -187,9 +189,11 @@ class _CompanySetupPageState extends State<CompanySetupPage> {
                         width: double.infinity,
                         height: 48,
                         child: ElevatedButton(
-                          onPressed: _isLoading ? null : () async {
-                        await _submit();
-                      },
+                          onPressed: _isLoading
+                              ? null
+                              : () async {
+                                  await _submit();
+                                },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: kButtonColor, // ✅
                             shape: RoundedRectangleBorder(
