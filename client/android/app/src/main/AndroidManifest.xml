@@ -6,18 +6,17 @@
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- ✅ added for background updates -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+    <!-- ✅ foreground service for location -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
     <uses-permission android:name="android.permission.CAMERA" />
-
-    <!-- Device features (as in your original) -->
-    <uses-feature android:name="android.hardware.camera" android:required="true" />
-    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
-    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
     <application
         android:label="serv_app"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
-        
 
         <activity
             android:name=".MainActivity"
@@ -29,7 +28,6 @@
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
 
-            <!-- Theme visible while Flutter initializes -->
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
@@ -40,28 +38,19 @@
             </intent-filter>
         </activity>
 
-        <!-- Flutter embedding -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
 
-        <!-- ✅ Google Maps SDK for Android API key -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
             android:value="AIzaSyA6vu7Fb_znHOCvL3Eshht69Pn-jGEaC90" />
-        <!-- If you prefer using a resource or placeholder instead:
-             android:value="@string/google_maps_api_key"
-             OR
-             android:value="${MAPS_API_KEY}" (with manifestPlaceholders in build.gradle) -->
-
     </application>
 
-    <!-- Package visibility for PROCESS_TEXT (as in your original) -->
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
             <data android:mimeType="text/plain" />
         </intent>
     </queries>
-
 </manifest>

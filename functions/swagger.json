@@ -11,7 +11,7 @@
       "description": "Local development server"
     },
     {
-      "url": "https://api-zmj7dqloiq-uc.a.run.app",
+      "url": "https://api-zmj7dqloiq-el.a.run.app",
       "description": "Production server"
     }
   ],
@@ -82,6 +82,6 @@
         }
       }
     }
-    // More endpoints will be added here
+   
   }
 }
