@@ -397,8 +397,12 @@ export const changePassword = async (req: Request, res: Response): Promise<Respo
       return res.status(400).json({ error: 'Email and new password are required' });
     }
 
-    const snap = await db.collection(USERS_COL).where('emailLower','==',email).limit(1).get();
-    if (snap.empty) return res.status(404).json({ error: 'User not found' });
+    // Search using the 'email' field instead of 'emailLower'
+    const snap = await db.collection(USERS_COL).where('email', '==', email).limit(1).get();
+    if (snap.empty) {
+      console.log(`User not found with email: ${email}`);
+      return res.status(404).json({ error: 'User not found' });
+    }
 
     const userDoc = snap.docs[0];
     const hash    = await bcrypt.hash(newPassword, 10);

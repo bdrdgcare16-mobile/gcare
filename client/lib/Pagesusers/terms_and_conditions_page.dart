@@ -1,6 +1,3 @@
-
-
-
 import 'package:flutter/material.dart';
 
 // Theme Colors
@@ -39,25 +36,25 @@ class TermsAndConditionsPage extends StatelessWidget {
               '''
 By using this Attendance Management App, you agree to the following Terms and Conditions:
 
-1. **Usage Agreement**
+1. Usage Agreement
 You must use the app only for official attendance and tracking purposes.
 
-2. **Account Responsibility**
+2. Account Responsibility
 You are responsible for maintaining the confidentiality of your login credentials.
 
-3. **Data Accuracy**
+3. Data Accuracy
 You must ensure the accuracy of the information you provide during check-in or check-out.
 
-4. **Prohibited Activities**
+4. Prohibited Activities
 Any misuse of the app, including false attendance marking or tampering with location data, is strictly prohibited.
 
-5. **Termination**
+5. Termination
 We reserve the right to suspend access to users who violate these terms.
 
-6. **Modifications**
+6. Modifications
 These terms may be updated from time to time. Continued use of the app implies acceptance of any changes.
 
-7. **Limitation of Liability**
+7. Limitation of Liability
 We are not liable for any indirect or incidental damages caused due to usage of this app.
 
 Please review these terms carefully. If you do not agree, please refrain from using the app.

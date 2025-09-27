@@ -408,17 +408,19 @@
 //   }
 // }
 import 'package:flutter/material.dart';
+import 'package:serv_app/Pagesusers/apply_leave_form_page.dart';
 import 'request_leave_page.dart';
 import 'permission_time_page.dart';
 import 'over_time_page.dart';
 import 'half_day_time_page.dart';
-import 'apply_half_day_form_page.dart';
 
-// ✅ Color Constants
-const Color kPrimaryBackgroundTop = Color(0xFFF3E5F5); // Light violet
-const Color kPrimaryBackgroundBottom = Color(0xFFE1BEE7); // Soft lavender
+// Theme colors
+const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
+const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
 const Color kAppBarColor = Color(0xFF8C6EAF);
 const Color kButtonColor = Color(0xFF655193);
+const Color kTextColor = Colors.white;
+const Color kIconColor = Color(0xFF3D0066);
 
 class TypeOfRequestPage extends StatelessWidget {
   const TypeOfRequestPage({super.key});
@@ -498,41 +500,44 @@ class TypeOfRequestPage extends StatelessWidget {
             itemCount: requestTypes.length,
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 2,
-              mainAxisSpacing: 16,
-              crossAxisSpacing: 16,
-              childAspectRatio: 1, // Square tiles
+              crossAxisSpacing: 20,
+              mainAxisSpacing: 12,
+              childAspectRatio: 1.1, // Matches myserv_page.dart
             ),
             itemBuilder: (context, index) {
               final item = requestTypes[index];
               return GestureDetector(
                 onTap: () => _handleNavigation(context, item['title']),
-                child: SizedBox(
-                  width: 120,
-                  height: 80,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: kPrimaryBackgroundTop,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Colors.black12,
-                          blurRadius: 4,
-                          offset: Offset(2, 2),
-                        ),
-                      ],
-                    ),
+                child: Card(
+                  color: kAppBarColor.withOpacity(0.9),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 2,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 6),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(item['icon'], size: 28, color: kButtonColor),
-                        const SizedBox(height: 6),
+                        SizedBox(
+                          height: 36,
+                          width: 36,
+                          child: ColorFiltered(
+                            colorFilter: const ColorFilter.mode(
+                              kIconColor,
+                              BlendMode.srcIn,
+                            ),
+                            child: Icon(item['icon'], size: 28),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
                         Text(
                           item['title'],
                           textAlign: TextAlign.center,
                           style: const TextStyle(
-                            fontSize: 11,
+                            fontSize: 10.5,
                             fontWeight: FontWeight.w600,
-                            color: kAppBarColor,
+                            color: kTextColor,
                           ),
                         ),
                       ],

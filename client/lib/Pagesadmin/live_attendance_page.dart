@@ -4,6 +4,9 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
 import 'company_setup_page.dart';
+// ✅ Use a single, unambiguous import that exposes the class symbol:
+import 'employee_detail_page.dart' show EmployeeDetailPage;
+
 import 'package:serv_app/models/company_data.dart';
 
 // 🔹 use the same API helper as approvals screen
@@ -128,7 +131,7 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
         url,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${CompanyData.token}',
+          'Authorization': 'Bearer ${_safe(CompanyData.token)}',
         },
       );
       if (resp.statusCode != 200) {
@@ -195,7 +198,7 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
         uri,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${CompanyData.token}',
+          'Authorization': 'Bearer ${_safe(CompanyData.token)}',
         },
       );
       if (resp.statusCode == 200) {
@@ -242,7 +245,8 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
             itemCount: rows.length,
             itemBuilder: (ctx, i) {
               final e = rows[i];
-              return Container(
+
+              final card = Container(
                 margin: const EdgeInsets.only(bottom: 12),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -286,6 +290,42 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
                   ],
                 ),
               );
+
+              return InkWell(
+                borderRadius: BorderRadius.circular(15),
+                onTap: () {
+                  AttendanceRecord? rec;
+                  for (final r in _records) {
+                    if (r.empid == e.empid) {
+                      rec = r;
+                      break;
+                    }
+                  }
+
+                  final detail = <String, dynamic>{
+                    'id': e.empid,
+                    'name': e.name,
+                    'date': e.date,
+                    'checkIn': e.checkIn,
+                    'checkOut': rec?.checkOut,
+                    'department': e.dept ?? '-',
+                    'shift': e.shiftGroup ?? '-',
+                    'location': '-',
+                    'latitude': null,
+                    'longitude': null,
+                    'status': rec?.status ?? '-',
+                    'geofence': '-',
+                  };
+
+                  Navigator.of(context, rootNavigator: true).push(
+                    MaterialPageRoute(
+                      builder: (_) => EmployeeDetailPage(employee: detail),
+                      settings: const RouteSettings(name: 'EmployeeDetailPage'),
+                    ),
+                  );
+                },
+                child: card,
+              );
             },
           ),
         ),
@@ -301,8 +341,6 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
   }
 
   /// NEW: exact popup for “Waiting for Approvals”
-  /// Pulls the **pending list** from the same service the count uses,
-  /// so names/IDs match the number shown on the tile.
   Future<void> _showPendingApprovalsPopup() async {
     try {
       final pendings = await ApiService.fetchApprovals(
@@ -352,8 +390,8 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Close',
-                  style: TextStyle(color: Color(0xFF6A1B9A))),
+              child:
+                  const Text('Close', style: TextStyle(color: Color(0xFF6A1B9A))),
             ),
           ],
         ),
@@ -571,12 +609,10 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
             earlyCheckOutCount,
             _records.where((r) => r.early).toList(),
           ),
-          // 🔧 SPECIAL CASE: Waiting for Approvals should show the approvals list,
-          // not attendance-derived list. So we override onTap here.
           _activityCard(
             "Waiting for Approvals",
             waitingApprovalCount,
-            const <AttendanceRecord>[], // unused for this card
+            const <AttendanceRecord>[],
             fontSize: 10,
             onTap: _showPendingApprovalsPopup,
           ),
@@ -610,6 +646,27 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
             itemBuilder: (ctx, i) {
               final r = list[i];
               return ListTile(
+                onTap: () {
+                  final detail = <String, dynamic>{
+                    'id': r.empid,
+                    'name': r.name,
+                    'date': DateFormat('yyyy-MM-dd').format(DateTime.now()),
+                    'checkIn': r.checkIn ?? '-',
+                    'checkOut': r.checkOut,
+                    'department': '-', // unknown here
+                    'shift': '-',       // unknown here
+                    'location': '-',
+                    'latitude': null,
+                    'longitude': null,
+                    'status': r.status,
+                    'geofence': '-',
+                  };
+                  Navigator.of(context, rootNavigator: true).push(
+                    MaterialPageRoute(
+                      builder: (_) => EmployeeDetailPage(employee: detail),
+                    ),
+                  );
+                },
                 leading: const CircleAvatar(
                   backgroundColor: Color(0xFFCE93D8),
                   child: Icon(Icons.person, color: Colors.white),
@@ -670,7 +727,6 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
         ),
       );
 
-  /// ⬇️ Same UI as before, but with an optional [onTap] override.
   Widget _activityCard(
     String title,
     int value,
@@ -705,6 +761,8 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
         ),
       );
 }
+
+String _safe(String? s) => s ?? '';
 
 class _HeaderIcon extends StatelessWidget {
   final String label;

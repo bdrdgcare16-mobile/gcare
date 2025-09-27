@@ -20,5 +20,7 @@ router.post('/check-out', attendanceController.checkOut);
 router.get('/other-location', attendanceController.listOtherLocationEvents);
 router.post('/other-location/decision', attendanceController.decideOtherLocationEvent);
 router.get('/other-location/ping', (_req, res) => res.json({ ok: true }));
+router.get('/me', attendanceController.getCurrentUser);
+router.get('/summary/:empid/:year/:month', attendanceController.getMonthlySummary);
 
 export default router;

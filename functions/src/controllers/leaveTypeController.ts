@@ -199,3 +199,43 @@ export const listLeaveTypes = async (req: Request, res: Response): Promise<Respo
     return res.status(500).json({ error: 'Internal error' });
   }
 };
+
+/**
+ * DELETE /api/leave-types/:id
+ * Admin only
+ */
+export const deleteLeaveType = async (req: Request, res: Response): Promise<Response | void> => {
+  try {
+    const { role } = ((req as any).user ?? {}) as { role?: string };
+    if (role !== 'admin') {
+      return res.status(403).json({ error: 'Admin only' });
+    }
+
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ error: 'Leave type ID is required' });
+    }
+
+    // First check if the document exists
+    const doc = await db.collection(COLL).doc(id).get();
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'Leave type not found' });
+    }
+
+    // Soft delete by setting active to false
+    await db.collection(COLL).doc(id).update({
+      active: false,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    return res.status(200).json({ 
+      status: 'success', 
+      message: 'Leave type deleted successfully' 
+    });
+  } catch (err: any) {
+    console.error('[leave-types:delete] error', err);
+    return res.status(500).json({ 
+      error: err?.message || 'Failed to delete leave type' 
+    });
+  }
+};

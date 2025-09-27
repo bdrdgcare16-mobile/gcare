@@ -26,7 +26,8 @@ class PermissionTimePage extends StatefulWidget {
 
 class _PermissionTimePageState extends State<PermissionTimePage> {
   final _formKey = GlobalKey<FormState>();
-  final List<String> shifts = ['Shift 1', 'Shift 2', 'Shift 3'];
+  // Dynamic list of shifts that will be populated from the server
+  final List<String> shifts = [];
   final List<String> reasons = ['Emergency', 'Personal Reason'];
 
   String? selectedShift;
@@ -39,20 +40,7 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
   final TextEditingController endTimeController = TextEditingController();
   final TextEditingController dateController = TextEditingController();
 
-  final Map<String, TimeRange> shiftTimeRanges = {
-    'Shift 1': TimeRange(
-      start: TimeOfDay(hour: 6, minute: 0),
-      end: TimeOfDay(hour: 14, minute: 0),
-    ),
-    'Shift 2': TimeRange(
-      start: TimeOfDay(hour: 8, minute: 30),
-      end: TimeOfDay(hour: 16, minute: 30),
-    ),
-    'Shift 3': TimeRange(
-      start: TimeOfDay(hour: 9, minute: 0),
-      end: TimeOfDay(hour: 17, minute: 0),
-    ),
-  };
+  // Shift time ranges are now dynamic and not hardcoded
 
   // ---------- JWT helpers ----------
   bool _looksLikeJwt(String v) => RegExp(
@@ -96,6 +84,42 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
     return null;
   }
 
+  // ---------- NEW: load employee's default shift from /auth/me ----------
+  Future<void> _loadDefaultShiftFromProfile() async {
+    final token = CompanyData.token.isNotEmpty
+        ? CompanyData.token
+        : (await _getJwt()) ?? '';
+    if (token.isEmpty) return;
+
+    try {
+      final res = await http.get(
+        Uri.parse('$apiBase/auth/me'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (res.statusCode != 200) return;
+
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final profile = (data['employeeProfile'] is Map<String, dynamic>)
+          ? data['employeeProfile'] as Map<String, dynamic>
+          : const <String, dynamic>{};
+
+      final raw =
+          (profile['shiftGroup'] ?? data['shiftGroup'] ?? '').toString().trim();
+      if (raw.isEmpty) return;
+
+      if (!shifts.contains(raw)) {
+        // Insert the employee's actual shift if it's custom (e.g., "GCC Shift 1")
+        shifts.insert(0, raw);
+      }
+
+      if (!mounted) return;
+      setState(() => selectedShift = raw);
+    } catch (_) {
+      // Silent failure; keep manual selection
+    }
+  }
+  // ----------------------------------------------------------------------
+
   // ---------- UI logic ----------
   Future<void> _selectDate(BuildContext context) async {
     final picked = await showDatePicker(
@@ -119,15 +143,8 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
     );
 
     if (picked != null) {
-      final shiftRange = shiftTimeRanges[selectedShift];
-      if (shiftRange != null && !shiftRange.contains(picked)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Selected time is outside ${selectedShift!} range'),
-          ),
-        );
-        return;
-      }
+      // No shift range validation since we don't have hardcoded times
+      // The shift is just a label now
 
       setState(() {
         final formatted = formatTimeOfDay(picked);
@@ -158,13 +175,11 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
     );
 
     if (picked != null) {
-      final shiftRange = shiftTimeRanges[selectedShift];
-      if (shiftRange != null &&
-          (!shiftRange.contains(picked) || !_isAfterStartTime(picked))) {
+      if (!_isAfterStartTime(picked)) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'End time must be after start time within shift range',
+              'End time must be after start time',
             ),
           ),
         );
@@ -324,6 +339,12 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _loadDefaultShiftFromProfile(); // NEW: auto-fill shift from employee profile
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
@@ -387,11 +408,11 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
                             value == null ? 'Please select a shift' : null,
                       ),
 
-                      // Show shift timing below dropdown
+                      // Show selected shift name
                       if (selectedShift != null) ...[
                         const SizedBox(height: 8),
                         Text(
-                          "(${formatTimeOfDay(shiftTimeRanges[selectedShift]!.start)} - ${formatTimeOfDay(shiftTimeRanges[selectedShift]!.end)})",
+                          selectedShift!,
                           style: const TextStyle(
                             fontSize: 14,
                             color: Colors.grey,

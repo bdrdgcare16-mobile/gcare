@@ -1,199 +1,3 @@
-// import 'package:flutter/material.dart';
-// import 'change_password_page.dart';
-// import 'multi_language_page.dart';
-// import 'privacy_policy_page.dart';
-// import 'terms_and_conditions_page.dart';
-// import 'feedback_page.dart';
-// import 'permissions_page.dart';
-// import 'log_out_page.dart';
-
-// class ProfilePage extends StatelessWidget {
-//   const ProfilePage({super.key, required Map userData});
-
-//   // Dummy user data added inside the widget
-//   final Map<String, String> userData = const {
-//     "name": "Divya D V",
-//     "id": "AI2025",
-//     "role": "Student",
-//     "email": "divya.ai@gmail.com",
-//     "phone": "9876543210",
-//   };
-
-//   final List<Map<String, dynamic>> settings = const [
-//     {"icon": Icons.lock, "label": "Change Password"},
-//     {"icon": Icons.language, "label": "Multi Language"},
-//     {"icon": Icons.privacy_tip, "label": "Privacy Policy"},
-//     {"icon": Icons.article, "label": "Terms & Conditions"},
-//     {"icon": Icons.settings, "label": "Permissions"},
-//     {"icon": Icons.feedback, "label": "Feedback"},
-//     {"icon": Icons.logout, "label": "Log Out", "color": Colors.red},
-//   ];
-
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       backgroundColor: Colors.white,
-//       body: SafeArea(
-//         child: Column(
-//           children: [
-//             // 🔙 Back Button
-//             Align(
-//               alignment: Alignment.topLeft,
-//               child: IconButton(
-//                 icon: const Icon(Icons.arrow_back),
-//                 onPressed: () => Navigator.pop(context),
-//               ),
-//             ),
-
-//             // 🧑‍🎓 Profile Header
-//             Container(
-//               color: Colors.cyanAccent[100],
-//               padding: const EdgeInsets.all(20),
-//               child: Row(
-//                 children: [
-//                   CircleAvatar(
-//                     radius: 30,
-//                     backgroundColor: Colors.pink[100],
-//                     child: Text(
-//                       userData['name']?.isNotEmpty == true
-//                           ? userData['name']![0]
-//                           : '?',
-//                       style: const TextStyle(
-//                         fontSize: 24,
-//                         fontWeight: FontWeight.bold,
-//                       ),
-//                     ),
-//                   ),
-//                   const SizedBox(width: 16),
-//                   Expanded(
-//                     child: Column(
-//                       crossAxisAlignment: CrossAxisAlignment.start,
-//                       children: [
-//                         Text(userData['name'] ?? 'Name',
-//                             style: const TextStyle(
-//                                 fontSize: 18, fontWeight: FontWeight.bold)),
-//                         Text(
-//                           '${userData['id'] ?? '-'} | ${userData['role'] ?? '-'}',
-//                           style: const TextStyle(fontSize: 14),
-//                         ),
-//                         Text(userData['email'] ?? 'No email',
-//                             style: const TextStyle(fontSize: 14)),
-//                         Text(userData['phone'] ?? 'No phone',
-//                             style: const TextStyle(fontSize: 14)),
-//                       ],
-//                     ),
-//                   ),
-//                 ],
-//               ),
-//             ),
-
-//             const Divider(height: 1),
-
-//             // ⚙️ Settings List
-//             Expanded(
-//               child: ListView.builder(
-//                 itemCount: settings.length,
-//                 itemBuilder: (context, index) {
-//                   final item = settings[index];
-//                   final String label = item['label'];
-//                   return Padding(
-//                     padding:
-//                         const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-//                     child: Container(
-//                       padding: const EdgeInsets.symmetric(
-//                           horizontal: 12, vertical: 12),
-//                       decoration: BoxDecoration(
-//                         color: Colors.grey[100],
-//                         borderRadius: BorderRadius.circular(12),
-//                         boxShadow: [
-//                           BoxShadow(
-//                             color: Colors.black.withOpacity(0.05),
-//                             blurRadius: 4,
-//                             offset: const Offset(0, 2),
-//                           )
-//                         ],
-//                       ),
-//                       child: ListTile(
-//                         contentPadding: EdgeInsets.zero,
-//                         leading: Icon(item['icon'],
-//                             color: item['color'] ?? Colors.black),
-//                         title: Text(
-//                           label,
-//                           style: TextStyle(
-//                             color: item['color'] ?? Colors.black,
-//                             fontWeight: label == "Log Out"
-//                                 ? FontWeight.bold
-//                                 : FontWeight.normal,
-//                           ),
-//                         ),
-//                         trailing:
-//                             const Icon(Icons.arrow_forward_ios, size: 14),
-//                         onTap: () {
-//                           if (label == "Change Password") {
-//                             Navigator.push(
-//                               context,
-//                               MaterialPageRoute(
-//                                   builder: (context) =>
-//                                       const ChangePasswordPage()),
-//                             );
-//                           } else if (label == "Multi Language") {
-//                             Navigator.push(
-//                               context,
-//                               MaterialPageRoute(
-//                                   builder: (context) =>
-//                                       const MultiLanguagePage()),
-//                             );
-//                           } else if (label == "Privacy Policy") {
-//                             Navigator.push(
-//                               context,
-//                               MaterialPageRoute(
-//                                   builder: (context) =>
-//                                       const PrivacyPolicyPage()),
-//                             );
-//                           } else if (label == "Terms & Conditions") {
-//                             Navigator.push(
-//                               context,
-//                               MaterialPageRoute(
-//                                   builder: (context) =>
-//                                       const TermsAndConditionsPage()),
-//                             );
-//                           } else if (label == "Permissions") {
-//                             Navigator.push(
-//                               context,
-//                               MaterialPageRoute(
-//                                   builder: (context) =>
-//                                       const PermissionsPage()),
-//                             );
-//                           } else if (label == "Feedback") {
-//                             Navigator.push(
-//                               context,
-//                               MaterialPageRoute(
-//                                   builder: (context) => const FeedbackPage()),
-//                             );
-//                           } else if (label == "Log Out") {
-//                             Navigator.push(
-//                               context,
-//                               MaterialPageRoute(
-//                                   builder: (context) => const LogOutPage()),
-//                             );
-//                           } else {
-//                             ScaffoldMessenger.of(context).showSnackBar(
-//                               SnackBar(content: Text('$label tapped')),
-//                             );
-//                           }
-//                         },
-//                       ),
-//                     ),
-//                   );
-//                 },
-//               ),
-//             ),
-//           ],
-//         ),
-//       ),
-//     );
-//   }
-// }
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -201,30 +5,24 @@ import 'package:shared_preferences/shared_preferences.dart';
 // Web localStorage (ignored on mobile/desktop)
 import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
-
+    // ---------- import your destination pages (so taps push correctly) ----------
 import 'change_password_page.dart';
 import 'multi_language_page.dart';
 import 'privacy_policy_page.dart';
 import 'terms_and_conditions_page.dart';
-import 'feedback_page.dart';
 import 'permissions_page.dart';
+import 'feedback_page.dart';
 import 'log_out_page.dart';
 
-/// ===== API base; adjust if needed =====
-const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+/// ===== Service root (do NOT include trailing /api) =====
+const String _host = 'https://api-zmj7dqloiq-el.a.run.app';
+Uri _u(String path) => Uri.parse('$_host$path'); // use like /api/auth/me
 
-/// Order of endpoints to try for the current user's profile.
-/// Keep the path only (we'll prefix with _apiBase).
-const List<String> _profilePaths = [
-  '/me',
-  '/profile',
-  '/auth/me',
-  // add another if you expose attendance's getCurrentUser:
-  '/attendance/me',
-];
+
 
 class ProfilePage extends StatefulWidget {
-  /// Keep the old signature so existing navigation code does not break.
+  /// Kept for backward compatibility; not used.
+  /// Do not remove unless you have updated all callers.
   const ProfilePage({super.key, required Map userData});
 
   @override
@@ -235,18 +33,18 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _loading = false;
   String? _error;
 
-  /// What we render in the header (defaults shown initially).
-  Map<String, String> _userData = {
-    "name": "Divya D V",
-    "id": "AI2025",
-    "role": "Student",
-    "email": "divya.ai@gmail.com",
-    "phone": "9876543210",
+  /// Render data for the header; starts with placeholders only (no hard-coded user).
+  Map<String, String> _userData = const {
+    "name": "-",
+    "id": "-",
+    "role": "-",
+    "email": "-",
+    "phone": "-",
   };
 
   final List<Map<String, dynamic>> settings = const [
     {"icon": Icons.lock, "label": "Change Password"},
-    {"icon": Icons.language, "label": "Multi Language"},
+    {"icon": Icons.language, "label": "Language"},
     {"icon": Icons.privacy_tip, "label": "Privacy Policy"},
     {"icon": Icons.article, "label": "Terms & Conditions"},
     {"icon": Icons.settings, "label": "Permissions"},
@@ -261,10 +59,12 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<String?> _getToken() async {
+    // Web localStorage first
     try {
       final t = html.window.localStorage['token'];
       if (t != null && t.isNotEmpty) return t;
     } catch (_) {}
+    // Mobile/desktop
     final sp = await SharedPreferences.getInstance();
     final t2 = sp.getString('token');
     return (t2 != null && t2.isNotEmpty) ? t2 : null;
@@ -278,48 +78,58 @@ class _ProfilePageState extends State<ProfilePage> {
 
     try {
       final token = await _getToken();
-      final headers = <String, String>{'Content-Type': 'application/json'};
-      if (token != null) headers['Authorization'] = 'Bearer $token';
-
-      Map<String, dynamic>? payload;
-
-      // Try the list of likely endpoints until one returns 200
-      for (final path in _profilePaths) {
-        final uri = Uri.parse('$_apiBase$path');
-        final res = await http.get(uri, headers: headers);
-        if (res.statusCode == 200) {
-          payload = jsonDecode(res.body) as Map<String, dynamic>;
-          break;
-        }
-      }
-
-      if (payload == null) {
+      if (token == null || token.isEmpty) {
         setState(() {
           _loading = false;
-          _error = 'Could not load profile (no endpoint returned 200).';
+          _error = 'No token found. Please log in.';
         });
         return;
       }
 
+      final res = await http.get(
+        _u('/api/auth/me'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (res.statusCode != 200) {
+        setState(() {
+          _loading = false;
+          _error = res.statusCode == 401 || res.statusCode == 403
+              ? 'Unauthorized. Please log in again.'
+              : 'Could not load profile (status ${res.statusCode}).';
+        });
+        return;
+      }
+
+      final payload = jsonDecode(res.body) as Map<String, dynamic>;
+
       // Normalize keys coming from different backends
       String name = (payload['name'] ?? payload['fullName'] ?? '').toString();
       String empid =
-          (payload['empid'] ?? payload['employeeId'] ?? payload['id'] ?? '')
+          (payload['empid'] ?? payload['empId'] ?? payload['employeeId'] ?? '')
               .toString();
       String role = (payload['role'] ?? '').toString();
       String email = (payload['email'] ?? '').toString();
       String phone = (payload['phone'] ?? payload['mobile'] ?? '').toString();
 
-      if (name.isEmpty && payload.containsKey('user')) {
-        final u = payload['user'] as Map<String, dynamic>;
-        name = (u['name'] ?? '').toString();
-        empid = (u['empid'] ?? '').toString();
-        role = (u['role'] ?? '').toString();
-        email = (u['email'] ?? '').toString();
-        phone = (u['phone'] ?? '').toString();
+      if ((name.isEmpty || email.isEmpty) && payload.containsKey('employeeProfile')) {
+        final u = (payload['employeeProfile'] as Map).cast<String, dynamic>();
+        name = (u['name'] ?? u['fullName'] ?? name).toString();
+        empid = (u['empid'] ?? u['empId'] ?? u['employeeId'] ?? empid).toString();
+        role = (payload['role'] ?? role).toString();
+        email = (u['email'] ?? email).toString();
+        phone = (u['phone'] ?? u['mobile'] ?? phone).toString();
       }
 
-      // Fall back to dashes if missing
+      // Cache email for Change Password page
+      final sp = await SharedPreferences.getInstance();
+      if (email.isNotEmpty) {
+        await sp.setString('email', email.toLowerCase());
+      }
+
       final normalized = <String, String>{
         "name": name.isNotEmpty ? name : '-',
         "id": empid.isNotEmpty ? empid : '-',
@@ -337,6 +147,49 @@ class _ProfilePageState extends State<ProfilePage> {
         _loading = false;
         _error = 'Network error: $e';
       });
+    }
+  }
+
+  void _openSetting(String label) {
+    if (label == "Change Password") {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const ChangePasswordPage()),
+      );
+    } else if (label == "Language") {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const MultiLanguagePage()),
+      );
+    } else if (label == "Privacy Policy") {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const PrivacyPolicyPage()),
+      );
+    } else if (label == "Terms & Conditions") {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const TermsAndConditionsPage()),
+      );
+    } else if (label == "Permissions") {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const PermissionsPage()),
+      );
+    } else if (label == "Feedback") {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const FeedbackPage()),
+      );
+    } else if (label == "Log Out") {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const LogOutPage()),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$label tapped')),
+      );
     }
   }
 
@@ -358,7 +211,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
             // 🧑‍🎓 Profile Header (UI unchanged)
             Container(
-              color: Color.fromARGB(255, 140, 110, 175),
+              color: const Color.fromARGB(255, 140, 110, 175),
               padding: const EdgeInsets.all(20),
               child: Row(
                 children: [
@@ -366,8 +219,10 @@ class _ProfilePageState extends State<ProfilePage> {
                     radius: 30,
                     backgroundColor: Colors.pink[100],
                     child: Text(
-                      _userData['name']?.isNotEmpty == true
-                          ? _userData['name']![0]
+                      _userData['name'] != null &&
+                              _userData['name']!.isNotEmpty &&
+                              _userData['name'] != '-'
+                          ? _userData['name']![0].toUpperCase()
                           : '?',
                       style: const TextStyle(
                         fontSize: 24,
@@ -437,7 +292,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
             const Divider(height: 1),
 
-            // ⚙️ Settings List (UI unchanged)
+            // ⚙️ Settings List
             Expanded(
               child: ListView.builder(
                 itemCount: settings.length,
@@ -447,84 +302,42 @@ class _ProfilePageState extends State<ProfilePage> {
                   return Padding(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[100],
+                    child: Material( // ensures ripple + tap works over decorated Container
+                      color: Colors.transparent,
+                      child: InkWell(
                         borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
-                            blurRadius: 4,
-                            offset: const Offset(0, 2),
-                          )
-                        ],
-                      ),
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(item['icon'],
-                            color: item['color'] ?? Colors.black),
-                        title: Text(
-                          label,
-                          style: TextStyle(
-                            color: item['color'] ?? Colors.black,
-                            fontWeight: label == "Log Out"
-                                ? FontWeight.bold
-                                : FontWeight.normal,
+                        onTap: () => _openSetting(label),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[100],
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              )
+                            ],
+                          ),
+                          child: ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(item['icon'],
+                                color: item['color'] ?? Colors.black),
+                            title: Text(
+                              label,
+                              style: TextStyle(
+                                color: item['color'] ?? Colors.black,
+                                fontWeight: label == "Log Out"
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                              ),
+                            ),
+                            trailing:
+                                const Icon(Icons.arrow_forward_ios, size: 14),
                           ),
                         ),
-                        trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-                        onTap: () {
-                          if (label == "Change Password") {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => const ChangePasswordPage()),
-                            );
-                          } else if (label == "Multi Language") {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => const MultiLanguagePage()),
-                            );
-                          } else if (label == "Privacy Policy") {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => const PrivacyPolicyPage()),
-                            );
-                          } else if (label == "Terms & Conditions") {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) =>
-                                      const TermsAndConditionsPage()),
-                            );
-                          } else if (label == "Permissions") {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => const PermissionsPage()),
-                            );
-                          } else if (label == "Feedback") {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => const FeedbackPage()),
-                            );
-                          } else if (label == "Log Out") {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => const LogOutPage()),
-                            );
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('$label tapped')),
-                            );
-                          }
-                        },
                       ),
                     ),
                   );

@@ -25,7 +25,7 @@ router.get('/me', authController.getMe);
 // Optional profile aliases
 router.get('/profile', authController.getProfile);
 router.put('/profile', authController.updateProfile);
-
+router.get('/ping', (_req, res) => res.json({ ok: true, scope: 'auth' }));
 // Change password (direct) — expects { email, newPassword }
 router.post('/change-password', authController.changePassword);
 

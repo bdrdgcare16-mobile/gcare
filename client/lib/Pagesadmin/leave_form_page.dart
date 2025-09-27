@@ -28,7 +28,6 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
   final _formKey = GlobalKey<FormState>();
 
   final typeCtrl = TextEditingController();
-  final deptCtrl = TextEditingController(); // shift
   final fromCtrl = TextEditingController();
   final toCtrl = TextEditingController();
   final daysCtrl = TextEditingController();
@@ -98,7 +97,6 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
 
     final body = {
       'type': typeCtrl.text.trim(),
-      'shift': deptCtrl.text.trim(),
       // backend expects ISO-like dates; use yyyy-MM-dd
       'fromDate': DateFormat('yyyy-MM-dd').format(fromDate!),
       'toDate': DateFormat('yyyy-MM-dd').format(toDate!),
@@ -119,7 +117,6 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
         // Keep your existing local list if you still use it anywhere
         leaveList.add({
           'type': typeCtrl.text,
-          'shift': deptCtrl.text,
           'from': fromCtrl.text,
           'to': toCtrl.text,
           'days': daysCtrl.text,
@@ -160,8 +157,7 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
             key: _formKey,
             child: ListView(
               children: [
-                _buildField('Leave Type', typeCtrl),
-                _buildField('Shift', deptCtrl),
+                _buildField('Type', typeCtrl),
                 _buildDateField('From Date', fromCtrl, isFrom: true),
                 _buildDateField('To Date', toCtrl, minDate: fromDate),
                 _buildField('Number of Days', daysCtrl, TextInputType.number),

@@ -1,349 +1,9 @@
-// // import 'package:flutter/material.dart';
-
-// // // 🎨 Reuse your existing colors
-// // const Color kAppBarColor = Color(0xFF8C6EAF);
-// // const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
-// // const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-// // const Color kButtonColor = Color(0xFF655193);
-// // const Color kTextColor = Colors.white;
-
-// // class PermissionPopup extends StatelessWidget {
-// //   const PermissionPopup({super.key});
-
-// //   @override
-// //   Widget build(BuildContext context) {
-// //     return Dialog(
-// //       backgroundColor: Colors.transparent,
-// //       child: Container(
-// //         height: 450,
-// //         decoration: BoxDecoration(
-// //           borderRadius: BorderRadius.circular(20),
-// //           gradient: const LinearGradient(
-// //             colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
-// //             begin: Alignment.topCenter,
-// //             end: Alignment.bottomCenter,
-// //           ),
-// //         ),
-// //         child: Column(
-// //           children: [
-// //             // 🔷 AppBar-like container with your desired color
-// //             Container(
-// //               padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-// //               width: double.infinity,
-// //               decoration: const BoxDecoration(
-// //                 color: kAppBarColor,
-// //                 borderRadius: BorderRadius.only(
-// //                   topLeft: Radius.circular(20),
-// //                   topRight: Radius.circular(20),
-// //                 ),
-// //               ),
-// //               child: const Text(
-// //                 "Permission Time",
-// //                 style: TextStyle(
-// //                   color: Colors.white,
-// //                   fontSize: 18,
-// //                   fontWeight: FontWeight.bold,
-// //                 ),
-// //               ),
-// //             ),
-
-// //             const SizedBox(height: 12),
-
-// //             Padding(
-// //               padding: const EdgeInsets.symmetric(horizontal: 16),
-// //               child: Column(
-// //                 children: [
-// //                   // 🔽 Dropdown Example
-// //                   DropdownButtonFormField<String>(
-// //                     decoration: InputDecoration(
-// //                       labelText: "Shift",
-// //                       labelStyle: const TextStyle(color: Colors.black),
-// //                       filled: true,
-// //                       fillColor: Colors.transparent,
-// //                       enabledBorder: OutlineInputBorder(
-// //                         borderSide: const BorderSide(color: Colors.black),
-// //                         borderRadius: BorderRadius.circular(12),
-// //                       ),
-// //                       focusedBorder: OutlineInputBorder(
-// //                         borderSide: const BorderSide(color: kAppBarColor),
-// //                         borderRadius: BorderRadius.circular(12),
-// //                       ),
-// //                     ),
-// //                     items: ["Morning", "Evening"]
-// //                         .map((shift) => DropdownMenuItem(
-// //                               value: shift,
-// //                               child: Text(shift),
-// //                             ))
-// //                         .toList(),
-// //                     onChanged: (value) {},
-// //                   ),
-
-// //                   const SizedBox(height: 12),
-
-// //                   // 📝 Reason Field
-// //                   TextFormField(
-// //                     decoration: InputDecoration(
-// //                       labelText: "Reason",
-// //                       labelStyle: const TextStyle(color: Colors.black),
-// //                       filled: true,
-// //                       fillColor: Colors.transparent,
-// //                       enabledBorder: OutlineInputBorder(
-// //                         borderSide: const BorderSide(color: Colors.black),
-// //                         borderRadius: BorderRadius.circular(12),
-// //                       ),
-// //                       focusedBorder: OutlineInputBorder(
-// //                         borderSide: const BorderSide(color: kAppBarColor),
-// //                         borderRadius: BorderRadius.circular(12),
-// //                       ),
-// //                     ),
-// //                   ),
-
-// //                   const SizedBox(height: 20),
-
-// //                   // ✅ Submit Button
-// //                   SizedBox(
-// //                     width: double.infinity,
-// //                     child: ElevatedButton(
-// //                       style: ElevatedButton.styleFrom(
-// //                         backgroundColor: kButtonColor,
-// //                         shape: RoundedRectangleBorder(
-// //                           borderRadius: BorderRadius.circular(12),
-// //                         ),
-// //                       ),
-// //                       onPressed: () {
-// //                         Navigator.pop(context);
-// //                       },
-// //                       child: const Text(
-// //                         "Submit",
-// //                         style: TextStyle(color: Colors.white),
-// //                       ),
-// //                     ),
-// //                   )
-// //                 ],
-// //               ),
-// //             )
-// //           ],
-// //         ),
-// //       ),
-// //     );
-// //   }
-// // }
-// import 'package:flutter/material.dart';
-// import 'package:http/http.dart' as http;
-// import 'dart:convert';
-
-// // 🎨 Color constants
-// const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
-// const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-// const Color kAppBarColor = Color(0xFF8C6EAF);
-// const Color kButtonColor = Color(0xFF655193);
-// const Color kTextColor = Colors.white;
-
-// class ApplyLeaveFormPage extends StatefulWidget {
-//   const ApplyLeaveFormPage({super.key});
-
-//   @override
-//   State<ApplyLeaveFormPage> createState() => _ApplyLeaveFormPageState();
-// }
-
-// class _ApplyLeaveFormPageState extends State<ApplyLeaveFormPage> {
-//   String leaveType = 'Leave';
-//   String? selectedLeaveType;
-//   final TextEditingController causeController = TextEditingController();
-//   final TextEditingController fromDateController = TextEditingController();
-//   final TextEditingController toDateController = TextEditingController();
-//   final TextEditingController leaveFormatController = TextEditingController();
-
-//   DateTime? fromDate;
-//   DateTime? toDate;
-
-//   Future<void> _selectDate(TextEditingController controller, bool isFromDate) async {
-//     final DateTime? picked = await showDatePicker(
-//       context: context,
-//       initialDate: DateTime.now(),
-//       firstDate: DateTime(2020),
-//       lastDate: DateTime(2100),
-//     );
-//     if (picked != null) {
-//       controller.text = "${picked.day}/${picked.month}/${picked.year}";
-//       if (isFromDate) {
-//         fromDate = picked;
-//       } else {
-//         toDate = picked;
-//       }
-//     }
-//   }
-
-//   Future<void> submitLeaveForm() async {
-//     final url = Uri.parse("http://localhost:4000/api/requests/leave");
-
-//     final response = await http.post(
-//       url,
-//       headers: {'Content-Type': 'application/json'},
-//       body: jsonEncode({
-//         'employeeName': "Padma", // Or use a controller if name is input
-//         'leaveType': selectedLeaveType ?? '',
-//         'fromDate': fromDate?.toIso8601String() ?? '',
-//         'toDate': toDate?.toIso8601String() ?? '',
-//         'reason': causeController.text,
-//         'leaveCount': leaveFormatController.text,
-//         'category': leaveType, // "Leave" or "Comp off"
-//       }),
-//     );
-
-//     if (response.statusCode == 200) {
-//       print("Leave Request submitted successfully!");
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         const SnackBar(content: Text("Leave submitted!")),
-//       );
-//     } else {
-//       print("❌ Error: ${response.body}");
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         SnackBar(content: Text("Error: ${response.body}")),
-//       );
-//     }
-//   }
-
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       appBar: AppBar(
-//         title: const Text("Apply Leave"),
-//         backgroundColor: kAppBarColor,
-//         centerTitle: true,
-//       ),
-//       body: Container(
-//         decoration: const BoxDecoration(
-//           gradient: LinearGradient(
-//             colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
-//             begin: Alignment.topCenter,
-//             end: Alignment.bottomCenter,
-//           ),
-//         ),
-//         child: Padding(
-//           padding: const EdgeInsets.all(16),
-//           child: ListView(
-//             children: [
-//               // Radio toggle
-//               Row(
-//                 children: [
-//                   Radio(
-//                     value: 'Leave',
-//                     groupValue: leaveType,
-//                     onChanged: (value) {
-//                       setState(() => leaveType = value.toString());
-//                     },
-//                   ),
-//                   const Text("Leave"),
-//                   Radio(
-//                     value: 'Comp off',
-//                     groupValue: leaveType,
-//                     onChanged: (value) {
-//                       setState(() => leaveType = value.toString());
-//                     },
-//                   ),
-//                   const Text("Comp off"),
-//                 ],
-//               ),
-//               const SizedBox(height: 8),
-
-//               // Leave Type Dropdown
-//               DropdownButtonFormField<String>(
-//                 value: selectedLeaveType,
-//                 hint: const Text("Choose Leave Type"),
-//                 items: ['Casual Leave', 'Sick Leave', 'Planned Leave']
-//                     .map((type) => DropdownMenuItem(value: type, child: Text(type)))
-//                     .toList(),
-//                 onChanged: (value) {
-//                   setState(() => selectedLeaveType = value);
-//                 },
-//                 decoration: const InputDecoration(
-//                   border: OutlineInputBorder(),
-//                 ),
-//               ),
-//               const SizedBox(height: 12),
-
-//               // Cause
-//               TextFormField(
-//                 controller: causeController,
-//                 decoration: const InputDecoration(
-//                   labelText: "Cause",
-//                   border: OutlineInputBorder(),
-//                 ),
-//               ),
-//               const SizedBox(height: 12),
-
-//               // From Date
-//               TextFormField(
-//                 controller: fromDateController,
-//                 readOnly: true,
-//                 onTap: () => _selectDate(fromDateController, true),
-//                 decoration: const InputDecoration(
-//                   labelText: "From Date",
-//                   border: OutlineInputBorder(),
-//                 ),
-//               ),
-//               const SizedBox(height: 12),
-
-//               // To Date
-//               TextFormField(
-//                 controller: toDateController,
-//                 readOnly: true,
-//                 onTap: () => _selectDate(toDateController, false),
-//                 decoration: const InputDecoration(
-//                   labelText: "To Date",
-//                   border: OutlineInputBorder(),
-//                 ),
-//               ),
-//               const SizedBox(height: 12),
-
-//               // Leave count
-//               TextFormField(
-//                 controller: leaveFormatController,
-//                 keyboardType: TextInputType.number,
-//                 decoration: const InputDecoration(
-//                   labelText: "Apply leave count",
-//                   border: OutlineInputBorder(),
-//                 ),
-//               ),
-//               const SizedBox(height: 16),
-
-//               // Capture image (optional feature)
-//               const Text("Capture Image"),
-//               const SizedBox(height: 8),
-//               ElevatedButton(
-//                 onPressed: () {
-//                   // TODO: Add camera logic
-//                 },
-//                 style: ElevatedButton.styleFrom(
-//                   backgroundColor: kButtonColor,
-//                 ),
-//                 child: const Text("Capture", style: TextStyle(color: kTextColor)),
-//               ),
-//               const SizedBox(height: 20),
-
-//               // Submit Button
-//               ElevatedButton(
-//                 onPressed: submitLeaveForm,
-//                 style: ElevatedButton.styleFrom(
-//                   backgroundColor: kButtonColor,
-//                 ),
-//                 child: const Text("Submit", style: TextStyle(color: kTextColor)),
-//               ),
-//             ],
-//           ),
-//         ),
-//       ),
-//     );
-//   }
-// }
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:serv_app/html_stub.dart'
-    if (dart.library.html) 'package:serv_app/html_web.dart'
-    as html; // for Flutter Web localStorage
+    if (dart.library.html) 'package:serv_app/html_web.dart' as html; // for Flutter Web localStorage
 import 'package:serv_app/models/company_data.dart';
 
 // 🎨 Your Color Constants
@@ -371,7 +31,8 @@ class _ApplyHalfDayFormState extends State<ApplyHalfDayForm> {
   DateTime? replaceWorkDate; // Compensate Date
   final TextEditingController reasonController = TextEditingController();
 
-  final List<String> shifts = ['Shift 1', 'Shift 2', 'Shift 3'];
+  // Will be populated from the server with the employee's shift
+  List<String> shifts = [];
 
   // ---- JWT helpers (same pattern as other pages) ----
   bool _looksLikeJwt(String v) => RegExp(
@@ -400,6 +61,42 @@ class _ApplyHalfDayFormState extends State<ApplyHalfDayForm> {
       if (v != null && _looksLikeJwt(v)) return v;
     }
     return null;
+  }
+
+  // NEW: pull employee's current shift from /auth/me and preselect it
+  Future<void> _loadDefaultShiftFromProfile() async {
+    final token = CompanyData.token.isNotEmpty
+        ? CompanyData.token
+        : (await _getJwt()) ?? '';
+    if (token.isEmpty) return;
+
+    try {
+      final res = await http.get(
+        Uri.parse('$apiBase/auth/me'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (res.statusCode != 200) return;
+
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final profile = (data['employeeProfile'] is Map<String, dynamic>)
+          ? data['employeeProfile'] as Map<String, dynamic>
+          : const <String, dynamic>{};
+
+      final raw =
+          (profile['shiftGroup'] ?? data['shiftGroup'] ?? '').toString().trim();
+
+      if (raw.isEmpty) return;
+
+      // Ensure it's present in the dropdown; insert once if custom.
+      if (!shifts.contains(raw)) {
+        shifts.insert(0, raw);
+      }
+
+      if (!mounted) return;
+      setState(() => selectedShift = raw);
+    } catch (_) {
+      // ignore — keep manual selection if request fails
+    }
   }
 
   Future<void> _pickDate(bool isFromDate) async {
@@ -438,7 +135,7 @@ class _ApplyHalfDayFormState extends State<ApplyHalfDayForm> {
       return;
     }
 
-    // Use /api/leaves with type "Comp Off" to match your controller.
+    // NOTE: Endpoint left unchanged per your request – only shift auto-fill added.
     final url = Uri.parse('$apiBase/api/leaves');
 
     final body = {
@@ -469,7 +166,7 @@ class _ApplyHalfDayFormState extends State<ApplyHalfDayForm> {
           ),
         );
         setState(() {
-          selectedShift = null;
+          selectedShift = selectedShift; // keep default after submit
           fromDate = null;
           replaceWorkDate = null;
           reasonController.clear();
@@ -499,12 +196,10 @@ class _ApplyHalfDayFormState extends State<ApplyHalfDayForm> {
     bool isRequired = false,
   }) {
     return InputDecoration(
-      filled: true,
-      fillColor: Colors.white, // 👈 keep white input backgrounds
       label: RichText(
         text: TextSpan(
           text: label,
-          style: const TextStyle(color: Colors.black, fontSize: 16),
+          style: const TextStyle(color: Colors.black87, fontSize: 14),
           children: isRequired
               ? const [
                   TextSpan(
@@ -515,15 +210,39 @@ class _ApplyHalfDayFormState extends State<ApplyHalfDayForm> {
               : [],
         ),
       ),
-      floatingLabelBehavior: FloatingLabelBehavior.auto,
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+      filled: true,
+      fillColor: Colors.white,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: kAppBarColor, width: 1.5),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: kButtonColor, width: 2),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: Colors.red),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: Colors.red, width: 2),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
     );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDefaultShiftFromProfile(); // <-- NEW: auto-fill shift from employee profile
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: kPrimaryBackgroundBottom, // Ensure background color fills any white space
       appBar: AppBar(
         title: const Text("Apply CompOff"),
         backgroundColor: kAppBarColor,
@@ -542,13 +261,14 @@ class _ApplyHalfDayFormState extends State<ApplyHalfDayForm> {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                /// 🔽 Shift Dropdown
+                /// 🔽 Shift Dropdown (now prefilled)
                 DropdownButtonFormField<String>(
                   decoration: buildInputDecoration("Shift", isRequired: true),
                   initialValue: selectedShift,
-                  items: shifts.map((shift) {
-                    return DropdownMenuItem(value: shift, child: Text(shift));
-                  }).toList(),
+                  items: shifts
+                      .map((shift) =>
+                          DropdownMenuItem(value: shift, child: Text(shift)))
+                      .toList(),
                   validator: (value) =>
                       value == null ? 'Please select a shift' : null,
                   onChanged: (value) => setState(() => selectedShift = value),

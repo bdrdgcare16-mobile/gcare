@@ -1,253 +1,1019 @@
+// import 'dart:convert';
+// import 'dart:typed_data';
+
+// import 'package:flutter/foundation.dart' show kIsWeb;
+// import 'package:flutter/services.dart' show rootBundle;
 // import 'package:flutter/material.dart';
+// import 'package:intl/intl.dart';
+// import 'package:http/http.dart' as http;
+
 // import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-// // Theme Colors
+// import '../services/api_service.dart';
+// import 'package:serv_app/models/company_data.dart';
+
+// // Theme
 // const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 // const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
 // const Color kAppBarColor = Color(0xFF8C6EAF);
 // const Color kButtonColor = Color(0xFF655193);
 // const Color kTextColor = Colors.white;
 
-// class EmployeeDetailPage extends StatelessWidget {
-//   final Map<String, dynamic> employee;
+// // 👇 place your PNG in pubspec:  assets/person_purple.png
+// const String kPersonAsset = 'assets/person_purple.png';
 
+// class EmployeeDetailPage extends StatefulWidget {
+//   final Map<String, dynamic> employee; // at least {'id': empid}, optional {'date': 'YYYY-MM-DD'}
 //   const EmployeeDetailPage({super.key, required this.employee});
 
 //   @override
+//   State<EmployeeDetailPage> createState() => _EmployeeDetailPageState();
+// }
+
+// class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
+//   bool _loading = true;
+//   String? _error;
+
+//   // From backend (attendance)
+//   late String empid;
+//   late String dateIso;
+//   String name = '-';
+//   String shift = '-';
+//   String branchName = '-'; // attendance.branchName
+//   String status = '-';
+//   String? checkIn; // HH:mm:ss
+//   String? checkOut; // HH:mm:ss
+
+//   // Stored check-in coordinates (attendance.checkInLatitude/Longitude)
+//   double? checkInLat;
+//   double? checkInLng;
+
+//   // Branch (expected) coordinates (attendance.expectedLatitude/Longitude)
+//   double? expectedLat;
+//   double? expectedLng;
+
+//   // Google Map
+//   GoogleMapController? _mapController;
+//   final Set<Marker> _markers = {};
+//   final Set<Polyline> _polylines = {};
+//   CameraPosition _initialCam =
+//       const CameraPosition(target: LatLng(13.0827, 80.2707), zoom: 16); // Chennai
+
+//   // Custom marker icon (person)
+//   BitmapDescriptor? _personIcon;
+
+//   @override
+//   void initState() {
+//     super.initState();
+//     empid = (widget.employee['id'] ?? widget.employee['empid'] ?? '').toString();
+//     final passedDate = (widget.employee['date'] ?? '').toString();
+//     dateIso = passedDate.isNotEmpty
+//         ? passedDate
+//         : DateFormat('yyyy-MM-dd').format(DateTime.now());
+//     _loadMarkerIcon().then((_) => _loadLiveDetails());
+//   }
+
+//   Future<void> _loadMarkerIcon() async {
+//     try {
+//       // Size for the marker icon (width, height)
+//       const Size iconSize = Size(72, 72);
+//       final ByteData bd = await rootBundle.load(kPersonAsset);
+//       final Uint8List bytes = bd.buffer.asUint8List();
+//       final BitmapDescriptor icon = BitmapDescriptor.fromBytes(
+//         bytes,
+//         // Size parameter expects a Size object, not an int
+//         size: iconSize,
+//       );
+//       _personIcon = icon;
+//     } catch (_) {
+//       // fallback to default if asset missing
+//       _personIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
+//     }
+//   }
+
+//   // ----------- Load live details (attendance for the given emp/date) -----------
+//   Future<void> _loadLiveDetails() async {
+//     setState(() {
+//       _loading = true;
+//       _error = null;
+//     });
+//     try {
+//       final headers = {
+//         'Content-Type': 'application/json',
+//         if ((CompanyData.token ?? '').isNotEmpty)
+//           'Authorization': 'Bearer ${CompanyData.token}',
+//       };
+//       final uri = Uri.parse('$apiBase/liveEmployeeDetails/$empid')
+//           .replace(queryParameters: {'dateIso': dateIso});
+//       final resp = await http.get(uri, headers: headers);
+
+//       if (resp.statusCode != 200) {
+//         throw 'HTTP ${resp.statusCode}: ${resp.body}';
+//       }
+
+//       final body = jsonDecode(resp.body);
+//       final data = (body is Map && body['data'] is Map)
+//           ? Map<String, dynamic>.from(body['data'])
+//           : <String, dynamic>{};
+
+//       setState(() {
+//         name = (data['name'] ?? '-') as String;
+//         shift = (data['shift'] ?? '-') as String;
+//         branchName = (data['location'] ?? '-') as String; // server sends branchName as 'location'
+//         status = (data['status'] ?? '-') as String;
+
+//         final ci = (data['checkIn'] as String?);
+//         checkIn = (ci == null || ci.trim().isEmpty) ? null : ci;
+//         final co = (data['checkOut'] as String?);
+//         checkOut = (co == null || co.trim().isEmpty) ? null : co;
+
+//         // Server returns check-in lat/lng in top-level latitude/longitude
+//         checkInLat = _toDoubleOrNull(data['latitude']);
+//         checkInLng = _toDoubleOrNull(data['longitude']);
+
+//         // If backend provided expected coordinates & branch name, store them
+//         expectedLat = _toDoubleOrNull(data['expectedLatitude']);
+//         expectedLng = _toDoubleOrNull(data['expectedLongitude']);
+//       });
+
+//       // Default map to check-in point if present
+//       if (checkInLat != null && checkInLng != null) {
+//         _showCheckInOnMap();
+//       } else {
+//         setState(() {
+//           _markers.clear();
+//           _polylines.clear();
+//         });
+//       }
+//     } catch (e) {
+//       setState(() => _error = '$e');
+//     } finally {
+//       if (mounted) setState(() => _loading = false);
+//     }
+//   }
+
+//   double? _toDoubleOrNull(dynamic v) {
+//     if (v is num) return v.toDouble();
+//     if (v is String) {
+//       final d = double.tryParse(v);
+//       return d;
+//     }
+//     return null;
+//   }
+
+//   // ---------------- Buttons ----------------
+
+//   /// 1) Check-in Location — show stored attendance check-in coords (green pin)
+//   void _showCheckInOnMap() {
+//     if (checkInLat == null || checkInLng == null) {
+//       ScaffoldMessenger.of(context).showSnackBar(
+//         const SnackBar(content: Text('No stored check-in location for this day.')),
+//       );
+//       return;
+//     }
+//     final pos = LatLng(checkInLat!, checkInLng!);
+
+//     _markers
+//       ..clear()
+//       ..add(
+//         Marker(
+//           markerId: const MarkerId('checkin'),
+//           position: pos,
+//           infoWindow: const InfoWindow(title: 'Check-in location'),
+//           icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+//         ),
+//       );
+//     _polylines.clear();
+
+//     _animate(pos, 18);
+//     setState(() {});
+//   }
+
+//   /// 2) Geolocation — draw FULL path for the day from tracking collection.
+//   ///    Start: green default marker (index 0)
+//   ///    All other points (1..N): purple "person" icon. Tapping shows time.
+//   Future<void> _showLastTrackingPath() async {
+//     try {
+//       final headers = {
+//         'Content-Type': 'application/json',
+//         'x-empid': empid,
+//         if ((CompanyData.token ?? '').isNotEmpty)
+//           'Authorization': 'Bearer ${CompanyData.token}',
+//       };
+//       final uri = Uri.parse('$apiBase/tracking/day')
+//           .replace(queryParameters: {'dateIso': dateIso});
+
+//       final resp = await http.get(uri, headers: headers);
+//       if (resp.statusCode != 200) {
+//         throw 'HTTP ${resp.statusCode}: ${resp.body}';
+//       }
+//       final json = jsonDecode(resp.body);
+//       final data = (json is Map && json['data'] is Map)
+//           ? Map<String, dynamic>.from(json['data'])
+//           : <String, dynamic>{};
+//       final raw = (data['pathMap'] is List) ? List.from(data['pathMap']) : [];
+
+//       // Normalize to LatLng + ts
+//       final points = <LatLng>[];
+//       final times = <String>[];
+//       for (final e in raw) {
+//         final m = Map<String, dynamic>.from(e as Map);
+//         final lat = _toDoubleOrNull(m['lat']);
+//         final lng = _toDoubleOrNull(m['lng']);
+//         final ts = (m['ts'] ?? '').toString();
+//         if (lat == null || lng == null) continue;
+//         points.add(LatLng(lat, lng));
+//         times.add(ts);
+//       }
+
+//       if (points.isEmpty) {
+//         ScaffoldMessenger.of(context).showSnackBar(
+//           const SnackBar(content: Text('No tracking points for this day.')),
+//         );
+//         return;
+//       }
+
+//       // Build markers:
+//       final newMarkers = <Marker>{};
+//       // 0th — green start pin
+//       newMarkers.add(
+//         Marker(
+//           markerId: const MarkerId('start'),
+//           position: points.first,
+//           infoWindow: const InfoWindow(title: 'Start'),
+//           icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+//         ),
+//       );
+
+//       // 1..N — person icons with time in the info window
+//       for (int i = 1; i < points.length; i++) {
+//         final ts = _prettyTime(times[i]);
+//         newMarkers.add(
+//           Marker(
+//             markerId: MarkerId('pt_$i'),
+//             position: points[i],
+//             infoWindow: InfoWindow(title: ts.isEmpty ? 'Point' : ts),
+//             icon: _personIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+//             anchor: const Offset(0.5, 1.0), // center bottom
+//           ),
+//         );
+//       }
+
+//       // Polyline for the path
+//       final poly = Polyline(
+//         polylineId: const PolylineId('path'),
+//         points: points,
+//         width: 6,
+//         color: const Color(0xFF7B5CD6), // matches brand vibe (not configurable on web style)
+//       );
+
+//       setState(() {
+//         _markers
+//           ..clear()
+//           ..addAll(newMarkers);
+//         _polylines
+//           ..clear()
+//           ..add(poly);
+//       });
+
+//       _fitCameraToAll(points, padding: 72.0);
+//     } catch (e) {
+//       ScaffoldMessenger.of(context)
+//           .showSnackBar(SnackBar(content: Text('Geo load failed: $e')));
+//     }
+//   }
+
+//   String _prettyTime(String iso) {
+//     try {
+//       final dt = DateTime.tryParse(iso);
+//       if (dt == null) return '';
+//       return DateFormat('hh:mm a').format(dt.toLocal());
+//     } catch (_) {
+//       return '';
+//     }
+//   }
+
+//   /// 3) Branch Location — show attendance.expectedLat/Lng (lavender pin)
+//   void _showBranchOnMap() {
+//     if (expectedLat == null || expectedLng == null) {
+//       ScaffoldMessenger.of(context).showSnackBar(
+//         const SnackBar(
+//           content: Text('Branch coordinates not available from server.'),
+//         ),
+//       );
+//       return;
+//     }
+//     final pos = LatLng(expectedLat!, expectedLng!);
+//     _markers
+//       ..clear()
+//       ..add(
+//         Marker(
+//           markerId: const MarkerId('branch'),
+//           position: pos,
+//           infoWindow: InfoWindow(title: 'Branch location', snippet: branchName),
+//           icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet),
+//         ),
+//       );
+//     _polylines.clear();
+//     _animate(pos, 18);
+//     setState(() {});
+//   }
+
+//   void _animate(LatLng p, double z) {
+//     _initialCam = CameraPosition(target: p, zoom: z);
+//     _mapController?.animateCamera(CameraUpdate.newCameraPosition(_initialCam));
+//   }
+
+//   void _fitCameraToAll(List<LatLng> pts, {double padding = 48}) {
+//     if (_mapController == null || pts.isEmpty) return;
+//     double? minLat, maxLat, minLng, maxLng;
+//     for (final p in pts) {
+//       minLat = (minLat == null) ? p.latitude : (p.latitude < minLat ? p.latitude : minLat);
+//       maxLat = (maxLat == null) ? p.latitude : (p.latitude > maxLat ? p.latitude : maxLat);
+//       minLng = (minLng == null) ? p.longitude : (p.longitude < minLng ? p.longitude : minLng);
+//       maxLng = (maxLng == null) ? p.longitude : (p.longitude > maxLng ? p.longitude : maxLng);
+//     }
+//     final bounds = LatLngBounds(
+//       southwest: LatLng(minLat!, minLng!),
+//       northeast: LatLng(maxLat!, maxLng!),
+//     );
+//     _mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, padding));
+//   }
+
+//   // ---------------- UI helpers ----------------
+//   String _fmt(String? v, {String dash = '-'}) =>
+//       (v == null || v.trim().isEmpty) ? dash : v;
+//   String _fmtNum(num? v) => (v == null) ? '-' : v.toString();
+
+//   @override
 //   Widget build(BuildContext context) {
-//     // Safe numeric casting (prevents type issues)
-//     final double lat = (employee['latitude'] as num).toDouble();
-//     final double lng = (employee['longitude'] as num).toDouble();
-
-//     final LatLng checkInLocation = LatLng(lat, lng);
-//     final LatLng branchLocation = const LatLng(13.0300, 80.1800);
-
 //     return Scaffold(
 //       backgroundColor: kPrimaryBackgroundTop,
 //       appBar: AppBar(
 //         backgroundColor: kAppBarColor,
 //         foregroundColor: kTextColor,
-//         title: Text("Employee ID: ${employee['id']}"),
+//         title: Text('Employee ID: $empid'),
 //         actions: [
-//           Container(
-//             margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-//             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-//             decoration: BoxDecoration(
-//               color: kPrimaryBackgroundTop,
-//               borderRadius: BorderRadius.circular(6),
+//           if (!_loading && _error == null)
+//             Padding(
+//               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+//               child: _StatusChip(status: status),
 //             ),
-//             child: Center(
-//               child: Text(
-//                 employee['status'] ?? '',
-//                 style: const TextStyle(
-//                   color: Colors.green,
-//                   fontWeight: FontWeight.bold,
-//                 ),
-//               ),
-//             ),
-//           ),
 //         ],
 //       ),
-//       body: SafeArea(
-//         child: Container(
-//           decoration: const BoxDecoration(
-//             gradient: LinearGradient(
-//               colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
-//               begin: Alignment.topCenter,
-//               end: Alignment.bottomCenter,
-//             ),
+//       body: Container(
+//         decoration: const BoxDecoration(
+//           gradient: LinearGradient(
+//             colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
+//             begin: Alignment.topCenter,
+//             end: Alignment.bottomCenter,
 //           ),
-//           child: SingleChildScrollView(
-//             padding: const EdgeInsets.only(bottom: 20),
-//             child: Column(
-//               children: [
-//                 const SizedBox(height: 10),
-
-//                 // Employee Details
-//                 Padding(
-//                   padding: const EdgeInsets.symmetric(horizontal: 20),
-//                   child: Table(
-//                     defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-//                     columnWidths: const {
-//                       0: FlexColumnWidth(1.5),
-//                       1: FlexColumnWidth(2),
-//                     },
-//                     children: [
-//                       _buildRow('Shift', employee['shift'] ?? '-'),
-//                       _buildRow('Location', employee['location'] ?? '-'),
-//                       _buildRow('Check-in', employee['checkIn'] ?? '-'),
-//                       // _buildRow('Check-out', employee['checkOut']),
-//                       _buildRow('Geofence', employee['geofence'] ?? '-'),
-//                       _buildRow('Latitude', lat.toString()),
-//                       _buildRow('Longitude', lng.toString()),
-//                       _buildRow('Status', employee['status'] ?? '-', statusColor: Colors.green),
-//                     ],
-//                   ),
-//                 ),
-
-//                 const SizedBox(height: 16),
-
-//                 // Map Legends as Buttons
-//                 Padding(
-//                   padding: const EdgeInsets.symmetric(horizontal: 16),
-//                   child: Row(
-//                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-//                     children: [
-//                       ElevatedButton.icon(
-//                         onPressed: () {},
-//                         icon: const Icon(Icons.location_pin, size: 16, color: Colors.white),
-//                         label: const Text("Check-in", style: TextStyle(fontSize: 12)),
-//                         style: ElevatedButton.styleFrom(
-//                           backgroundColor: Colors.purple,
-//                           minimumSize: const Size(100, 36),
-//                           padding: const EdgeInsets.symmetric(horizontal: 12),
-//                         ),
-//                       ),
-//                       ElevatedButton.icon(
-//                         onPressed: () {},
-//                         icon: const Icon(Icons.location_pin, size: 16, color: Colors.white),
-//                         label: const Text("Branch", style: TextStyle(fontSize: 12)),
-//                         style: ElevatedButton.styleFrom(
-//                           backgroundColor: Colors.red,
-//                           minimumSize: const Size(100, 36),
-//                           padding: const EdgeInsets.symmetric(horizontal: 12),
-//                         ),
-//                       ),
-//                     ],
-//                   ),
-//                 ),
-
-//                 const SizedBox(height: 12),
-
-//                 // Map
-//                 Padding(
-//                   padding: const EdgeInsets.symmetric(horizontal: 16.0),
-//                   child: Container(
-//                     height: 200,
-//                     decoration: BoxDecoration(
-//                       borderRadius: BorderRadius.circular(10),
-//                       border: Border.all(color: Colors.grey.shade300),
+//         ),
+//         child: _loading
+//             ? const Center(child: CircularProgressIndicator())
+//             : _error != null
+//                 ? Center(
+//                     child: Padding(
+//                       padding: const EdgeInsets.all(16),
+//                       child: Text(_error!,
+//                           textAlign: TextAlign.center,
+//                           style: const TextStyle(color: Colors.red)),
 //                     ),
-//                     child: ClipRRect(
-//                       borderRadius: BorderRadius.circular(10),
-//                       child: GoogleMap(
-//                         initialCameraPosition: CameraPosition(
-//                           target: checkInLocation,
-//                           zoom: 12,
+//                   )
+//                 : ListView(
+//                     padding: const EdgeInsets.all(16),
+//                     children: [
+//                       Text(
+//                         (name.isEmpty ? '-' : name),
+//                         style: const TextStyle(
+//                           fontSize: 20,
+//                           fontWeight: FontWeight.w700,
+//                           color: kButtonColor,
 //                         ),
-//                         markers: {
-//                           Marker(
-//                             markerId: const MarkerId('checkin'),
-//                             position: checkInLocation,
-//                             infoWindow: const InfoWindow(title: 'Check-in'),
-//                           ),
-//                           Marker(
-//                             markerId: const MarkerId('branch'),
-//                             position: branchLocation,
-//                             infoWindow: const InfoWindow(title: 'Branch'),
-//                             icon: BitmapDescriptor.defaultMarkerWithHue(
-//                               BitmapDescriptor.hueRed,
+//                       ),
+//                       const SizedBox(height: 12),
+
+//                       // Details
+//                       _DetailRow(label: 'Date', value: dateIso),
+//                       _DetailRow(label: 'Shift', value: _fmt(shift)),
+//                       _DetailRow(label: 'Location', value: _fmt(branchName)),
+//                       _DetailRow(label: 'Check-in', value: _fmt(checkIn)),
+//                       _DetailRow(
+//                           label: 'Check-out', value: _fmt(checkOut, dash: '—')),
+//                       _DetailRow(
+//                           label: 'Latitude', value: _fmtNum(checkInLat)),
+//                       _DetailRow(
+//                           label: 'Longitude', value: _fmtNum(checkInLng)),
+//                       _DetailRow(label: 'Status', value: _fmt(status)),
+
+//                       const SizedBox(height: 16),
+
+//                       // Row 1: Check-in Location + Geolocation
+//                       Row(
+//                         children: [
+//                           Expanded(
+//                             child: ElevatedButton.icon(
+//                               onPressed: _showCheckInOnMap,
+//                               icon: const Icon(Icons.login),
+//                               label: const Text('Check-in Location'),
+//                               style: ElevatedButton.styleFrom(
+//                                 backgroundColor: kButtonColor,
+//                                 foregroundColor: Colors.white,
+//                                 padding:
+//                                     const EdgeInsets.symmetric(vertical: 12),
+//                                 shape: RoundedRectangleBorder(
+//                                   borderRadius: BorderRadius.circular(12),
+//                                 ),
+//                               ),
 //                             ),
 //                           ),
-//                         },
-//                         myLocationButtonEnabled: false,
-//                         zoomControlsEnabled: false,
+//                           const SizedBox(width: 12),
+//                           Expanded(
+//                             child: ElevatedButton.icon(
+//                               onPressed: _showLastTrackingPath,
+//                               icon: const Icon(Icons.alt_route),
+//                               label: const Text('Geolocation'),
+//                               style: ElevatedButton.styleFrom(
+//                                 backgroundColor: Colors.orange.shade600,
+//                                 foregroundColor: Colors.white,
+//                                 padding:
+//                                     const EdgeInsets.symmetric(vertical: 12),
+//                                 shape: RoundedRectangleBorder(
+//                                   borderRadius: BorderRadius.circular(12),
+//                                 ),
+//                               ),
+//                             ),
+//                           ),
+//                         ],
 //                       ),
-//                     ),
-//                   ),
-//                 ),
 
-//                 const SizedBox(height: 20),
+//                       const SizedBox(height: 10),
 
-//                 // Open Shift Log
-//                 const Padding(
-//                   padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8),
-//                   child: Align(
-//                     alignment: Alignment.centerLeft,
-//                     child: Text(
-//                       "Open Shift Log",
-//                       style: TextStyle(fontWeight: FontWeight.bold),
-//                     ),
-//                   ),
-//                 ),
-//                 Padding(
-//                   padding: const EdgeInsets.only(bottom: 16.0),
-//                   child: Row(
-//                     mainAxisAlignment: MainAxisAlignment.spaceAround,
-//                     children: [
-//                       Text("Entry: ${employee['checkIn'] ?? '-'}",
-//                           style: const TextStyle(fontWeight: FontWeight.w500)),
-//                       Text("Exit: ${employee['checkOut'] ?? '-'}",
-//                           style: const TextStyle(fontWeight: FontWeight.w500)),
+//                       // Row 2: Branch Location (full width)
+//                       SizedBox(
+//                         width: double.infinity,
+//                         child: ElevatedButton.icon(
+//                           onPressed: _showBranchOnMap,
+//                           icon: const Icon(Icons.place),
+//                           label: const Text('Branch Location'),
+//                           style: ElevatedButton.styleFrom(
+//                             backgroundColor: const Color(0xFF8C6EAF),
+//                             foregroundColor: Colors.white,
+//                             padding: const EdgeInsets.symmetric(vertical: 12),
+//                             shape: RoundedRectangleBorder(
+//                               borderRadius: BorderRadius.circular(12),
+//                             ),
+//                           ),
+//                         ),
+//                       ),
+
+//                       const SizedBox(height: 16),
+
+//                       // Google Map
+//                       Container(
+//                         height: 260,
+//                         decoration: BoxDecoration(
+//                           color: Colors.white,
+//                           borderRadius: BorderRadius.circular(12),
+//                           border: Border.all(color: Colors.black12),
+//                           boxShadow: const [
+//                             BoxShadow(blurRadius: 4, color: Colors.black12)
+//                           ],
+//                         ),
+//                         child: ClipRRect(
+//                           borderRadius: BorderRadius.circular(12),
+//                           child: GoogleMap(
+//                             initialCameraPosition: _initialCam,
+//                             myLocationEnabled: false,
+//                             myLocationButtonEnabled: false,
+//                             zoomControlsEnabled: false,
+//                             markers: _markers,
+//                             polylines: _polylines,
+//                             onMapCreated: (c) {
+//                               _mapController = c;
+//                               // If we have a check-in point, center there initially
+//                               if (checkInLat != null && checkInLng != null) {
+//                                 _mapController!.moveCamera(
+//                                   CameraUpdate.newLatLngZoom(
+//                                       LatLng(checkInLat!, checkInLng!), 18),
+//                                 );
+//                               }
+//                             },
+//                           ),
+//                         ),
+//                       ),
+
+//                       const SizedBox(height: 16),
+//                       const Text(
+//                         'Open Shift Log',
+//                         style:
+//                             TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+//                       ),
+//                       const SizedBox(height: 8),
+//                       _ShiftLogRow(
+//                         entryLabel: 'Entry',
+//                         entryValue: _fmt(checkIn),
+//                         exitLabel: 'Exit',
+//                         exitValue: _fmt(checkOut, dash: 'null'),
+//                       ),
 //                     ],
 //                   ),
-//                 ),
-//               ],
-//             ),
-//           ),
-//         ),
 //       ),
-//     );
-//   }
-
-//   TableRow _buildRow(String label, String value, {Color? statusColor}) {
-//     return TableRow(
-//       children: [
-//         Padding(
-//           padding: const EdgeInsets.symmetric(vertical: 6),
-//           child: Text(
-//             label,
-//             style: const TextStyle(fontWeight: FontWeight.bold, color: kButtonColor),
-//           ),
-//         ),
-//         Padding(
-//           padding: const EdgeInsets.symmetric(vertical: 6),
-//           child: Text(
-//             value,
-//             style: TextStyle(color: statusColor ?? Colors.black),
-//           ),
-//         ),
-//       ],
 //     );
 //   }
 // }
-import 'package:flutter/material.dart';
 
-// Keep these in sync with your app theme
+// class _DetailRow extends StatelessWidget {
+//   final String label;
+//   final String value;
+//   const _DetailRow({required this.label, required this.value});
+
+//   @override
+//   Widget build(BuildContext context) {
+//     return Padding(
+//       padding: const EdgeInsets.symmetric(vertical: 6),
+//       child: Row(
+//         crossAxisAlignment: CrossAxisAlignment.start,
+//         children: [
+//           SizedBox(
+//             width: 110,
+//             child: Text(
+//               '$label:',
+//               style: const TextStyle(
+//                 fontWeight: FontWeight.w600,
+//                 color: Colors.black87,
+//               ),
+//             ),
+//           ),
+//           Expanded(
+//             child: Text(value, style: const TextStyle(color: Colors.black87)),
+//           ),
+//         ],
+//       ),
+//     );
+//   }
+// }
+
+// class _ShiftLogRow extends StatelessWidget {
+//   final String entryLabel;
+//   final String entryValue;
+//   final String exitLabel;
+//   final String exitValue;
+//   const _ShiftLogRow({
+//     required this.entryLabel,
+//     required this.entryValue,
+//     required this.exitLabel,
+//     required this.exitValue,
+//   });
+
+//   @override
+//   Widget build(BuildContext context) {
+//     return Container(
+//       decoration: BoxDecoration(
+//         color: Colors.white,
+//         borderRadius: BorderRadius.circular(12),
+//         boxShadow: const [BoxShadow(blurRadius: 4, color: Colors.black12)],
+//       ),
+//       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+//       child: Row(
+//         children: [
+//           Expanded(child: Text('$entryLabel: $entryValue')),
+//           Expanded(
+//             child: Text('$exitLabel: $exitValue', textAlign: TextAlign.right),
+//           ),
+//         ],
+//       ),
+//     );
+//   }
+// }
+
+// class _StatusChip extends StatelessWidget {
+//   final String status;
+//   const _StatusChip({required this.status});
+
+//   Color _bgFor(String s) {
+//     final v = s.toLowerCase();
+//     if (v.contains('present')) return Colors.green.shade600;
+//     if (v.contains('absent')) return Colors.red.shade600;
+//     if (v.contains('leave')) return Colors.orange.shade700;
+//     return Colors.grey.shade600;
+//   }
+
+//   @override
+//   Widget build(BuildContext context) {
+//     return Container(
+//       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+//       decoration: BoxDecoration(
+//         color: _bgFor(status),
+//         borderRadius: BorderRadius.circular(24),
+//       ),
+//       child: Text(
+//         status,
+//         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+//       ),
+//     );
+//   }
+// }
+// lib/Pagesadmin/employee_detail_page.dart
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:http/http.dart' as http;
+import 'dart:math' as math;
+
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+
+import '../services/api_service.dart';
+import 'package:serv_app/models/company_data.dart';
+
+// Theme
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
 const Color kAppBarColor = Color(0xFF8C6EAF);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
-class EmployeeDetailPage extends StatelessWidget {
-  final Map<String, dynamic> employee;
+/* ---------- Tracking helpers (match My Track) ---------- */
 
+class _TrackPoint {
+  final double lat;
+  final double lng;
+  final DateTime ts;
+  const _TrackPoint(this.lat, this.lng, this.ts);
+  LatLng get ll => LatLng(lat, lng);
+}
+
+// Haversine (meters)
+double _distM(LatLng a, LatLng b) {
+  const R = 6371000.0;
+  final dLat = (b.latitude - a.latitude) * (math.pi / 180.0);
+  final dLng = (b.longitude - a.longitude) * (math.pi / 180.0);
+  final aa = math.sin(dLat / 2) * math.sin(dLat / 2) +
+      math.cos(a.latitude * math.pi / 180.0) *
+          math.cos(b.latitude * math.pi / 180.0) *
+          math.sin(dLng / 2) *
+          math.sin(dLng / 2);
+  final c = 2.0 * math.atan2(math.sqrt(aa), math.sqrt(1 - aa));
+  return R * c;
+}
+
+/// Keep first point, then only add if moved >= minMeters
+List<_TrackPoint> _simplifyByDistance(List<_TrackPoint> points,
+    {double minMeters = 10}) {
+  if (points.length <= 1) return points;
+  final kept = <_TrackPoint>[points.first];
+  for (var i = 1; i < points.length; i++) {
+    if (_distM(kept.last.ll, points[i].ll) >= minMeters) {
+      kept.add(points[i]);
+    }
+  }
+  return kept;
+}
+
+class EmployeeDetailPage extends StatefulWidget {
+  final Map<String, dynamic> employee; // at least {'id': empid}, optional {'date': 'YYYY-MM-DD'}
   const EmployeeDetailPage({super.key, required this.employee});
 
-  String _str(dynamic v, {String fallback = '-'}) {
-    if (v == null) return fallback;
-    if (v is String && v.trim().isEmpty) return fallback;
-    return '$v';
+  @override
+  State<EmployeeDetailPage> createState() => _EmployeeDetailPageState();
+}
+
+class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
+  bool _loading = true;
+  String? _error;
+
+  // From backend (attendance)
+  late String empid;
+  late String dateIso;
+  String name = '-';
+  String shift = '-';
+  String branchName = '-'; // attendance.branchName
+  String status = '-';
+  String? checkIn; // HH:mm:ss
+  String? checkOut; // HH:mm:ss
+
+  // Stored check-in coordinates (attendance.checkInLatitude/Longitude)
+  double? checkInLat;
+  double? checkInLng;
+
+  // Branch (expected) coordinates (attendance.expectedLatitude/Longitude)
+  double? expectedLat;
+  double? expectedLng;
+
+  // Google Map
+  GoogleMapController? _mapController;
+  final Set<Marker> _markers = {};
+  final Set<Polyline> _polylines = {};
+  CameraPosition _initialCam =
+      const CameraPosition(target: LatLng(13.0827, 80.2707), zoom: 16); // Chennai
+
+  // Tracking UI parity with My Track
+  final DateFormat _timeFmt = DateFormat('hh:mm a');
+  bool _sessionEnded = false; // red end pin only if true
+
+  @override
+  void initState() {
+    super.initState();
+    empid = (widget.employee['id'] ?? widget.employee['empid'] ?? '').toString();
+    final passedDate = (widget.employee['date'] ?? '').toString();
+    dateIso = passedDate.isNotEmpty
+        ? passedDate
+        : DateFormat('yyyy-MM-dd').format(DateTime.now());
+    _loadLiveDetails();
   }
+
+  // ----------- Load live details (attendance for the given emp/date) -----------
+  Future<void> _loadLiveDetails() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final headers = {
+        'Content-Type': 'application/json',
+        if ((CompanyData.token ?? '').isNotEmpty)
+          'Authorization': 'Bearer ${CompanyData.token}',
+      };
+      final uri = Uri.parse('$apiBase/liveEmployeeDetails/$empid')
+          .replace(queryParameters: {'dateIso': dateIso});
+      final resp = await http.get(uri, headers: headers);
+
+      if (resp.statusCode != 200) {
+        throw 'HTTP ${resp.statusCode}: ${resp.body}';
+      }
+
+      final body = jsonDecode(resp.body);
+      final data = (body is Map && body['data'] is Map)
+          ? Map<String, dynamic>.from(body['data'])
+          : <String, dynamic>{};
+
+      setState(() {
+        name = (data['name'] ?? '-') as String;
+        shift = (data['shift'] ?? '-') as String;
+        branchName =
+            (data['location'] ?? '-') as String; // server sends branchName as 'location'
+        status = (data['status'] ?? '-') as String;
+
+        final ci = (data['checkIn'] as String?);
+        checkIn = (ci == null || ci.trim().isEmpty) ? null : ci;
+        final co = (data['checkOut'] as String?);
+        checkOut = (co == null || co.trim().isEmpty) ? null : co;
+
+        // Server returns check-in lat/lng in top-level latitude/longitude
+        checkInLat = _toDoubleOrNull(data['latitude']);
+        checkInLng = _toDoubleOrNull(data['longitude']);
+
+        // If backend provided expected coordinates & branch name, store them
+        expectedLat = _toDoubleOrNull(data['expectedLatitude']);
+        expectedLng = _toDoubleOrNull(data['expectedLongitude']);
+      });
+
+      // Default map to check-in point if present
+      if (checkInLat != null && checkInLng != null) {
+        _showCheckInOnMap();
+      } else {
+        setState(() {
+          _markers.clear();
+          _polylines.clear();
+        });
+      }
+    } catch (e) {
+      setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  double? _toDoubleOrNull(dynamic v) {
+    if (v is num) return v.toDouble();
+    if (v is String) {
+      final d = double.tryParse(v);
+      return d;
+    }
+    return null;
+  }
+
+  // ---------------- Buttons ----------------
+
+  /// 1) Check-in Location — show stored attendance check-in coords (green pin)
+  void _showCheckInOnMap() {
+    if (checkInLat == null || checkInLng == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No stored check-in location for this day.')),
+      );
+    } else {
+      final pos = LatLng(checkInLat!, checkInLng!);
+
+      _markers
+        ..clear()
+        ..add(
+          Marker(
+            markerId: const MarkerId('checkin'),
+            position: pos,
+            infoWindow: const InfoWindow(title: 'Check-in location'),
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          ),
+        );
+      _polylines.clear();
+
+      _animate(pos, 18);
+    }
+    setState(() {});
+  }
+
+  /// 2) Geolocation — draw FULL path for the day from tracking collection.
+  ///    Start: green default marker (index 0)
+  ///    Interior points (1..N-1): orange pins with local time
+  ///    End: red pin only if the session ended (endedAt present)
+  Future<void> _showLastTrackingPath() async {
+    try {
+      final headers = {
+        'Content-Type': 'application/json',
+        'x-empid': empid,
+        if ((CompanyData.token ?? '').isNotEmpty)
+          'Authorization': 'Bearer ${CompanyData.token}',
+      };
+      final uri = Uri.parse('$apiBase/tracking/day')
+          .replace(queryParameters: {'dateIso': dateIso});
+
+      final resp = await http.get(uri, headers: headers);
+      if (resp.statusCode != 200) {
+        throw 'HTTP ${resp.statusCode}: ${resp.body}';
+      }
+      final json = jsonDecode(resp.body);
+      final data = (json is Map && json['data'] is Map)
+          ? Map<String, dynamic>.from(json['data'])
+          : <String, dynamic>{};
+
+      // endedAt controls whether we show a red final pin
+      _sessionEnded = (data['endedAt'] != null && '${data['endedAt']}'.isNotEmpty);
+
+      final raw = (data['pathMap'] is List) ? List.from(data['pathMap']) : [];
+
+      // Normalize to TrackPoints
+      final pts = <_TrackPoint>[];
+      for (final e in raw) {
+        final m = Map<String, dynamic>.from(e as Map);
+        final lat = _toDoubleOrNull(m['lat']);
+        final lng = _toDoubleOrNull(m['lng']);
+        final tsRaw = (m['ts'] ?? '').toString();
+        if (lat == null || lng == null) continue;
+
+        DateTime ts;
+        final tryIso = DateTime.tryParse(tsRaw);
+        if (tryIso != null) {
+          ts = tryIso.toLocal();
+        } else {
+          // if server stored millis
+          final millis = int.tryParse(tsRaw);
+          ts = millis != null
+              ? DateTime.fromMillisecondsSinceEpoch(millis).toLocal()
+              : DateTime.now();
+        }
+        pts.add(_TrackPoint(lat, lng, ts));
+      }
+
+      if (pts.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No tracking points for this day.')),
+        );
+        return;
+      }
+
+      // Client-side clean-up (10 m)
+      final points = _simplifyByDistance(pts, minMeters: 10);
+      final latLngs = points.map((p) => p.ll).toList(growable: false);
+
+      // Build markers (match My Track)
+      final mk = <Marker>{};
+
+      // Start (green)
+      final start = points.first;
+      mk.add(
+        Marker(
+          markerId: const MarkerId('start'),
+          position: start.ll,
+          infoWindow: InfoWindow(title: 'Start • ${_timeFmt.format(start.ts)}'),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+        ),
+      );
+
+      // Interior points (orange with time)
+      for (var i = 1; i < points.length - 1; i++) {
+        final p = points[i];
+        mk.add(
+          Marker(
+            markerId: MarkerId('p$i'),
+            position: p.ll,
+            infoWindow: InfoWindow(title: _timeFmt.format(p.ts)),
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+          ),
+        );
+      }
+
+      // End (red) only if session ended
+      if (_sessionEnded && points.length > 1) {
+        final end = points.last;
+        mk.add(
+          Marker(
+            markerId: const MarkerId('end'),
+            position: end.ll,
+            infoWindow: InfoWindow(title: 'End • ${_timeFmt.format(end.ts)}'),
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+          ),
+        );
+      }
+
+      // Polyline
+      final poly = Polyline(
+        polylineId: const PolylineId('path'),
+        points: latLngs,
+        width: 6,
+        color: const Color(0xFF7B5CD6),
+      );
+
+      setState(() {
+        _markers
+          ..clear()
+          ..addAll(mk);
+        _polylines
+          ..clear()
+          ..add(poly);
+      });
+
+      _fitCameraToAll(latLngs, padding: 72.0);
+    } catch (e) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Geo load failed: $e')));
+    }
+  }
+
+  /// 3) Branch Location — show attendance.expectedLat/Lng (lavender pin)
+  void _showBranchOnMap() {
+    if (expectedLat == null || expectedLng == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Branch coordinates not available from server.'),
+        ),
+      );
+      return;
+    }
+    final pos = LatLng(expectedLat!, expectedLng!);
+    _markers
+      ..clear()
+      ..add(
+        Marker(
+          markerId: const MarkerId('branch'),
+          position: pos,
+          infoWindow: InfoWindow(title: 'Branch location', snippet: branchName),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet),
+        ),
+      );
+    _polylines.clear();
+    _animate(pos, 18);
+    setState(() {});
+  }
+
+  void _animate(LatLng p, double z) {
+    _initialCam = CameraPosition(target: p, zoom: z);
+    _mapController?.animateCamera(CameraUpdate.newCameraPosition(_initialCam));
+  }
+
+  void _fitCameraToAll(List<LatLng> pts, {double padding = 48}) {
+    if (_mapController == null || pts.isEmpty) return;
+    double? minLat, maxLat, minLng, maxLng;
+    for (final p in pts) {
+      minLat = (minLat == null) ? p.latitude : (p.latitude < minLat ? p.latitude : minLat);
+      maxLat = (maxLat == null) ? p.latitude : (p.latitude > maxLat ? p.latitude : maxLat);
+      minLng = (minLng == null) ? p.longitude : (p.longitude < minLng ? p.longitude : minLng);
+      maxLng = (maxLng == null) ? p.longitude : (p.longitude > maxLng ? p.longitude : maxLng);
+    }
+    final bounds = LatLngBounds(
+      southwest: LatLng(minLat!, minLng!),
+      northeast: LatLng(maxLat!, maxLng!),
+    );
+    _mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, padding));
+  }
+
+  // ---------------- UI helpers ----------------
+  String _fmt(String? v, {String dash = '-'}) =>
+      (v == null || v.trim().isEmpty) ? dash : v;
+  String _fmtNum(num? v) => (v == null) ? '-' : v.toString();
 
   @override
   Widget build(BuildContext context) {
-    final id = _str(employee['id']);
-    final status = _str(employee['status'], fallback: '—');
-    final name = _str(employee['name'], fallback: 'Employee');
-
     return Scaffold(
       backgroundColor: kPrimaryBackgroundTop,
       appBar: AppBar(
         backgroundColor: kAppBarColor,
         foregroundColor: kTextColor,
-        title: Text('Employee ID: $id'),
+        title: Text('Employee ID: $empid'),
         actions: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: _StatusChip(status: status),
-          ),
+          if (!_loading && _error == null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: _StatusChip(status: status),
+            ),
         ],
       ),
       body: Container(
@@ -258,104 +1024,154 @@ class EmployeeDetailPage extends StatelessWidget {
             end: Alignment.bottomCenter,
           ),
         ),
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            // Header
-            Text(
-              name,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-                color: kButtonColor,
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            // Details grid
-            _DetailRow(label: 'Shift', value: _str(employee['shift'])),
-            _DetailRow(label: 'Location', value: _str(employee['location'])),
-            _DetailRow(label: 'Check-in', value: _str(employee['checkIn'])),
-            _DetailRow(label: 'Check-out', value: _str(employee['checkOut'], fallback: '—')),
-            _DetailRow(label: 'Geofence', value: _str(employee['geofence'])),
-            _DetailRow(label: 'Latitude', value: _str(employee['latitude'])),
-            _DetailRow(label: 'Longitude', value: _str(employee['longitude'])),
-            _DetailRow(label: 'Status', value: status),
-
-            const SizedBox(height: 16),
-
-            // Actions
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      // TODO: Hook up your check-in flow
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Check-in tapped')),
-                      );
-                    },
-                    icon: const Icon(Icons.login),
-                    label: const Text('Check in'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: kButtonColor,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(_error!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.red)),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      // TODO: Hook up your branch/location action
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Branch tapped')),
-                      );
-                    },
-                    icon: const Icon(Icons.place),
-                    label: const Text('Branch'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange.shade600,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                  )
+                : ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      Text(
+                        (name.isEmpty ? '-' : name),
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                          color: kButtonColor,
+                        ),
                       ),
-                    ),
+                      const SizedBox(height: 12),
+
+                      // Details
+                      _DetailRow(label: 'Date', value: dateIso),
+                      _DetailRow(label: 'Shift', value: _fmt(shift)),
+                      _DetailRow(label: 'Location', value: _fmt(branchName)),
+                      _DetailRow(label: 'Check-in', value: _fmt(checkIn)),
+                      _DetailRow(
+                          label: 'Check-out', value: _fmt(checkOut, dash: '—')),
+                      _DetailRow(
+                          label: 'Latitude', value: _fmtNum(checkInLat)),
+                      _DetailRow(
+                          label: 'Longitude', value: _fmtNum(checkInLng)),
+                      _DetailRow(label: 'Status', value: _fmt(status)),
+
+                      const SizedBox(height: 16),
+
+                      // Row 1: Check-in Location + Geolocation
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: _showCheckInOnMap,
+                              icon: const Icon(Icons.login),
+                              label: const Text('Check-in Location'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: kButtonColor,
+                                foregroundColor: Colors.white,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: _showLastTrackingPath,
+                              icon: const Icon(Icons.alt_route),
+                              label: const Text('Geolocation'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.orange.shade600,
+                                foregroundColor: Colors.white,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      // Row 2: Branch Location (full width)
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _showBranchOnMap,
+                          icon: const Icon(Icons.place),
+                          label: const Text('Branch Location'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF8C6EAF),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // Google Map
+                      Container(
+                        height: 260,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.black12),
+                          boxShadow: const [
+                            BoxShadow(blurRadius: 4, color: Colors.black12)
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: GoogleMap(
+                            initialCameraPosition: _initialCam,
+                            myLocationEnabled: false,
+                            myLocationButtonEnabled: false,
+                            zoomControlsEnabled: false,
+                            markers: _markers,
+                            polylines: _polylines,
+                            onMapCreated: (c) {
+                              _mapController = c;
+                              if (checkInLat != null && checkInLng != null) {
+                                _mapController!.moveCamera(
+                                  CameraUpdate.newLatLngZoom(
+                                      LatLng(checkInLat!, checkInLng!), 18),
+                                );
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Open Shift Log',
+                        style:
+                            TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 8),
+                      _ShiftLogRow(
+                        entryLabel: 'Entry',
+                        entryValue: _fmt(checkIn),
+                        exitLabel: 'Exit',
+                        exitValue: _fmt(checkOut, dash: 'null'),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 16),
-
-            // Map Placeholder (replaces the widget that caused the error)
-            _MapPlaceholder(
-              latitudeText: _str(employee['latitude']),
-              longitudeText: _str(employee['longitude']),
-              location: _str(employee['location']),
-            ),
-
-            const SizedBox(height: 16),
-
-            // Shift log (example using available values)
-            const Text(
-              'Open Shift Log',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-            _ShiftLogRow(
-              entryLabel: 'Entry',
-              entryValue: _str(employee['checkIn']),
-              exitLabel: 'Exit',
-              exitValue: _str(employee['checkOut'], fallback: 'null'),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -364,7 +1180,6 @@ class EmployeeDetailPage extends StatelessWidget {
 class _DetailRow extends StatelessWidget {
   final String label;
   final String value;
-
   const _DetailRow({required this.label, required this.value});
 
   @override
@@ -385,10 +1200,7 @@ class _DetailRow extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(color: Colors.black87),
-            ),
+            child: Text(value, style: const TextStyle(color: Colors.black87)),
           ),
         ],
       ),
@@ -401,7 +1213,6 @@ class _ShiftLogRow extends StatelessWidget {
   final String entryValue;
   final String exitLabel;
   final String exitValue;
-
   const _ShiftLogRow({
     required this.entryLabel,
     required this.entryValue,
@@ -421,7 +1232,9 @@ class _ShiftLogRow extends StatelessWidget {
       child: Row(
         children: [
           Expanded(child: Text('$entryLabel: $entryValue')),
-          Expanded(child: Text('$exitLabel: $exitValue', textAlign: TextAlign.right)),
+          Expanded(
+            child: Text('$exitLabel: $exitValue', textAlign: TextAlign.right),
+          ),
         ],
       ),
     );
@@ -451,87 +1264,6 @@ class _StatusChip extends StatelessWidget {
       child: Text(
         status,
         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-      ),
-    );
-  }
-}
-
-class _MapPlaceholder extends StatelessWidget {
-  final String latitudeText;
-  final String longitudeText;
-  final String location;
-
-  const _MapPlaceholder({
-    required this.latitudeText,
-    required this.longitudeText,
-    required this.location,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 180,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.black12),
-        boxShadow: const [BoxShadow(blurRadius: 4, color: Colors.black12)],
-      ),
-      padding: const EdgeInsets.all(12),
-      child: Row(
-        children: [
-          // Simple icon/thumbnail area
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              color: Colors.grey.shade200,
-            ),
-            child: const Icon(Icons.map, size: 28, color: Colors.black54),
-          ),
-          const SizedBox(width: 12),
-          // Text block
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Map Preview (Placeholder)',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 6),
-                Text('Location: $location'),
-                Text('Latitude: $latitudeText'),
-                Text('Longitude: $longitudeText'),
-                const Spacer(),
-                Row(
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        // Optional: Open external map app with lat/lng
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Open map (not implemented)')),
-                        );
-                      },
-                      icon: const Icon(Icons.open_in_new),
-                      label: const Text('Open in Maps'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: kButtonColor,
-                        side: const BorderSide(color: kButtonColor),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Replace with real map when ready',
-                      style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          )
-        ],
       ),
     );
   }

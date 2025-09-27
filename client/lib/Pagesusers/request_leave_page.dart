@@ -94,12 +94,8 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
 
   final TextEditingController reasonController = TextEditingController();
 
-  final List<String> shifts = const ['Shift 1', 'Shift 2', 'Shift 3'];
-  final Map<String, String> shiftTimes = const {
-    'Shift 1': '6:00 AM - 2:00 PM',
-    'Shift 2': '8:30 AM - 4:30 PM',
-    'Shift 3': '9:00 AM - 5:00 PM',
-  };
+  // Dynamic list of shifts that will be populated from the server
+  List<String> shifts = [];
 
   List<LeaveTypeRule> _rules = [];
   List<String> _typeNames = [];
@@ -202,6 +198,40 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
       );
     }
   }
+
+  // ========== default Shift pulled from /auth/me ==========
+  Future<void> _loadDefaultShiftFromProfile() async {
+    final token = CompanyData.token.isNotEmpty
+        ? CompanyData.token
+        : (await _getJwt()) ?? '';
+    if (token.isEmpty) return;
+
+    try {
+      final res = await http.get(
+        Uri.parse('$apiBase/auth/me'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (res.statusCode != 200) return;
+
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final profile = (data['employeeProfile'] is Map<String, dynamic>)
+          ? data['employeeProfile'] as Map<String, dynamic>
+          : const <String, dynamic>{};
+
+      final raw =
+          (profile['shiftGroup'] ?? data['shiftGroup'] ?? '').toString().trim();
+
+      if (raw.isEmpty) return;
+
+      if (!shifts.contains(raw)) {
+        shifts.insert(0, raw);
+      }
+
+      if (!mounted) return;
+      setState(() => selectedShift = raw);
+    } catch (_) {}
+  }
+  // =======================================================
 
   List<String> _durationOptionsFromRule() {
     if (_currentRule == null) return const [];
@@ -396,7 +426,7 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
         _formKey.currentState!.reset();
         setState(() {
           selectedLeaveType = null;
-          selectedShift = null;
+          selectedShift = selectedShift; // keep default shift
           selectedLeaveDuration = null;
           fromDate = null;
           toDate = null;
@@ -421,6 +451,7 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
   void initState() {
     super.initState();
     _fetchLeaveTypes();
+    _loadDefaultShiftFromProfile(); // default shift
   }
 
   @override
@@ -428,6 +459,18 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
     final durationOptions = _durationOptionsFromRule();
 
     return Scaffold(
+      // ✅ Full-width native AppBar so the title expands to screen width
+      appBar: AppBar(
+        backgroundColor: kAppBarColor,
+        centerTitle: true,
+        leading: BackButton(color: Colors.white),
+        title: const Text(
+          "Apply Leave",
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+      ),
       backgroundColor: kPrimaryBackgroundBottom,
       body: Container(
         constraints: const BoxConstraints.expand(),
@@ -446,27 +489,6 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    color: kAppBarColor,
-                    child: Row(
-                      children: const [
-                        SizedBox(width: 12),
-                        Icon(Icons.arrow_back, color: Colors.white),
-                        SizedBox(width: 12),
-                        Text(
-                          "Apply Leave",
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
                   DropdownButtonFormField<String>(
                     initialValue: selectedLeaveType,
                     decoration: _inputDecorationWithLabel("Leave Type"),
@@ -514,7 +536,7 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
                     ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
-                    initialValue: selectedShift,
+                    initialValue: selectedShift, // filled from /auth/me
                     decoration: _inputDecorationWithLabel("Shift"),
                     items: shifts
                         .map((shift) =>
@@ -523,11 +545,11 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
                     onChanged: (val) => setState(() => selectedShift = val),
                     validator: (val) => val == null ? "Select shift" : null,
                   ),
-                  if (selectedShift != null)
+                  if (selectedShift != null && selectedShift!.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
                       child: Text(
-                        "Time: ${shiftTimes[selectedShift]!}",
+                        "Selected Shift: $selectedShift",
                         style: const TextStyle(fontSize: 14),
                       ),
                     ),
@@ -617,14 +639,24 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
       ),
       filled: true,
       fillColor: Colors.white,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-      enabledBorder: const OutlineInputBorder(
-        borderSide: BorderSide(color: kButtonColor),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: kAppBarColor, width: 1.5),
       ),
-      focusedBorder: const OutlineInputBorder(
-        borderSide: BorderSide(color: kAppBarColor, width: 2),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: kButtonColor, width: 2),
       ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: Colors.red),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: Colors.red, width: 2),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
     );
   }
 }

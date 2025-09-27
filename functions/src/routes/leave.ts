@@ -7,6 +7,10 @@ const router = Router();
 // All /api/leaves require auth
 router.use(authMiddleware);
 
+// ============================================
+// Leave Requests
+// ============================================
+
 /**
  * POST /api/leaves
  * Create a leave request (supports both new and legacy payloads)
@@ -45,6 +49,32 @@ router.get('/balance', leaveController.getLeaveBalance);
  * View a single leave (self/admin/approver)
  */
 router.get('/:id', leaveController.getLeaveRequestById);
+
+// ============================================
+// Leave Types Management
+// ============================================
+
+/**
+ * GET /api/leave-types
+ * Get all leave types
+ */
+router.get('/types/all', roleMiddleware(['admin']), leaveController.getLeaveTypes);
+
+/**
+ * POST /api/leave-types
+ * Add a new leave type (admin only)
+ */
+router.post('/types', roleMiddleware(['admin']), leaveController.addLeaveType);
+
+/**
+ * DELETE /api/leave-types
+ * Delete a leave type (admin only)
+ */
+router.delete('/types', roleMiddleware(['admin']), leaveController.deleteLeaveType);
+
+// ============================================
+// Leave Request Management
+// ============================================
 
 /**
  * PUT /api/leaves/:id

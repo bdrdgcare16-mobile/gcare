@@ -22,7 +22,8 @@ import eventRoutes from './routes/event';
 import shiftRoutes from './routes/shift';
 import taskRoutes from './routes/task';
 import trackingRoutes from './routes/tracking'; 
-import livedetailsRouter from './routes/livedetails';
+import liveEmployeeDetailsRouter from './routes/liveEmployeeDetails';
+import * as authController from './controllers/authController';
 // -------------------- App setup --------------------
 const app = express();
 
@@ -90,7 +91,10 @@ app.use('/api/feedback', feedbackRoutes(db));
 app.use('/api/shifts', shiftRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/tracking', trackingRoutes);
-app.use("/api/livedetails", livedetailsRouter);
+app.use('/api/liveEmployeeDetails', liveEmployeeDetailsRouter);
+app.get('/api/me', authController.getMe);          // or attendanceController.getCurrentUser
+app.get('/api/profile', authController.getMe);
+
 // -------------------- 404 + error handlers --------------------
 app.use((req, res) => {
   res.status(404).json({
