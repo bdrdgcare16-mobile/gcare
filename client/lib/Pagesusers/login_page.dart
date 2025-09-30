@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as dev;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -284,11 +285,7 @@ class _LoginPageState extends State<LoginPage> {
                 style: ElevatedButton.styleFrom(backgroundColor: kAppBarColor),
                 onPressed: sending ? null : () => sendOtp(setDlgState),
                 child: sending
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                            color: Colors.white, strokeWidth: 2))
+                    ? const _ArcLoader(size: 20, color: Colors.white, strokeWidth: 2)
                     : const Text("Send OTP",
                         style: TextStyle(color: kTextColor)),
               ),
@@ -329,11 +326,7 @@ class _LoginPageState extends State<LoginPage> {
                 style: ElevatedButton.styleFrom(backgroundColor: kAppBarColor),
                 onPressed: verifying ? null : () => verifyOtp(setDlgState),
                 child: verifying
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                            color: Colors.white, strokeWidth: 2))
+                    ? const _ArcLoader(size: 20, color: Colors.white, strokeWidth: 2)
                     : const Text("Verify OTP",
                         style: TextStyle(color: kTextColor)),
               ),
@@ -384,11 +377,7 @@ class _LoginPageState extends State<LoginPage> {
                 style: ElevatedButton.styleFrom(backgroundColor: kAppBarColor),
                 onPressed: resetting ? null : () => resetPassword(setDlgState),
                 child: resetting
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                            color: Colors.white, strokeWidth: 2))
+                    ? const _ArcLoader(size: 20, color: Colors.white, strokeWidth: 2)
                     : const Text("Submit", style: TextStyle(color: kTextColor)),
               ),
             ];
@@ -760,8 +749,7 @@ class _LoginPageState extends State<LoginPage> {
                                     borderRadius: BorderRadius.circular(8)),
                               ),
                               child: _isEmpLoading
-                                  ? const CircularProgressIndicator(
-                                      color: Colors.white)
+                                  ? const _ArcLoader(size: 22, color: Colors.white)
                                   : const Text("Sign in as employee",
                                       style: TextStyle(color: kTextColor)),
                             ),
@@ -782,8 +770,7 @@ class _LoginPageState extends State<LoginPage> {
                                     borderRadius: BorderRadius.circular(8)),
                               ),
                               child: _isAdminLoading
-                                  ? const CircularProgressIndicator(
-                                      color: Colors.white)
+                                  ? const _ArcLoader(size: 22, color: Colors.white)
                                   : const Text("Sign in as admin",
                                       style: TextStyle(color: kTextColor)),
                             ),
@@ -805,3 +792,90 @@ class _LoginPageState extends State<LoginPage> {
 
 // Small helper for width without changing UI/logic
 double get fullWidth => double.infinity;
+
+/// ─────────────────────────────────────────────────────────────────────────
+/// Two-arc loader (matches your ref: row 2, column 4)
+/// ─────────────────────────────────────────────────────────────────────────
+class _ArcLoader extends StatefulWidget {
+  final double size;
+  final Color color;
+  final double strokeWidth;
+  const _ArcLoader({
+    required this.size,
+    required this.color,
+    this.strokeWidth = 3,
+  });
+
+  @override
+  State<_ArcLoader> createState() => _ArcLoaderState();
+}
+
+class _ArcLoaderState extends State<_ArcLoader>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: widget.size,
+      height: widget.size,
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (context, _) {
+          return Transform.rotate(
+            angle: _c.value * 2 * math.pi,
+            child: CustomPaint(
+              painter: _ArcPainter(
+                color: widget.color,
+                strokeWidth: widget.strokeWidth,
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ArcPainter extends CustomPainter {
+  final Color color;
+  final double strokeWidth;
+  _ArcPainter({required this.color, required this.strokeWidth});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = strokeWidth
+      ..color = color;
+
+    final rect = Offset.zero & size;
+    const sweep = math.pi * 0.8; // ~144°
+    const gap = math.pi; // opposite side
+
+    // first arc
+    canvas.drawArc(rect.deflate(strokeWidth / 2), 0, sweep, false, paint);
+    // second arc (opposite side)
+    canvas.drawArc(rect.deflate(strokeWidth / 2), gap, sweep, false, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ArcPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.strokeWidth != strokeWidth;
+}

@@ -1,7 +1,14 @@
+// functions/src/index.ts
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { onRequest } from 'firebase-functions/v2/https';
 import { defineString } from 'firebase-functions/params';
+
+// ✅ Ensure firebase-admin is initialized exactly once
+import * as admin from 'firebase-admin';
+if (!admin.apps.length) {
+  admin.initializeApp();
+}
 
 // Shared Firebase (single source of truth)
 import { db } from './config/firebase';
@@ -21,9 +28,11 @@ import feedbackRoutes from './routes/feedbackRoutes';
 import eventRoutes from './routes/event';
 import shiftRoutes from './routes/shift';
 import taskRoutes from './routes/task';
-import trackingRoutes from './routes/tracking'; 
+import trackingRoutes from './routes/tracking';
 import liveEmployeeDetailsRouter from './routes/liveEmployeeDetails';
 import * as authController from './controllers/authController';
+import reasonsRouter from './routes/reasons';
+
 // -------------------- App setup --------------------
 const app = express();
 
@@ -92,8 +101,9 @@ app.use('/api/shifts', shiftRoutes);
 app.use('/api/tasks', taskRoutes);
 app.use('/api/tracking', trackingRoutes);
 app.use('/api/liveEmployeeDetails', liveEmployeeDetailsRouter);
-app.get('/api/me', authController.getMe);          // or attendanceController.getCurrentUser
+app.get('/api/me', authController.getMe);
 app.get('/api/profile', authController.getMe);
+app.use('/api/reasons', reasonsRouter);
 
 // -------------------- 404 + error handlers --------------------
 app.use((req, res) => {

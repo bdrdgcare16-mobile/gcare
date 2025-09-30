@@ -1,51 +1,37 @@
+// src/routes/task.ts
 import { Router } from 'express';
-import multer from 'multer';
 import { verifyToken, isAdmin } from '../middlewares/authMiddleware';
 import {
   createBroadcastTask,
   createSingleTask,
   listTasks,
   getTask,
+  listTasksForUser,
+  createDailyUpdateForSelf,
+  listEmployeeTasks, // NEW
 } from '../controllers/taskController';
-
-// Extend the Express Request type to include the file property
-declare global {
-  namespace Express {
-    interface Request {
-      file?: Express.Multer.File;
-    }
-  }
-}
 
 const router = Router();
 
-// Multer in-memory storage (upload to Firebase Storage from buffer)
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024, files: 1 }, // 25MB, single file
-});
+/** Admin: create a broadcast task for all employees (JSON only, no files) */
+router.post('/broadcast', verifyToken, isAdmin, createBroadcastTask);
 
-/**
- * Admin: upload one file & assign to ALL employees
- * Body: multipart/form-data
- *   - file (field name "file")  [required]
- *   - title?, description?, dueDate?, kind?
- */
-router.post('/broadcast', verifyToken, isAdmin, upload.single('file'), createBroadcastTask);
+/** Admin: create a task for exactly one employee (JSON only, no files) */
+router.post('/assign', verifyToken, isAdmin, createSingleTask);
 
-/**
- * Admin: upload one file to ONE employee
- * Body: multipart/form-data
- *   - assignedTo (empid)        [required]
- *   - file (field name "file")  [required]
- *   - title?, description?, dueDate?, kind?
- */
-router.post('/upload', verifyToken, isAdmin, upload.single('file'), createSingleTask);
+/** Employee self-post: create a Daily Update for the logged-in user (JSON only) */
+router.post('/daily-update', verifyToken, createDailyUpdateForSelf);
 
-/** List broadcast tasks */
+/** User view: merged list for the current employee. */
+router.get('/user', verifyToken, listTasksForUser);
+
+/** Employee-only list (optionally filter by empid). */
+router.get('/employee', verifyToken, listEmployeeTasks);
+
+/** Admin/broadcast list (kept for compatibility). */
 router.get('/', verifyToken, listTasks);
 
-/** Get single task by id */
+/** Single task by id. */
 router.get('/:id', verifyToken, getTask);
 
 export default router;

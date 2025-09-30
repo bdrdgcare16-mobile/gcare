@@ -1,19 +1,21 @@
-// lib/Pagesusers/attendance_page.dart
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:local_auth/local_auth.dart';
 
+import 'package:permission_handler/permission_handler.dart';
+import 'package:android_intent_plus/android_intent.dart';
+
 import 'package:serv_app/models/company_data.dart';
 
 // Background scheduler (WorkManager wrapper)
 import 'package:serv_app/background/background_tasks.dart';
-
-// Foreground 20-min high-accuracy tracker
+import 'package:serv_app/main.dart' show startFgTracking, stopFgTracking;
+// Foreground timer (legacy – extra backup)
 import 'package:serv_app/services/tracking_service.dart';
 
 // ==== Colors ====
@@ -82,7 +84,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   final LocalAuthentication _localAuth = LocalAuthentication();
   bool _authInProgress = false;
 
-  // Foreground 20min tracker during working hours
+  // Optional legacy foreground tracker
   TrackingService? _tracking;
 
   @override
@@ -131,9 +133,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     await prefs.setBool(_key(_kCheckedInKeyBase), true);
     await prefs.setString(_key(_kCheckInDateKeyBase), ymd);
     await prefs.setString(_key(_kCheckInTimeKeyBase), hms);
-    if (kDebugMode) {
-      print('[AttendanceScreen] persisted check-in for $userId at $ymd $hms');
-    }
   }
 
   Future<void> _clearCheckInFromPrefs() async {
@@ -215,10 +214,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
     try {
       final res = await http.get(url, headers: {'Authorization': 'Bearer $token'});
-      if (kDebugMode) {
-        print('[AttendanceScreen] /auth/me -> ${res.statusCode}');
-        if (res.statusCode == 200) print('[AttendanceScreen] body: ${res.body}');
-      }
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
         final profile = (data['employeeProfile'] is Map<String, dynamic>)
@@ -249,8 +244,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         });
         await _restoreCheckInFromPrefs();
       }
-    } catch (e) {
-      if (kDebugMode) print('[AttendanceScreen] _loadUserInfo error: $e');
+    } catch (_) {
       setState(() {
         userName = "(error)";
         userId = widget.employeeDocId;
@@ -269,7 +263,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
     try {
       final res = await http.get(url, headers: {'Authorization': 'Bearer $token'});
-      if (kDebugMode) print('[AttendanceScreen] /attendance/live -> ${res.statusCode}');
       if (res.statusCode != 200) return;
 
       final list = List<Map<String, dynamic>>.from(jsonDecode(res.body));
@@ -301,9 +294,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       await _clearCheckInFromPrefs();
       if (!mounted) return;
       setState(() => isCheckedIn = false);
-    } catch (e) {
-      if (kDebugMode) print('[AttendanceScreen] _loadTodayStatus error: $e');
-    }
+    } catch (_) {}
   }
 
   void _applyCheckedInFromServer(String hhmmss) {
@@ -358,7 +349,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   // ---------------- GEO ----------------
-  // Default accuracy = best (used in general flows)
   Future<Position?> _getPositionUsingDemo({
     bool quiet = false,
     LocationAccuracy accuracy = LocationAccuracy.best,
@@ -372,16 +362,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           const SnackBar(content: Text('Location services are disabled')),
         );
       }
-      return null;
     }
 
     try {
       return await Geolocator.getCurrentPosition(
-        // <<< configurable accuracy
         desiredAccuracy: accuracy,
         timeLimit: const Duration(seconds: 15),
       );
-    } catch (e) {
+    } catch (_) {
       if (!quiet && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Could not get current location')),
@@ -510,9 +498,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           builder: (c) => AlertDialog(
             title: const Text('Other location'),
             content: Text(
-              'You are ${distance.toStringAsFixed(0)}m away from "$branchName" '
-              '(radius ${radius.toStringAsFixed(0)}m).\n'
-              'Do you want to proceed with check-in here?',
+              'You are in other location. Do you want to proceed with check-in here?',
             ),
             actions: [
               TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
@@ -523,6 +509,110 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         false;
   }
 
+  /// Detect category from time vs shift (for when to ask a reason)
+  String? _detectCheckInCategory() {
+    final times = _getShiftTimes(selectedShift);
+    final now = DateTime.now();
+    final start = _toDateTime(times.start);
+    if (now.isAfter(start.add(const Duration(minutes: 5)))) return 'Late Check-in';
+    if (now.isBefore(start.subtract(const Duration(minutes: 10)))) return 'Early Check-in';
+    return null;
+  }
+
+  String? _detectCheckoutCategory() {
+    final times = _getShiftTimes(selectedShift);
+    var end = _toDateTime(times.end);
+    final start = _toDateTime(times.start);
+    if (end.isBefore(start)) end = end.add(const Duration(days: 1));
+    final now = DateTime.now();
+    if (now.isBefore(end.subtract(const Duration(minutes: 5)))) return 'Early Checkout';
+    return null;
+  }
+
+  /// Fetch ALL reasons from /api/reasons (uses 'reason' text)
+  Future<List<Map<String, String>>> _fetchAllReasons() async {
+    try {
+      final res = await http.get(Uri.parse('$_apiBase/reasons?limit=200'));
+      if (res.statusCode != 200) return <Map<String, String>>[];
+
+      final body = jsonDecode(res.body);
+      final List items = (body is List) ? body : (body['items'] as List? ?? <dynamic>[]);
+
+      return items.map<Map<String, String>>((raw) {
+        final m = (raw as Map).cast<String, dynamic>();
+        return {
+          'id': (m['id'] ?? m['_id'] ?? '').toString(),
+          'reason': (m['reason'] ?? '').toString(),
+          'typeId': (m['typeId'] ?? '').toString(),
+          'typeName': (m['typeName'] ?? '').toString(),
+        };
+      }).where((e) => (e['reason'] ?? '').toString().isNotEmpty).toList();
+    } catch (_) {
+      return <Map<String, String>>[];
+    }
+  }
+
+  /// Dialog: dropdown of reason texts
+  Future<Map<String, String>?> _pickReason(String title, {String? prefer}) async {
+    final reasons = await _fetchAllReasons();
+    if (reasons.isEmpty) {
+      _showInfoDialog('No reasons configured.');
+      return null;
+    }
+
+    String? selectedId;
+    if ((prefer ?? '').isNotEmpty) {
+      final match = reasons.firstWhere(
+        (r) => (r['reason'] ?? '').toLowerCase().contains(prefer!.toLowerCase()),
+        orElse: () => reasons.first,
+      );
+      selectedId = match['id'];
+    } else {
+      selectedId = reasons.first['id'];
+    }
+
+    await showDialog(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setSt) => AlertDialog(
+          title: Text(title),
+          content: DropdownButtonFormField<String>(
+            initialValue: selectedId,
+            isExpanded: true,
+            items: reasons
+                .map((r) => DropdownMenuItem(
+                      value: r['id'],
+                      child: Text(r['reason'] ?? ''),
+                    ))
+                .toList(),
+            onChanged: (v) => setSt(() => selectedId = v),
+            decoration: const InputDecoration(
+              labelText: 'Select reason',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: selectedId == null ? null : () => Navigator.pop(ctx),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (selectedId == null) return null;
+    final chosen = reasons.firstWhere((r) => r['id'] == selectedId);
+    return {
+      'reasonId': chosen['id'] ?? '',
+      'reasonText': chosen['reason'] ?? '',
+      'reasonTypeId': chosen['typeId'] ?? '',
+      'reasonTypeName': chosen['typeName'] ?? '',
+    };
+  }
+
+  // -------------------- Check-in / out --------------------
   Future<void> _authenticateAndCheckIn() async {
     try {
       _authInProgress = true;
@@ -556,9 +646,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
   }
 
-  // -------------------- Check-in / out --------------------
   Future<void> _performCheckIn(String type) async {
-    // Highest precision for foreground check-in
+    Map<String, String>? reasonInfo;
+    final category = _detectCheckInCategory();
+    if (category != null) {
+      reasonInfo = await _pickReason(category, prefer: category);
+      if (category.isNotEmpty && reasonInfo == null) return;
+    }
+
     final pos = await _getPositionUsingDemo(
       accuracy: LocationAccuracy.bestForNavigation,
     );
@@ -601,7 +696,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final token = CompanyData.token;
     final url = Uri.parse('$_apiBase/attendance/check-in');
 
-    final body = jsonEncode({
+    final bodyMap = {
       'empid': userId,
       'name': userName,
       'location': location,
@@ -616,7 +711,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       'distanceFromBranch': double.parse(distance.toStringAsFixed(2)),
       'withinRadius': within,
       'otherLocation': !within,
-    });
+      if (reasonInfo != null) 'reasonId': reasonInfo['reasonId'],
+      if (reasonInfo != null) 'reasonText': reasonInfo['reasonText'],
+      if (reasonInfo != null) 'reasonTypeId': reasonInfo['reasonTypeId'],
+      if (reasonInfo != null) 'reasonTypeName': reasonInfo['reasonTypeName'],
+    };
 
     _showLoadingDialog('Checking in…');
     try {
@@ -626,95 +725,39 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
-        body: body,
+        body: jsonEncode(bodyMap),
       );
       if (mounted) Navigator.of(context, rootNavigator: true).pop();
 
-      if (kDebugMode) {
-        print('[AttendanceScreen] check-in ${res.statusCode} ${res.body}');
-      }
-
       if (res.statusCode == 200 || res.statusCode == 201) {
-        try {
-          final data = jsonDecode(res.body) as Map<String, dynamic>;
-          final code = (data['code'] ?? '').toString();
+        // Seed route on server
+        await _trackingCheckInAndSeed(pos);
 
-          final record = (data['record'] ?? {}) as Map<String, dynamic>;
-          final recCheckIn = (record['checkIn'] ?? '') as String?;
-          final recCheckOut = (record['checkOut'] ?? '') as String?;
+        // Ask notif permission (Android 13+)
+        await _ensureNotificationPermission();
 
-          if (recCheckOut != null && recCheckOut.isNotEmpty) {
-            _resetTimerAndState();
-            _cancelAutoCheckout();
-            await _clearCheckInFromPrefs();
-            setState(() => isCheckedIn = false);
-            _showInfoDialog("You've already checked out today.");
-            return;
-          }
+        // Prompt for battery optimizations exemption
+        await _maybePromptBatteryOptimization();
 
-          if (code == 'ALREADY_CHECKED_IN') {
-            if (recCheckIn != null && recCheckIn.isNotEmpty) {
-              _applyCheckedInFromServer(recCheckIn);
-            } else {
-              setState(() => isCheckedIn = true);
-              _startWorkTimer();
-            }
-            await _saveCheckInToPrefs();
-            _showInfoDialog('You are already checked in.');
-          } else {
-            if (recCheckIn != null && recCheckIn.isNotEmpty) {
-              _applyCheckedInFromServer(recCheckIn);
-            } else {
-              setState(() => isCheckedIn = true);
-              _startWorkTimer();
-            }
-            await _saveCheckInToPrefs();
-            _showSuccessDialog('Checked in successfully!');
-          }
+        // Start robust foreground service + keep WorkManager backup
+        await startFgTracking(empid: userId, token: CompanyData.token);
+        await scheduleBackgroundTracking(empid: userId, token: CompanyData.token);
 
-          // Seed + background 15–20min ping
-          await _trackingCheckInAndSeed(pos);
-          await scheduleBackgroundTracking(empid: userId, token: CompanyData.token);
+        // (Optional extra backup – your old 20-min timer)
+        _tracking ??= TrackingService(
+          apiBase: _apiBase,
+          jwtToken: CompanyData.token,
+          empId: userId,
+        );
+        await _tracking!.startAfterCheckIn();
 
-          // Foreground strict 20min high-accuracy during work
-          _tracking ??= TrackingService(
-            apiBase: _apiBase,
-            jwtToken: CompanyData.token,
-            empId: userId,
-          );
-          await _tracking!.startAfterCheckIn();
-
-          // Ask for "Allow all the time" so bg jobs work reliably
-          await _ensureAlwaysLocationAfterCheckIn();
-        } catch (_) {
-          setState(() => isCheckedIn = true);
-          _startWorkTimer();
-          await _saveCheckInToPrefs();
-          _showSuccessDialog('Checked in successfully!');
-          await _trackingCheckInAndSeed(pos);
-          await scheduleBackgroundTracking(empid: userId, token: CompanyData.token);
-          _tracking ??= TrackingService(
-            apiBase: _apiBase,
-            jwtToken: CompanyData.token,
-            empId: userId,
-          );
-          await _tracking!.startAfterCheckIn();
-          await _ensureAlwaysLocationAfterCheckIn();
-        }
+        setState(() => isCheckedIn = true);
+        _startWorkTimer();
+        await _saveCheckInToPrefs();
+        _showSuccessDialog('Checked in successfully!');
       } else {
-        final msg = (jsonDecode(res.body)['error'] ??
-                jsonDecode(res.body)['message'])
-            .toString();
-        if (msg.toLowerCase().contains('already') &&
-            msg.toLowerCase().contains('checked out')) {
-          _resetTimerAndState();
-          _cancelAutoCheckout();
-          await _clearCheckInFromPrefs();
-          setState(() => isCheckedIn = false);
-          _showInfoDialog("You've already checked out today.");
-        } else {
-          _showErrorDialog(msg);
-        }
+        final msg = (jsonDecode(res.body)['error'] ?? jsonDecode(res.body)['message']).toString();
+        _showErrorDialog(msg);
       }
     } catch (e) {
       if (mounted) Navigator.of(context, rootNavigator: true).pop();
@@ -723,7 +766,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Future<void> _performCheckOut({bool silent = false}) async {
-    // Highest precision for foreground check-out
+    Map<String, String>? reasonInfo;
+    final category = _detectCheckoutCategory();
+    if (category != null) {
+      reasonInfo = await _pickReason(category, prefer: category);
+      if (category.isNotEmpty && reasonInfo == null) {
+        if (!silent) _showInfoDialog('Checkout cancelled');
+        return;
+      }
+    }
+
     final pos = await _getPositionUsingDemo(
       quiet: silent,
       accuracy: LocationAccuracy.bestForNavigation,
@@ -756,7 +808,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final token = CompanyData.token;
     final url = Uri.parse('$_apiBase/attendance/check-out');
 
-    final body = jsonEncode({
+    final bodyMap = {
       'empid': userId,
       'location': location,
       'latitude': pos.latitude,
@@ -769,7 +821,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       'distanceFromBranch': double.parse(distance.toStringAsFixed(2)),
       'withinRadius': within,
       'otherLocation': !within,
-    });
+      if (reasonInfo != null) 'reasonId': reasonInfo['reasonId'],
+      if (reasonInfo != null) 'reasonText': reasonInfo['reasonText'],
+      if (reasonInfo != null) 'reasonTypeId': reasonInfo['reasonTypeId'],
+      if (reasonInfo != null) 'reasonTypeName': reasonInfo['reasonTypeName'],
+    };
 
     if (!silent) _showLoadingDialog('Checking out…');
     try {
@@ -779,43 +835,25 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
-        body: body,
+        body: jsonEncode(bodyMap),
       );
       if (!silent && mounted) Navigator.of(context, rootNavigator: true).pop();
 
-      if (kDebugMode) {
-        print('[AttendanceScreen] check-out ${res.statusCode} ${res.body}');
-      }
-
       if (res.statusCode == 200) {
+        // stop services
+        await stopFgTracking();
+        await cancelBackgroundTracking(empid: userId);
+        await _tracking?.stopAfterCheckOut();
+
         _stopWorkTimer();
         _cancelAutoCheckout();
         await _clearCheckInFromPrefs();
         setState(() => isCheckedIn = false);
         if (!silent) _showSuccessDialog('Checked out successfully!');
-
-        // Stop tracking (bg + fg)
         await _trackingCheckOut();
-        await cancelBackgroundTracking(empid: userId);
-        await _tracking?.stopAfterCheckOut();
       } else {
-        final msg = (jsonDecode(res.body)['error'] ??
-                jsonDecode(res.body)['message'])
-            .toString();
-
-        if (msg.toLowerCase().contains('already') &&
-            msg.toLowerCase().contains('checked out')) {
-          _resetTimerAndState();
-          _cancelAutoCheckout();
-          await _clearCheckInFromPrefs();
-          setState(() => isCheckedIn = false);
-          if (!silent) _showInfoDialog("You've already checked out today.");
-          await _trackingCheckOut();
-          await cancelBackgroundTracking(empid: userId);
-          await _tracking?.stopAfterCheckOut();
-        } else {
-          if (!silent) _showErrorDialog(msg);
-        }
+        final msg = (jsonDecode(res.body)['error'] ?? jsonDecode(res.body)['message']).toString();
+        if (!silent) _showErrorDialog(msg);
       }
     } catch (e) {
       if (!silent) {
@@ -871,43 +909,31 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     } catch (_) {}
   }
 
-  // ---------- Ask for "Allow all the time" after check-in ----------
-  Future<void> _ensureAlwaysLocationAfterCheckIn() async {
-    var perm = await Geolocator.checkPermission();
-    if (perm == LocationPermission.always) return;
-
-    if (perm == LocationPermission.denied) {
-      perm = await Geolocator.requestPermission();
-    }
-    if (!mounted) return;
-
-    if (perm != LocationPermission.always) {
-      await showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Background location'),
-          content: const Text(
-            'To record your route when the app is closed, please allow '
-            '"Location → Allow all the time" in App Settings.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Later'),
-            ),
-            TextButton(
-              onPressed: () async {
-                Navigator.pop(context);
-                await Geolocator.openAppSettings();
-              },
-              child: const Text('Open Settings'),
-            ),
-          ],
-        ),
-      );
+  // ---------- Permissions / Settings nudges ----------
+  Future<void> _ensureNotificationPermission() async {
+    final status = await Permission.notification.status;
+    if (!status.isGranted) {
+      await Permission.notification.request();
     }
   }
 
+  Future<void> _maybePromptBatteryOptimization() async {
+    try {
+      const intent = AndroidIntent(
+        action: 'android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+      );
+      await intent.launch();
+    } catch (_) {
+      try {
+        const intent = AndroidIntent(
+          action: 'android.settings.IGNORE_BATTERY_OPTIMATION_SETTINGS',
+        );
+        await intent.launch();
+      } catch (_) {}
+    }
+  }
+
+  // ---------- UI helpers ----------
   void _startWorkTimer() {
     _timer?.cancel();
     setState(() {
@@ -994,7 +1020,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           'Attendance',
           style: TextStyle(color: kTextColor, fontSize: 18, fontWeight: FontWeight.w600),
         ),
-        centerTitle: true,
+        centerTitle: false,
+        titleSpacing: 0,
       ),
       body: Container(
         decoration: const BoxDecoration(
@@ -1043,18 +1070,17 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                           Text(
                             '${DateTime.now().day.toString().padLeft(2, '0')} '
                             '${_getMonthName(DateTime.now().month)} '
-                            '${DateTime.now().year}',
-                            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                          ),
+                            '${DateTime.now().year}'),
                         ],
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 20),
+                // timer icon (enlarged earlier)
                 SizedBox(
-                  width: 65,
-                  height: 65,
+                  width: 89,
+                  height: 89,
                   child: Image.asset('assets/images/timer1.png', fit: BoxFit.contain),
                 ),
                 const SizedBox(height: 15),
@@ -1063,21 +1089,19 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   children: [
                     _buildTimeBox(hours),
                     const SizedBox(width: 6),
-                    Text(':', style: TextStyle(fontSize: 20, color: kButtonColor, fontWeight: FontWeight.bold)),
+                    Text(':', style: TextStyle(fontSize: 20, color: Color.fromARGB(255, 169, 163, 182), fontWeight: FontWeight.bold)),
                     const SizedBox(width: 6),
                     _buildTimeBox(minutes),
                     const SizedBox(width: 6),
-                    Text(':', style: TextStyle(fontSize: 20, color: kButtonColor, fontWeight: FontWeight.bold)),
+                    Text(':', style: TextStyle(fontSize: 20, color: Color.fromARGB(255, 169, 163, 182), fontWeight: FontWeight.bold)),
                     const SizedBox(width: 6),
                     _buildTimeBox(seconds),
-                    const SizedBox(width: 12),
-                    Text(isTimerRunning ? 'Work' : 'Hrs', style: TextStyle(fontSize: 14, color: kButtonColor, fontWeight: FontWeight.w500)),
                   ],
                 ),
                 const SizedBox(height: 20),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  decoration: BoxDecoration(color: kButtonColor, borderRadius: BorderRadius.circular(8)),
+                  decoration: BoxDecoration(color: kButtonColor, borderRadius: BorderRadius.circular(4)),
                   child: Text(selectedShift, style: const TextStyle(color: kTextColor, fontSize: 14, fontWeight: FontWeight.w500)),
                 ),
                 const SizedBox(height: 15),
@@ -1099,7 +1123,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                               children: [
                                 Icon(Icons.face, color: kTextColor, size: 14),
                                 SizedBox(height: 2),
-                                Text('Register', style: TextStyle(color: kTextColor, fontSize: 9, fontWeight: FontWeight.w500)),
+                                Text('Biometric', style: TextStyle(color: kTextColor, fontSize: 9, fontWeight: FontWeight.w500)),
                               ],
                             ),
                           ),
@@ -1121,7 +1145,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                               children: [
                                 Icon(Icons.touch_app, color: kTextColor, size: 14),
                                 SizedBox(height: 2),
-                                Text('Check in', style: TextStyle(color: kTextColor, fontSize: 9, fontWeight: FontWeight.w500)),
+                                Text('Manual', style: TextStyle(color: kTextColor, fontSize: 9, fontWeight: FontWeight.w500)),
                               ],
                             ),
                           ),
@@ -1160,31 +1184,29 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Widget _buildTimeBox(String time) {
+    // No border — just a soft shadow so each box stands out subtly.
     return Container(
       width: 42,
       height: 32,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(6),
-        border: isTimerRunning
-            ? Border.all(color: Colors.green, width: 2)
-            : Border.all(color: Colors.grey.withOpacity(0.3), width: 1),
-        boxShadow: [
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: const [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
+            color: Color(0x22000000), // gentle shadow
+            blurRadius: 8,
             spreadRadius: 1,
-            blurRadius: 3,
-            offset: const Offset(0, 1),
+            offset: Offset(0, 2),
           ),
         ],
       ),
       child: Center(
         child: Text(
           time,
-          style: TextStyle(
+          style: const TextStyle(
             fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: isTimerRunning ? Colors.green : kButtonColor,
+            fontWeight: FontWeight.w700,
+            color: kButtonColor,
           ),
         ),
       ),

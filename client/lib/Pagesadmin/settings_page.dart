@@ -2,39 +2,30 @@ import 'package:flutter/material.dart';
 import 'package:serv_app/Pagesadmin/workdays_shift_page.dart';
 import 'package:serv_app/Pagesadmin/leave_page.dart';
 import 'package:serv_app/Pagesadmin/profile_page.dart';
-import 'package:serv_app/Pagesadmin/qr_code_page.dart';
 import 'package:serv_app/Pagesadmin/reason_master_page.dart';
 import 'package:serv_app/Pagesadmin/office_location_page.dart';
 
 // Theme colors
-const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
+const Color kPrimaryBackgroundTop    = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-const Color kAppBarColor = Color(0xFF8C6EAF);
-const Color kButtonColor = Color(0xFF655193);
-const Color kTextColor = Colors.white;
+const Color kAppBarColor             = Color(0xFF8C6EAF);
+const Color kButtonColor             = Color(0xFF655193);
+const Color kTextColor               = Colors.white;
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
 
   void _handleItemClick(BuildContext context, String title) {
     if (title == 'Workdays & Shift Permission') {
-      Navigator.push(context,
-          MaterialPageRoute(builder: (_) => const WorkdaysShiftPage()));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const WorkdaysShiftPage()));
     } else if (title == 'Leave Holiday') {
-      Navigator.push(
-          context, MaterialPageRoute(builder: (_) => const LeavePage()));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const LeavePage()));
     } else if (title == 'Profile') {
-      Navigator.push(context,
-          MaterialPageRoute(builder: (_) => const CompanyProfilePage()));
-    } else if (title == 'QR Code') {
-      Navigator.push(context,
-          MaterialPageRoute(builder: (_) => const OrganizationQrPage()));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const CompanyProfilePage()));
     } else if (title == 'Reason Master') {
-      Navigator.push(
-          context, MaterialPageRoute(builder: (_) => const ReasonMasterPage()));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const ReasonMasterPage()));
     } else if (title == 'Office Location') {
-      Navigator.push(context,
-          MaterialPageRoute(builder: (_) => const OfficeLocationPage()));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const OfficeLocationPage()));
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('$title clicked')),
@@ -88,15 +79,16 @@ class SettingsPage extends StatelessWidget {
                   const SizedBox(height: 6),
                   Divider(color: kTextColor.withOpacity(0.3), thickness: 1),
                   const SizedBox(height: 16),
+
                   sectionTitle("Work Schedule"),
-                  _menuItem(context, "Workdays & Shift Permission",
-                      Icons.calendar_today),
+                  _menuItem(context, "Workdays & Shift Permission", Icons.calendar_today),
                   _menuItem(context, "Leave Holiday", Icons.beach_access),
+
                   const SizedBox(height: 20),
                   sectionTitle("Corporate"),
                   _menuItem(context, "Profile", Icons.business_center),
                   _menuItem(context, "Office Location", Icons.location_on),
-                  _menuItem(context, "QR Code", Icons.qr_code_2),
+
                   const SizedBox(height: 20),
                   sectionTitle("Admin"),
                   _menuItem(context, "Reason Master", Icons.edit_note),
@@ -120,8 +112,7 @@ class SettingsPage extends StatelessWidget {
       );
 
   /// Reusable menu item card
-  Widget _menuItem(BuildContext context, String title, IconData icon) =>
-      InkWell(
+  Widget _menuItem(BuildContext context, String title, IconData icon) => InkWell(
         onTap: () => _handleItemClick(context, title),
         child: Container(
           margin: const EdgeInsets.symmetric(vertical: 6),

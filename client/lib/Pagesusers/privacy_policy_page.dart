@@ -17,7 +17,7 @@ class PrivacyPolicyPage extends StatelessWidget {
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         backgroundColor: kAppBarColor,
-        centerTitle: true,
+        centerTitle: false,
       ),
       body: Container(
         width: double.infinity,

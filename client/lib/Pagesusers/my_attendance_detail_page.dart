@@ -174,12 +174,19 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
     final shiftName = get<String>(['shiftName', 'shift_name']) ?? '';
     final shiftGroup = _shiftGroup; // from /api/attendance/me
 
-    // Status
-    final status = get<String>(['status', 'attendanceStatus']) ?? '-';
+    // Status (server value — will be overridden if check-in exists)
+    String status = get<String>(['status', 'attendanceStatus']) ?? '-';
 
     // Check-in/out (NO fallback to shift end)
     final checkIn = parseDT(get(['checkIn', 'check_in', 'inTime', 'firstCheckIn']));
     final checkOut = parseDT(get(['checkOut', 'check_out', 'outTime', 'lastCheckOut']));
+
+    // 🔒 OVERRIDE RULE:
+    // If there is a check-in time, ALWAYS treat as Present
+    // (even if the backend marks Holiday/WeekOff/etc.)
+    if (checkIn != null) {
+      status = 'Present';
+    }
 
     // Permission / OT minutes (optional)
     final permMins =
@@ -259,7 +266,7 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
     if (h12 == 0) h12 = 12;
     final m = dt.minute.toString().padLeft(2, '0');
     return '${h12.toString().padLeft(2, '0')}:$m ${am ? 'AM' : 'PM'}';
-    }
+  }
 
   static String _formatDateLong(DateTime d) {
     const months = [

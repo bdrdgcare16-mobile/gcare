@@ -49,7 +49,27 @@
 // }
 
 // function daysInMonth(year: number, month: number) { return new Date(year, month, 0).getDate(); }
-// function isSunday(ymd: string) { return new Date(ymd).getDay() === 0; }
+
+// /* ====== CHANGED: timezone-safe weekday detection for YYYY-MM-DD ======
+//    Avoid new Date('YYYY-MM-DD') which is parsed as UTC in Node.
+//    dayOfWeekFromYMD returns: 0=Sunday, 1=Monday, ..., 6=Saturday
+// */
+// function dayOfWeekFromYMD(ymd: string): number {
+//   const y = parseInt(ymd.slice(0, 4), 10);
+//   const m = parseInt(ymd.slice(5, 7), 10);
+//   const d = parseInt(ymd.slice(8, 10), 10);
+//   let Y = y, M = m;
+//   if (M < 3) { M += 12; Y -= 1; }
+//   const K = Y % 100;
+//   const J = Math.floor(Y / 100);
+//   // Zeller’s congruence (Gregorian):
+//   // h = 0..6 => 0=Saturday,1=Sunday,2=Monday,...,6=Friday
+//   const h = (d + Math.floor((13 * (M + 1)) / 5) + K + Math.floor(K / 4) + Math.floor(J / 4) + 5 * J) % 7;
+//   // Convert to 0=Sunday..6=Saturday
+//   return (h + 6) % 7;
+// }
+// function isSunday(ymd: string) { return dayOfWeekFromYMD(ymd) === 0; } // <— callers unchanged
+
 // function cmpHHMM(a?: string, b?: string) { return (a || '00:00') > (b || '00:00'); }
 
 // function midpointHHMM(start?: string, end?: string) {
@@ -538,7 +558,7 @@
 //       Object.fromEntries(shiftsSnap.docs.map(d => [d.data().group, d.data()]));
 
 //     const isHoliday = HOLIDAYS_SET.has(today);
-//     const isWeekOff = isSunday(today);
+//     const isWeekOff = isSunday(today); // <— now IST-safe
 
 //     const result = employees.map(emp => {
 //       const rec = attMap[(emp as any).empid];
@@ -748,7 +768,7 @@
 
 //     for (const ymd of dates) {
 //       const isHoliday = HOLIDAYS_SET.has(ymd);
-//       const isWO = isSunday(ymd);
+//       const isWO = isSunday(ymd); // <— now IST-safe
 //       if (isHoliday) holiday++;
 //       if (isWO) weekOff++;
 
@@ -892,7 +912,7 @@
 
 //       if (holidaySet.has(ymd)) {
 //         status = 'Holiday'; holiday++;
-//       } else if (isSunday(ymd)) {
+//       } else if (isSunday(ymd)) { // <— now IST-safe
 //         status = 'WeekOff'; weekOff++;
 //       } else {
 //         const lv = rangeLeaves.find(L => (L as any).start <= ymd && ymd <= (L as any).end);
@@ -1633,6 +1653,12 @@ export const checkIn = async (req: Request, res: Response) => {
   const checkInAccuracy  = typeof (req.body as any)?.accuracy  === 'number' ? (req.body as any).accuracy  : null;
   const checkInSource    = normStr((req.body as any)?.source) || null; // manual/biometric
 
+  // ===== NEW: Reason coming from client (dropdown) =====
+  const reasonId        = normStr((req.body as any)?.reasonId) || null;
+  const reasonText      = normStr((req.body as any)?.reasonText || (req.body as any)?.reason) || null;
+  const reasonTypeId    = normStr((req.body as any)?.reasonTypeId) || null;
+  const reasonTypeName  = normStr((req.body as any)?.reasonTypeName) || null;
+
   if (!empid || !name || !location) {
     return res.status(400).json({ error: 'empid, name and location are required' });
   }
@@ -1689,6 +1715,17 @@ export const checkIn = async (req: Request, res: Response) => {
       const data = doc.data();
 
       if (data.checkIn) {
+        // still push/update reason if provided (no harm)
+        if (reasonText) {
+          await doc.ref.set({
+            reason: reasonText,
+            reasonId: reasonId || null,
+            reasonTypeId: reasonTypeId || null,
+            reasonTypeName: reasonTypeName || null,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          }, { merge: true });
+        }
+
         if (!empSnap.empty) {
           await empSnap.docs[0].ref.set(
             { status: 'active', updatedAt: admin.firestore.FieldValue.serverTimestamp() },
@@ -1714,7 +1751,7 @@ export const checkIn = async (req: Request, res: Response) => {
 
       await doc.ref.update({
         checkIn: nowTime,
-        checkInTsUtc: nowUtcISO(),              // <<< NEW AUDIT FIELD
+        checkInTsUtc: nowUtcISO(),              // <<< AUDIT FIELD
         name,
         location: branchName,
         checkInLatitude,
@@ -1728,6 +1765,11 @@ export const checkIn = async (req: Request, res: Response) => {
         distanceFromBranch,
         withinRadius,
         otherLocation,
+        // ===== NEW: persist reason to attendance =====
+        ...(reasonText ? { reason: reasonText } : {}),
+        ...(reasonId ? { reasonId } : {}),
+        ...(reasonTypeId ? { reasonTypeId } : {}),
+        ...(reasonTypeName ? { reasonTypeName } : {}),
         status: 'Present',
         approvalStatus: 'Pending',
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1758,7 +1800,7 @@ export const checkIn = async (req: Request, res: Response) => {
       name,
       date: today,
       checkIn: nowTime,
-      checkInTsUtc: nowUtcISO(),                // <<< NEW AUDIT FIELD
+      checkInTsUtc: nowUtcISO(),                // <<< AUDIT FIELD
       location: branchName,
       checkInLatitude,
       checkInLongitude,
@@ -1771,6 +1813,11 @@ export const checkIn = async (req: Request, res: Response) => {
       distanceFromBranch,
       withinRadius,
       otherLocation,
+      // ===== NEW: persist reason to attendance =====
+      ...(reasonText ? { reason: reasonText } : {}),
+      ...(reasonId ? { reasonId } : {}),
+      ...(reasonTypeId ? { reasonTypeId } : {}),
+      ...(reasonTypeName ? { reasonTypeName } : {}),
       status: 'Present',
       approvalStatus: 'Pending',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1811,6 +1858,12 @@ export const checkOut = async (req: Request, res: Response) => {
   const checkOutLongitude = typeof (req.body as any)?.longitude === 'number' ? (req.body as any).longitude : null;
   const checkOutAccuracy  = typeof (req.body as any)?.accuracy  === 'number' ? (req.body as any).accuracy  : null;
 
+  // ===== NEW: Reason coming from client (dropdown) for checkout as well =====
+  const reasonId        = normStr((req.body as any)?.reasonId) || null;
+  const reasonText      = normStr((req.body as any)?.reasonText || (req.body as any)?.reason) || null;
+  const reasonTypeId    = normStr((req.body as any)?.reasonTypeId) || null;
+  const reasonTypeName  = normStr((req.body as any)?.reasonTypeName) || null;
+
   if (!empid || !location) {
     return res.status(400).json({ error: 'empid and location are required' });
   }
@@ -1827,6 +1880,16 @@ export const checkOut = async (req: Request, res: Response) => {
 
     const doc = snap.docs[0];
     if (doc.data().checkOut) {
+      // still allow saving/overriding reason if sent
+      if (reasonText) {
+        await doc.ref.set({
+          reason: reasonText,
+          reasonId: reasonId || null,
+          reasonTypeId: reasonTypeId || null,
+          reasonTypeName: reasonTypeName || null,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
       return res.status(400).json({ error: 'Already checked out today' });
     }
 
@@ -1855,7 +1918,7 @@ export const checkOut = async (req: Request, res: Response) => {
 
     await doc.ref.update({
       checkOut: nowTime,
-      checkOutTsUtc: nowUtcISO(),               // <<< NEW AUDIT FIELD
+      checkOutTsUtc: nowUtcISO(),               // <<< AUDIT FIELD
       location: branchName,
       checkOutLatitude,
       checkOutLongitude,
@@ -1866,6 +1929,11 @@ export const checkOut = async (req: Request, res: Response) => {
       expectedRadius,
       checkoutDistanceFromBranch,
       checkoutWithinRadius,
+      // ===== NEW: persist reason to attendance on checkout as well =====
+      ...(reasonText ? { reason: reasonText } : {}),
+      ...(reasonId ? { reasonId } : {}),
+      ...(reasonTypeId ? { reasonTypeId } : {}),
+      ...(reasonTypeName ? { reasonTypeName } : {}),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 

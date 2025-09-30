@@ -1,493 +1,318 @@
-// import 'package:flutter/material.dart';
-
-// class ReasonMasterPage extends StatefulWidget {
-//   const ReasonMasterPage({super.key});
-
-//   @override
-//   _ReasonMasterPageState createState() => _ReasonMasterPageState();
-// }
-
-// class _ReasonMasterPageState extends State<ReasonMasterPage> {
-//   final TextEditingController _searchController = TextEditingController();
-//   final TextEditingController reasonInputController = TextEditingController();
-//   String? selectedTable;
-
-//   final List<String> tableOptions = [
-//     'Regularization Reason',
-//     'Half Day Reason',
-//     'Comp Off Check In Reason',
-//     'Week Off Check In Reason',
-//     'Leave Check In Reason',
-//     'Check Out Early Reason',
-//     'Permission Reason',
-//   ];
-
-//   final List<Map<String, String>> allReasons = [
-//     {
-//       'id': '1',
-//       'tableName': 'Regularization Reason',
-//       'reason': 'Regularization Reason 1',
-//       'date': '22-01-2025',
-//       'status': 'Default',
-//     },
-//     {
-//       'id': '2',
-//       'tableName': 'Half Day Reason',
-//       'reason': 'Emergency',
-//       'date': '22-01-2025',
-//       'status': 'Default',
-//     },
-//   ];
-
-//   List<Map<String, String>> filteredReasons = [];
-
-//   @override
-//   void initState() {
-//     super.initState();
-//     filteredReasons = List.from(allReasons);
-//     _searchController.addListener(_filterList);
-//   }
-
-//   void _filterList() {
-//     final query = _searchController.text.toLowerCase();
-//     setState(() {
-//       filteredReasons = allReasons.where((item) {
-//         return item['tableName']!.toLowerCase().contains(query) ||
-//             item['reason']!.toLowerCase().contains(query) ||
-//             item['date']!.toLowerCase().contains(query) ||
-//             item['status']!.toLowerCase().contains(query);
-//       }).toList();
-//     });
-//   }
-
-//   void _confirmDeleteItem(Map<String, String> itemToDelete) {
-//     showDialog(
-//       context: context,
-//       builder: (_) => AlertDialog(
-//         title: Text("Confirm Delete"),
-//         content: Text("Are you sure you want to delete this reason?"),
-//         actions: [
-//           TextButton(
-//             onPressed: () => Navigator.pop(context),
-//             child: Text("Cancel"),
-//           ),
-//           TextButton(
-//             onPressed: () {
-//               Navigator.pop(context);
-//               _deleteItem(itemToDelete);
-//             },
-//             child: Text("Delete", style: TextStyle(color: Colors.red)),
-//           ),
-//         ],
-//       ),
-//     );
-//   }
-
-//   void _deleteItem(Map<String, String> itemToDelete) {
-//     setState(() {
-//       allReasons.removeWhere((item) => item['id'] == itemToDelete['id']);
-//       _filterList();
-//     });
-//   }
-
-//   void _addNewReason() {
-//     final newItem = {
-//       'id': DateTime.now().millisecondsSinceEpoch.toString(),
-//       'tableName': selectedTable!,
-//       'reason': reasonInputController.text.trim(),
-//       'date': _getTodayDate(),
-//       'status': 'Default',
-//     };
-
-//     setState(() {
-//       allReasons.add(newItem);
-//       _filterList();
-//     });
-//   }
-
-//   String _getTodayDate() {
-//     final now = DateTime.now();
-//     return "${now.day.toString().padLeft(2, '0')}-${now.month.toString().padLeft(2, '0')}-${now.year}";
-//   }
-
-//   void _openAddReasonDialog() {
-//     selectedTable = null;
-//     reasonInputController.clear();
-
-//     showDialog(
-//       context: context,
-//       builder: (context) => AlertDialog(
-//         title: Text("Add New Reason", style: TextStyle(fontWeight: FontWeight.bold)),
-//         content: SingleChildScrollView(
-//           child: Column(
-//             mainAxisSize: MainAxisSize.min,
-//             children: [
-//               DropdownButtonFormField<String>(
-//                 isExpanded: true,
-//                 value: selectedTable,
-//                 hint: Text("Choose Table"),
-//                 items: tableOptions.map((table) {
-//                   return DropdownMenuItem(value: table, child: Text(table));
-//                 }).toList(),
-//                 onChanged: (value) {
-//                   setState(() {
-//                     selectedTable = value;
-//                   });
-//                 },
-//                 decoration: InputDecoration(
-//                   labelText: "Table Name",
-//                   border: OutlineInputBorder(),
-//                 ),
-//               ),
-//               SizedBox(height: 12),
-//               TextField(
-//                 controller: reasonInputController,
-//                 decoration: InputDecoration(
-//                   labelText: "Enter Reason",
-//                   border: OutlineInputBorder(),
-//                 ),
-//               ),
-//             ],
-//           ),
-//         ),
-//         actions: [
-//           TextButton(
-//             onPressed: () => Navigator.pop(context),
-//             child: Text("Cancel"),
-//           ),
-//           ElevatedButton(
-//             onPressed: () {
-//               if (selectedTable != null && reasonInputController.text.trim().isNotEmpty) {
-//                 _addNewReason();
-//                 Navigator.pop(context);
-//               }
-//             },
-//             child: Text("Create"),
-//           ),
-//         ],
-//       ),
-//     );
-//   }
-
-//   @override
-//   void dispose() {
-//     _searchController.dispose();
-//     reasonInputController.dispose();
-//     super.dispose();
-//   }
-
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       appBar: AppBar(
-//         backgroundColor: Colors.blue.shade800,
-//         title: Text("> Settings > Reason Master", style: TextStyle(fontSize: 16)),
-//       ),
-//       body: Padding(
-//         padding: const EdgeInsets.all(12.0),
-//         child: Column(
-//           children: [
-//             // Search & Create Button
-//             Row(
-//               children: [
-//                 Expanded(
-//                   child: TextField(
-//                     controller: _searchController,
-//                     decoration: InputDecoration(
-//                       hintText: "Search",
-//                       prefixIcon: Icon(Icons.search),
-//                       contentPadding: EdgeInsets.symmetric(vertical: 0, horizontal: 12),
-//                       border: OutlineInputBorder(
-//                         borderRadius: BorderRadius.circular(8),
-//                       ),
-//                     ),
-//                   ),
-//                 ),
-//                 SizedBox(width: 10),
-//                 ElevatedButton(
-//                   onPressed: _openAddReasonDialog,
-//                   style: ElevatedButton.styleFrom(
-//                     backgroundColor: const Color.fromARGB(255, 142, 177, 211),
-//                     padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-//                   ),
-//                   child: Text("Create"),
-//                 ),
-//               ],
-//             ),
-//             SizedBox(height: 16),
-
-//             // Scrollable Table View
-//             Expanded(
-//               child: SingleChildScrollView(
-//                 scrollDirection: Axis.horizontal,
-//                 child: SizedBox(
-//                   width: 800,
-//                   child: Column(
-//                     children: [
-//                       Container(
-//                         color: const Color.fromARGB(255, 28, 18, 81),
-//                         padding: EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-//                         child: Row(
-//                           children: const [
-//                             Expanded(flex: 2, child: Text("Table", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white))),
-//                             Expanded(flex: 2, child: Text("Reason", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white))),
-//                             Expanded(child: Text("Date", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white))),
-//                             Expanded(child: Text("Status", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white))),
-//                             SizedBox(width: 40, child: Text("Delete", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.white))),
-//                           ],
-//                         ),
-//                       ),
-//                       Expanded(
-//                         child: filteredReasons.isEmpty
-//                             ? Center(
-//                                 child: Padding(
-//                                   padding: const EdgeInsets.all(32.0),
-//                                   child: Text("No results found", style: TextStyle(fontSize: 16, color: Colors.black)),
-//                                 ),
-//                               )
-//                             : ListView.builder(
-//                                 itemCount: filteredReasons.length,
-//                                 itemBuilder: (context, index) {
-//                                   final item = filteredReasons[index];
-//                                   return Container(
-//                                     padding: EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-//                                     decoration: BoxDecoration(
-//                                       border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
-//                                     ),
-//                                     child: Row(
-//                                       children: [
-//                                         Expanded(
-//                                           flex: 2,
-//                                           child: Text(item['tableName']!, style: TextStyle(fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
-//                                         ),
-//                                         Expanded(
-//                                           flex: 2,
-//                                           child: Text(item['reason']!, style: TextStyle(fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
-//                                         ),
-//                                         Expanded(
-//                                           child: Text(item['date']!, style: TextStyle(fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
-//                                         ),
-//                                         Expanded(
-//                                           child: Text(item['status']!, style: TextStyle(fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
-//                                         ),
-//                                         SizedBox(
-//                                           width: 40,
-//                                           child: IconButton(
-//                                             icon: Icon(Icons.delete_outline, size: 18),
-//                                             onPressed: () => _confirmDeleteItem(item),
-//                                           ),
-//                                         ),
-//                                       ],
-//                                     ),
-//                                   );
-//                                 },
-//                               ),
-//                       ),
-//                     ],
-//                   ),
-//                 ),
-//               ),
-//             ),
-//           ],
-//         ),
-//       ),
-//     );
-//   }
-// }
-
-
-
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
-// App-wide theme colors
+/* ===========================
+   CONFIG
+   =========================== */
+const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api'; // adjust if needed
+const String kDefaultTypeName = 'General'; // hidden default type
+
+// Theme
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
 const Color kAppBarColor = Color(0xFF8C6EAF);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
+/* ===========================
+   MODELS (minimal)
+   =========================== */
+class ReasonType {
+  final String id;
+  final String name;
+  ReasonType({required this.id, required this.name});
+  factory ReasonType.fromJson(Map<String, dynamic> j) =>
+      ReasonType(id: '${j["id"] ?? j["_id"] ?? ""}', name: '${j["name"] ?? ""}');
+}
+
+class ReasonItem {
+  final String id;
+  final String reason;
+  final DateTime? createdAt;
+  final String status;
+
+  ReasonItem({
+    required this.id,
+    required this.reason,
+    required this.createdAt,
+    required this.status,
+  });
+
+  factory ReasonItem.fromJson(Map<String, dynamic> j) {
+    DateTime? ts;
+    final c = j['createdAt'];
+    if (c is String) ts = DateTime.tryParse(c);
+    if (c is Map && c['_seconds'] != null) {
+      ts = DateTime.fromMillisecondsSinceEpoch((c['_seconds'] as int) * 1000);
+    }
+    return ReasonItem(
+      id: '${j["id"] ?? j["_id"] ?? ""}',
+      reason: '${j["reason"] ?? ""}',
+      createdAt: ts,
+      status: '${j["status"] ?? (j["deleted"] == true ? "Deleted" : "Active")}',
+    );
+  }
+}
+
+/* ===========================
+   PAGE
+   =========================== */
 class ReasonMasterPage extends StatefulWidget {
   const ReasonMasterPage({super.key});
-
   @override
-  _ReasonMasterPageState createState() => _ReasonMasterPageState();
+  State<ReasonMasterPage> createState() => _ReasonMasterPageState();
 }
 
 class _ReasonMasterPageState extends State<ReasonMasterPage> {
   final TextEditingController _searchController = TextEditingController();
-  final TextEditingController reasonInputController = TextEditingController();
-  String? selectedTable;
+  final TextEditingController _reasonInputController = TextEditingController();
 
-  final List<String> tableOptions = [
-    'Regularization Reason',
-    'Half Day Reason',
-    'Comp Off Check In Reason',
-    'Week Off Check In Reason',
-    'Leave Check In Reason',
-    'Check Out Early Reason',
-    'Permission Reason',
-  ];
+  List<ReasonItem> _all = [];
+  List<ReasonItem> _filtered = [];
 
-  final List<Map<String, String>> allReasons = [
-    {
-      'id': '1',
-      'tableName': 'Regularization Reason',
-      'reason': 'Regularization Reason 1',
-      'date': '22-01-2025',
-      'status': 'Default',
-    },
-    {
-      'id': '2',
-      'tableName': 'Half Day Reason',
-      'reason': 'Emergency',
-      'date': '22-01-2025',
-      'status': 'Default',
-    },
-  ];
-
-  List<Map<String, String>> filteredReasons = [];
+  bool _loading = true;
+  bool _booting = true; // while we ensure default type
+  String? _defaultTypeId; // hidden typeId used for POST
 
   @override
   void initState() {
     super.initState();
-    filteredReasons = List.from(allReasons);
-    _searchController.addListener(_filterList);
+    _searchController.addListener(_applyFilter);
+    _bootstrap();
   }
 
-  void _filterList() {
-    final query = _searchController.text.toLowerCase();
+  Future<void> _bootstrap() async {
+    // Ensure we have a default "General" typeId to use when creating reasons
+    await _ensureDefaultType();
+    // Then load reasons
+    await _loadReasons();
+    setState(() => _booting = false);
+  }
+
+  /* ===========================
+     TYPES (hidden default)
+     =========================== */
+  Future<void> _ensureDefaultType() async {
+    try {
+      // 1) List types
+      final r = await http.get(Uri.parse('$apiBase/reasons/types'));
+      if (r.statusCode == 200) {
+        final List data = jsonDecode(r.body);
+        final types = data.map((e) => ReasonType.fromJson(e)).toList().cast<ReasonType>();
+        final existing = types.firstWhere(
+          (t) => t.name.trim().toLowerCase() == kDefaultTypeName.toLowerCase(),
+          orElse: () => ReasonType(id: '', name: ''),
+        );
+        if (existing.id.isNotEmpty) {
+          _defaultTypeId = existing.id;
+          return;
+        }
+      }
+
+      // 2) If not found, create it
+      final c = await http.post(
+        Uri.parse('$apiBase/reasons/types'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'name': kDefaultTypeName}),
+      );
+
+      if (c.statusCode == 200 || c.statusCode == 201) {
+        final m = jsonDecode(c.body) as Map<String, dynamic>;
+        _defaultTypeId = '${m["id"] ?? m["_id"] ?? ""}';
+      } else {
+        // If creation failed, we still have a usable UI, but POSTs will fail.
+        _toast('Could not ensure default type (${c.statusCode})');
+      }
+    } catch (e) {
+      _toast('Default type setup failed: $e');
+    }
+  }
+
+  /* ===========================
+     REASONS
+     =========================== */
+  Future<void> _loadReasons() async {
+    setState(() => _loading = true);
+    try {
+      final r = await http.get(Uri.parse('$apiBase/reasons'));
+      if (r.statusCode == 200) {
+        final body = jsonDecode(r.body);
+        final List items = (body is List) ? body : (body['items'] as List? ?? []);
+        _all = items.map((e) => ReasonItem.fromJson(e)).toList();
+      } else {
+        _toast('Failed to load reasons (${r.statusCode})');
+      }
+    } catch (e) {
+      _toast('Failed to load reasons: $e');
+    } finally {
+      _applyFilter();
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _createReason(String reason) async {
+    if (_defaultTypeId == null || _defaultTypeId!.isEmpty) {
+      _toast('No default type available; cannot create reason.');
+      return;
+    }
+    try {
+      final r = await http.post(
+        Uri.parse('$apiBase/reasons'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'typeId': _defaultTypeId, // <-- hidden typeId
+          'reason': reason,
+        }),
+      );
+      if (r.statusCode == 200 || r.statusCode == 201) {
+        _toast('Reason created');
+
+        // Insert immediately if backend returned the created item
+        try {
+          final m = jsonDecode(r.body);
+          if (m is Map<String, dynamic>) {
+            final created = ReasonItem.fromJson(m);
+            if (created.id.isNotEmpty) {
+              setState(() {
+                _all.insert(0, created);
+                _applyFilter();
+              });
+              return;
+            }
+          }
+        } catch (_) {}
+        // Otherwise just refresh
+        await _loadReasons();
+      } else {
+        // Show server error (400 “Field `typeId` is required”, etc.)
+        String serverMsg = '';
+        try {
+          serverMsg = (jsonDecode(r.body)['message'] ?? '').toString();
+        } catch (_) {}
+        _toast('Create failed (${r.statusCode}) ${serverMsg.isNotEmpty ? "- $serverMsg" : ""}');
+      }
+    } catch (e) {
+      _toast('Create failed: $e');
+    }
+  }
+
+  Future<void> _deleteReason(String id) async {
+    try {
+      final r = await http.delete(Uri.parse('$apiBase/reasons/$id'));
+      if (r.statusCode == 200) {
+        setState(() {
+          _all.removeWhere((x) => x.id == id);
+          _applyFilter();
+        });
+        _toast('Deleted');
+      } else {
+        _toast('Delete failed (${r.statusCode})');
+      }
+    } catch (e) {
+      _toast('Delete failed: $e');
+    }
+  }
+
+  /* ===========================
+     UI helpers
+     =========================== */
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  void _applyFilter() {
+    final q = _searchController.text.toLowerCase();
     setState(() {
-      filteredReasons = allReasons.where((item) {
-        return item['tableName']!.toLowerCase().contains(query) ||
-            item['reason']!.toLowerCase().contains(query) ||
-            item['date']!.toLowerCase().contains(query) ||
-            item['status']!.toLowerCase().contains(query);
+      _filtered = _all.where((r) {
+        final d = _formatDate(r.createdAt);
+        return r.reason.toLowerCase().contains(q) ||
+            d.toLowerCase().contains(q) ||
+            r.status.toLowerCase().contains(q);
       }).toList();
     });
   }
 
-  void _confirmDeleteItem(Map<String, String> itemToDelete) {
-    showDialog(
+  String _formatDate(DateTime? d) {
+    if (d == null) return '';
+    return '${d.day.toString().padLeft(2, '0')}-'
+           '${d.month.toString().padLeft(2, '0')}-'
+           '${d.year}';
+  }
+
+  /* ===========================
+     DIALOGS
+     =========================== */
+  Future<void> _openAddReasonDialog() async {
+    _reasonInputController.clear();
+    await showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text("Confirm Delete"),
-        content: const Text("Are you sure you want to delete this reason?"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _deleteItem(itemToDelete);
-            },
-            child: const Text("Delete", style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _deleteItem(Map<String, String> itemToDelete) {
-    setState(() {
-      allReasons.removeWhere((item) => item['id'] == itemToDelete['id']);
-      _filterList();
-    });
-  }
-
-  void _addNewReason() {
-    final newItem = {
-      'id': DateTime.now().millisecondsSinceEpoch.toString(),
-      'tableName': selectedTable!,
-      'reason': reasonInputController.text.trim(),
-      'date': _getTodayDate(),
-      'status': 'Default',
-    };
-
-    setState(() {
-      allReasons.add(newItem);
-      _filterList();
-    });
-  }
-
-  String _getTodayDate() {
-    final now = DateTime.now();
-    return "${now.day.toString().padLeft(2, '0')}-${now.month.toString().padLeft(2, '0')}-${now.year}";
-  }
-
-  void _openAddReasonDialog() {
-    selectedTable = null;
-    reasonInputController.clear();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Add New Reason", style: TextStyle(fontWeight: FontWeight.bold)),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<String>(
-                isExpanded: true,
-                initialValue: selectedTable,
-                hint: const Text("Choose Table"),
-                items: tableOptions.map((table) {
-                  return DropdownMenuItem(value: table, child: Text(table));
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    selectedTable = value;
-                  });
-                },
-                decoration: const InputDecoration(
-                  labelText: "Table Name",
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: reasonInputController,
-                decoration: const InputDecoration(
-                  labelText: "Enter Reason",
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
+        title: const Text('Add New Reason', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: _reasonInputController,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Enter Reason',
+            border: OutlineInputBorder(),
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(
-            onPressed: () {
-              if (selectedTable != null && reasonInputController.text.trim().isNotEmpty) {
-                _addNewReason();
-                Navigator.pop(context);
-              }
+            onPressed: () async {
+              final text = _reasonInputController.text.trim();
+              if (text.isEmpty) return;
+              Navigator.pop(context);
+              await _createReason(text);
             },
-            child: const Text("Create"),
+            child: const Text('Create'),
           ),
         ],
       ),
     );
   }
 
-  @override
-  void dispose() {
-    _searchController.dispose();
-    reasonInputController.dispose();
-    super.dispose();
+  void _confirmDelete(ReasonItem r) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Confirm Delete'),
+        content: Text('Delete this reason?\n\n${r.reason}'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _deleteReason(r.id);
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
   }
 
+  /* ===========================
+     BUILD
+     =========================== */
   @override
   Widget build(BuildContext context) {
+    final booting = _booting;
+    final loading = _loading;
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: kAppBarColor,
-        title: const Text("Reason Master", style: TextStyle(fontSize: 16, color: kTextColor)),
+        title: const Text('Reason Master', style: TextStyle(fontSize: 16, color: kTextColor)),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh',
+            onPressed: _loadReasons,
+            icon: const Icon(Icons.refresh, color: kTextColor),
+          ),
+        ],
       ),
       body: Container(
         decoration: const BoxDecoration(
@@ -500,14 +325,14 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
         padding: const EdgeInsets.all(12.0),
         child: Column(
           children: [
-            // Search & Create Button
+            // Search + Create
             Row(
               children: [
                 Expanded(
                   child: TextField(
                     controller: _searchController,
                     decoration: InputDecoration(
-                      hintText: "Search",
+                      hintText: 'Search',
                       prefixIcon: const Icon(Icons.search),
                       contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
@@ -516,81 +341,83 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
                 ),
                 const SizedBox(width: 10),
                 ElevatedButton(
-                  onPressed: _openAddReasonDialog,
+                  onPressed: booting ? null : _openAddReasonDialog,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: kButtonColor,
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   ),
-                  child: const Text("Create", style: TextStyle(color: kTextColor)),
+                  child: const Text('Create', style: TextStyle(color: kTextColor)),
                 ),
               ],
             ),
             const SizedBox(height: 16),
 
-            // Table
-            Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: SizedBox(
-                  width: 800,
-                  child: Column(
-                    children: [
-                      Container(
-                        color: const Color.fromARGB(255, 101, 81, 147),
-                        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-                        child: Row(
-                          children: const [
-                            Expanded(flex: 2, child: Text("Table", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white))),
-                            Expanded(flex: 2, child: Text("Reason", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white))),
-                            Expanded(child: Text("Date", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white))),
-                            Expanded(child: Text("Status", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white))),
-                            Expanded(child: Center(child: Text("Delete", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white)))),
-                          ],
-                        ),
-                      ),
-                      Expanded(
-                        child: filteredReasons.isEmpty
-                            ? const Center(child: Padding(
-                                padding: EdgeInsets.all(32.0),
-                                child: Text("No results found", style: TextStyle(fontSize: 16, color: Colors.black)),
-                              ))
-                            : ListView.builder(
-                                itemCount: filteredReasons.length,
-                                itemBuilder: (context, index) {
-                                  final item = filteredReasons[index];
-                                  return Container(
-                                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-                                    decoration: BoxDecoration(
-                                      border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Expanded(flex: 2, child: Text(item['tableName']!, style: const TextStyle(fontSize: 13))),
-                                        Expanded(flex: 2, child: Text(item['reason']!, style: const TextStyle(fontSize: 13))),
-                                        Expanded(child: Text(item['date']!, style: const TextStyle(fontSize: 13))),
-                                        Expanded(child: Text(item['status']!, style: const TextStyle(fontSize: 13))),
-                                        Expanded(
-                                          child: Center(
-                                            child: IconButton(
-                                              icon: const Icon(Icons.delete_outline, size: 18),
-                                              onPressed: () => _confirmDeleteItem(item),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              ),
-                      ),
-                    ],
-                  ),
-                ),
+            // Header (no Type column)
+            Container(
+              color: const Color(0xFF655193),
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+              child: const Row(
+                children: [
+                  Expanded(flex: 3, child: Text('Reason', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white))),
+                  Expanded(child: Text('Date',   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white))),
+                  Expanded(child: Text('Status', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white))),
+                  Expanded(child: Center(child: Text('Delete', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white)))),
+                ],
               ),
+            ),
+
+            // List
+            Expanded(
+              child: booting || loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _filtered.isEmpty
+                      ? const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(32.0),
+                            child: Text('No results found', style: TextStyle(fontSize: 16, color: Colors.black)),
+                          ),
+                        )
+                      : RefreshIndicator(
+                          onRefresh: _loadReasons,
+                          child: ListView.builder(
+                            itemCount: _filtered.length,
+                            itemBuilder: (context, i) {
+                              final r = _filtered[i];
+                              return Container(
+                                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                                decoration: BoxDecoration(
+                                  border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(flex: 3, child: Text(r.reason, style: const TextStyle(fontSize: 13))),
+                                    Expanded(child: Text(_formatDate(r.createdAt), style: const TextStyle(fontSize: 13))),
+                                    Expanded(child: Text(r.status, style: const TextStyle(fontSize: 13))),
+                                    Expanded(
+                                      child: Center(
+                                        child: IconButton(
+                                          icon: const Icon(Icons.delete_outline, size: 18),
+                                          onPressed: () => _confirmDelete(r),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _reasonInputController.dispose();
+    super.dispose();
   }
 }

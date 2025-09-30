@@ -1,4 +1,6 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.example.serv_app">
 
     <!-- Permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -6,16 +8,18 @@
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <!-- ✅ added for background updates -->
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
-    <!-- ✅ foreground service for location -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
-        android:label="serv_app"
         android:name="${applicationName}"
+        android:label="serv_app"
         android:icon="@mipmap/ic_launcher">
 
         <activity
@@ -42,9 +46,20 @@
             android:name="flutterEmbedding"
             android:value="2" />
 
+        <!-- Google Maps key (if you use it) -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
             android:value="AIzaSyA6vu7Fb_znHOCvL3Eshht69Pn-jGEaC90" />
+
+        <service
+            android:name="id.flutter.flutter_background_service.BackgroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location"
+            android:stopWithTask="false"
+            tools:replace="android:exported" />
+
+        <!-- ⚠️ No <service> declarations here; plugin merges them automatically. -->
     </application>
 
     <queries>

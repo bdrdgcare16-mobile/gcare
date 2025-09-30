@@ -136,7 +136,7 @@ class _ApplyHalfDayFormState extends State<ApplyHalfDayForm> {
     }
 
     // NOTE: Endpoint left unchanged per your request – only shift auto-fill added.
-    final url = Uri.parse('$apiBase/api/leaves');
+    final url = Uri.parse('$apiBase/leaves');
 
     final body = {
       'type': 'Comp Off',

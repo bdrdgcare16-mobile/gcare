@@ -978,7 +978,7 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
 
   Future<Map<String, String>> _authHeaders({bool json = true}) async {
     String? token = CompanyData.token;
-    if ((token == null || token.isEmpty) && kIsWeb) {
+    if ((token!.isEmpty) && kIsWeb) {
       try {
         final t1 = html.window.localStorage['token'];
         final t2 = html.window.sessionStorage['token'];

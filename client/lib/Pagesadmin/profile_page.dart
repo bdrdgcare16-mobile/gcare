@@ -19,6 +19,11 @@ const Color kAppBarColor = Color(0xFF8C6EAF);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
+// Neutral overlays for glass effect
+const Color _glassFill = Color(0x26FFFFFF);      // white @ ~15%
+const Color _glassBorder = Color(0x33FFFFFF);    // white @ ~20%
+const Color _labelColor = Color(0xFF2F2A3B);
+
 // ===== Backend base (same as the rest of the app) =====
 const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
@@ -257,7 +262,7 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
     }
   }
 
-  // ----- UI actions (unchanged look) -----
+  // ----- UI actions -----
   Future<void> _pickLogo() async {
     final XFile? picked = await _picker.pickImage(source: ImageSource.gallery);
     if (picked != null) {
@@ -271,10 +276,7 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
 
   void _toggleEdit() async {
     if (_isEditing) {
-      // On save click (✓): call API first, then persist locally and exit edit mode.
       await _saveProfile();
-    } else {
-      // entering edit mode — no-op
     }
     if (mounted) setState(() => _isEditing = !_isEditing);
   }
@@ -290,21 +292,21 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
     super.dispose();
   }
 
-  // ----- BUILD (UI preserved) -----
+  // ----- BUILD -----
   @override
   Widget build(BuildContext context) {
-    final bool isWide = MediaQuery.of(context).size.width > 600;
-    final double spacing = isWide ? 24.0 : 16.0;
+    final bool isWide = MediaQuery.of(context).size.width > 820;
+    final double spacing = isWide ? 28.0 : 16.0;
+    final double maxW = isWide ? 820 : double.infinity;
 
-    ImageProvider<Object>? avatar =
+    final ImageProvider<Object>? avatar =
         (_logoBytes != null) ? MemoryImage(_logoBytes!) : null;
 
     return Scaffold(
-      backgroundColor: kPrimaryBackgroundTop,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         backgroundColor: kAppBarColor,
-        title:
-            const Text('Company Profile', style: TextStyle(color: kTextColor)),
+        title: const Text('Company Profile', style: TextStyle(color: kTextColor)),
         iconTheme: const IconThemeData(color: kTextColor),
         actions: [
           IconButton(
@@ -325,148 +327,394 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.all(spacing),
-        child: Center(
-          child: Container(
-            width: isWide ? 600 : double.infinity,
-            padding: EdgeInsets.all(spacing),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-              ),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (_isEditing)
-                  Center(
-                    child: Stack(
-                      alignment: Alignment.bottomRight,
-                      children: [
-                        CircleAvatar(
-                          radius: 48,
-                          backgroundImage: avatar,
-                          backgroundColor: Colors.grey[200],
-                          child: avatar == null
-                              ? const Icon(Icons.apartment,
-                                  size: 36, color: Colors.grey)
-                              : null,
-                        ),
-                        Positioned(
-                          child: InkWell(
-                            onTap: _pickLogo,
-                            child: const CircleAvatar(
-                              radius: 16,
-                              backgroundColor: kButtonColor,
-                              child: Icon(Icons.camera_alt,
-                                  size: 16, color: kTextColor),
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SafeArea(
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: EdgeInsets.all(spacing),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: Center(
+                    child: SizedBox(
+                      width: maxW,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // ── Header / Identity ───────────────────────────────
+                          _GlassPanel(
+                            child: Column(
+                              children: [
+                                Stack(
+                                  alignment: Alignment.bottomRight,
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 46,
+                                      backgroundImage: avatar,
+                                      backgroundColor: Colors.white.withOpacity(0.7),
+                                      child: avatar == null
+                                          ? const Icon(Icons.apartment,
+                                              size: 36, color: Colors.grey)
+                                          : null,
+                                    ),
+                                    if (_isEditing)
+                                      InkWell(
+                                        onTap: _pickLogo,
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            color: kButtonColor,
+                                            borderRadius: BorderRadius.circular(20),
+                                            border: Border.all(color: Colors.white, width: 1),
+                                          ),
+                                          padding: const EdgeInsets.all(6),
+                                          child: const Icon(Icons.camera_alt,
+                                              size: 16, color: kTextColor),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  _nameCtrl.text.isEmpty ? 'Company Name' : _nameCtrl.text,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w700,
+                                    color: _labelColor,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _adminNameCtrl.text.isEmpty
+                                      ? 'Admin'
+                                      : '${_adminNameCtrl.text} · ${_adminRoleCtrl.text.isEmpty ? '—' : _adminRoleCtrl.text}',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.black.withOpacity(0.6),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                  )
-                else
-                  Center(
-                    child: CircleAvatar(
-                      radius: 48,
-                      backgroundImage: avatar,
-                      backgroundColor: Colors.grey[200],
-                      child: avatar == null
-                          ? const Icon(Icons.apartment,
-                              size: 36, color: Colors.grey)
-                          : null,
+
+                          const SizedBox(height: 14),
+
+                          // ── Content Sections ────────────────────────────────
+                          if (_loading)
+                            const Center(child: Padding(
+                              padding: EdgeInsets.all(24.0),
+                              child: CircularProgressIndicator(),
+                            ))
+                          else
+                            (_isEditing
+                                ? _EditLayout(
+                                    spacing: spacing,
+                                    nameCtrl: _nameCtrl,
+                                    emailCtrl: _emailCtrl,
+                                    phoneCtrl: _phoneCtrl,
+                                    websiteCtrl: _websiteCtrl,
+                                    adminNameCtrl: _adminNameCtrl,
+                                    adminRoleCtrl: _adminRoleCtrl,
+                                  )
+                                : _ViewLayout(
+                                    spacing: spacing,
+                                    isWide: isWide,
+                                    name: _nameCtrl.text,
+                                    email: _emailCtrl.text,
+                                    phone: _phoneCtrl.text,
+                                    website: _websiteCtrl.text,
+                                    adminName: _adminNameCtrl.text,
+                                    adminRole: _adminRoleCtrl.text,
+                                  )),
+                        ],
+                      ),
                     ),
                   ),
-                SizedBox(height: spacing),
-                if (_loading)
-                  const Center(child: CircularProgressIndicator())
-                else
-                  (_isEditing
-                      ? Column(
-                          children: [
-                            _buildEditField('Company Name', _nameCtrl),
-                            SizedBox(height: spacing),
-                            _buildEditField('Official Email', _emailCtrl,
-                                keyboard: TextInputType.emailAddress),
-                            SizedBox(height: spacing),
-                            _buildEditField('Phone Number', _phoneCtrl,
-                                keyboard: TextInputType.phone),
-                            SizedBox(height: spacing),
-                            _buildEditField('Website', _websiteCtrl,
-                                keyboard: TextInputType.url),
-                            SizedBox(height: spacing),
-                            _buildEditField('Admin Full Name', _adminNameCtrl),
-                            SizedBox(height: spacing),
-                            _buildEditField(
-                                'Admin Designation', _adminRoleCtrl),
-                          ],
-                        )
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _buildDisplayField(
-                                'Company Name', _nameCtrl.text, isWide),
-                            SizedBox(height: spacing),
-                            _buildDisplayField(
-                                'Official Email', _emailCtrl.text, isWide),
-                            SizedBox(height: spacing),
-                            _buildDisplayField(
-                                'Phone Number', _phoneCtrl.text, isWide),
-                            SizedBox(height: spacing),
-                            _buildDisplayField(
-                                'Website',
-                                _websiteCtrl.text.isNotEmpty
-                                    ? _websiteCtrl.text
-                                    : '—',
-                                isWide),
-                            SizedBox(height: spacing),
-                            _buildDisplayField(
-                                'Admin Full Name', _adminNameCtrl.text, isWide),
-                            SizedBox(height: spacing),
-                            _buildDisplayField('Admin Designation',
-                                _adminRoleCtrl.text, isWide),
-                          ],
-                        )),
-              ],
-            ),
-          ),
+                ),
+              ),
+            );
+          },
         ),
       ),
     );
   }
+}
 
-  Widget _buildDisplayField(String label, String value, bool isWide) {
+// ======= View Mode Layout (professional, never looks empty) =======
+class _ViewLayout extends StatelessWidget {
+  final double spacing;
+  final bool isWide;
+  final String name, email, phone, website, adminName, adminRole;
+
+  const _ViewLayout({
+    required this.spacing,
+    required this.isWide,
+    required this.name,
+    required this.email,
+    required this.phone,
+    required this.website,
+    required this.adminName,
+    required this.adminRole,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: TextStyle(
-                fontWeight: FontWeight.bold, fontSize: isWide ? 16 : 14)),
-        const SizedBox(height: 4),
-        Text(value, style: TextStyle(fontSize: isWide ? 18 : 16)),
+        _SectionHeader(title: 'Organization'),
+        _GlassPanel(
+          child: _InfoList(items: [
+            _InfoRow(icon: Icons.badge, label: 'Company Name', value: _orDash(name)),
+            _InfoRow(icon: Icons.alternate_email, label: 'Official Email', value: _orDash(email)),
+            _InfoRow(icon: Icons.phone, label: 'Phone Number', value: _orDash(phone)),
+            _InfoRow(icon: Icons.public, label: 'Website', value: _orDash(website)),
+          ]),
+        ),
+        SizedBox(height: spacing),
+
+        _SectionHeader(title: 'Administrator'),
+        _GlassPanel(
+          child: _InfoList(items: [
+            _InfoRow(icon: Icons.person, label: 'Admin Full Name', value: _orDash(adminName)),
+            _InfoRow(icon: Icons.workspace_premium, label: 'Admin Designation', value: _orDash(adminRole)),
+          ]),
+        ),
+        SizedBox(height: spacing),
       ],
     );
   }
 
-  Widget _buildEditField(
-    String label,
-    TextEditingController ctrl, {
-    TextInputType keyboard = TextInputType.text,
-  }) {
+  String _orDash(String v) => v.trim().isEmpty ? '—' : v.trim();
+}
+
+// ======= Edit Mode Layout (clean + guided) =======
+class _EditLayout extends StatelessWidget {
+  final double spacing;
+  final TextEditingController nameCtrl,
+      emailCtrl,
+      phoneCtrl,
+      websiteCtrl,
+      adminNameCtrl,
+      adminRoleCtrl;
+
+  const _EditLayout({
+    required this.spacing,
+    required this.nameCtrl,
+    required this.emailCtrl,
+    required this.phoneCtrl,
+    required this.websiteCtrl,
+    required this.adminNameCtrl,
+    required this.adminRoleCtrl,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        _SectionHeader(title: 'Organization Details', subtitle: 'Update your company information.'),
+        _GlassPanel(
+          child: Column(
+            children: [
+              _EditField(label: 'Company Name', controller: nameCtrl, icon: Icons.badge),
+              SizedBox(height: spacing),
+              _EditField(label: 'Official Email', controller: emailCtrl, icon: Icons.alternate_email, keyboard: TextInputType.emailAddress),
+              SizedBox(height: spacing),
+              _EditField(label: 'Phone Number', controller: phoneCtrl, icon: Icons.phone, keyboard: TextInputType.phone),
+              SizedBox(height: spacing),
+              _EditField(label: 'Website', controller: websiteCtrl, icon: Icons.public, keyboard: TextInputType.url),
+            ],
+          ),
+        ),
+        SizedBox(height: spacing),
+
+        _SectionHeader(title: 'Administrator', subtitle: 'Primary admin who manages this workspace.'),
+        _GlassPanel(
+          child: Column(
+            children: [
+              _EditField(label: 'Admin Full Name', controller: adminNameCtrl, icon: Icons.person),
+              SizedBox(height: spacing),
+              _EditField(label: 'Admin Designation', controller: adminRoleCtrl, icon: Icons.workspace_premium),
+            ],
+          ),
+        ),
+        SizedBox(height: spacing),
+      ],
+    );
+  }
+}
+
+// ======= Reusable Visuals =======
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final String? subtitle;
+  const _SectionHeader({required this.title, this.subtitle});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10, top: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: _labelColor,
+              )),
+          if (subtitle != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              subtitle!,
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.black.withOpacity(0.6),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _GlassPanel extends StatelessWidget {
+  final Widget child;
+  const _GlassPanel({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: _glassFill,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _glassBorder),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: child,
+    );
+  }
+}
+
+class _InfoList extends StatelessWidget {
+  final List<_InfoRow> items;
+  const _InfoList({required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        for (int i = 0; i < items.length; i++) ...[
+          items[i],
+          if (i != items.length - 1)
+            Divider(
+              height: 16,
+              thickness: 1,
+              color: Colors.white.withOpacity(0.35),
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.6),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          padding: const EdgeInsets.all(8),
+          child: Icon(icon, size: 18, color: kAppBarColor),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.black.withOpacity(0.6),
+                  )),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: _labelColor,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _EditField extends StatelessWidget {
+  final String label;
+  final TextEditingController controller;
+  final TextInputType keyboard;
+  final IconData icon;
+
+  const _EditField({
+    required this.label,
+    required this.controller,
+    this.keyboard = TextInputType.text,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return TextFormField(
-      controller: ctrl,
+      controller: controller,
       keyboardType: keyboard,
       decoration: InputDecoration(
         labelText: label,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        prefixIcon: Icon(icon, color: kAppBarColor),
+        filled: true,
+        fillColor: Colors.white.withOpacity(0.85),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderSide: BorderSide(color: kAppBarColor.withOpacity(0.35)),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderSide: const BorderSide(color: kAppBarColor, width: 1.2),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       ),
+      style: const TextStyle(fontSize: 15),
     );
   }
 }

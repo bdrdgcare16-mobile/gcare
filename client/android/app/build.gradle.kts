@@ -1,12 +1,9 @@
 // android/app/build.gradle.kts
-
 plugins {
     id("com.android.application")
     id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
     id("com.google.gms.google-services")
-    id("com.google.firebase.crashlytics") version "2.9.1" apply false
-    id("com.google.firebase.firebase-perf") version "1.4.1" apply false
 }
 
 android {
@@ -14,12 +11,14 @@ android {
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
+    // ✅ Java 17 + DESUGARING (required by flutter_local_notifications 17+)
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true   // <-- IMPORTANT
     }
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
+        jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
     defaultConfig {
@@ -49,18 +48,5 @@ android {
 }
 
 dependencies {
-    // Firebase
-    implementation(platform("com.google.firebase:firebase-bom:34.2.0"))
-    implementation("com.google.firebase:firebase-analytics")
-
-    // Multidex
-    implementation("androidx.multidex:multidex:2.0.1")
-
-    // ✅ WorkManager: pin to a concrete modern version that supports UPDATE enum
-    implementation("androidx.work:work-runtime-ktx:2.9.0")
-    // (Removed the non-existent work-bom:2.9.1 line)
-}
-
-flutter {
-    source = "../.."
+   coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }

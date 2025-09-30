@@ -361,6 +361,55 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
     }
   }
 
+  // Extract a clean, user-friendly error message from backend response
+  String _extractErrorMessage(http.Response resp) {
+    try {
+      if (resp.body.isEmpty) {
+        return 'Something went wrong';
+      }
+      final dynamic body = jsonDecode(resp.body);
+      if (body is Map<String, dynamic>) {
+        // common fields from typical APIs
+        final List<String> candidates = [
+          body['message']?.toString() ?? '',
+          body['error']?.toString() ?? '',
+          body['detail']?.toString() ?? '',
+          body['errors'] is List && (body['errors'] as List).isNotEmpty
+              ? ((body['errors'] as List).first is Map &&
+                      ((body['errors'] as List).first)['message'] != null)
+                  ? ((body['errors'] as List).first)['message'].toString()
+                  : (body['errors'] as List).first.toString()
+              : '',
+        ].where((s) => s.trim().isNotEmpty).toList();
+
+        if (candidates.isNotEmpty) return candidates.first;
+      } else if (body is String && body.trim().isNotEmpty) {
+        return body.trim();
+      }
+    } catch (_) {
+      // body not JSON — show trimmed text
+      if (resp.body.trim().isNotEmpty) return resp.body.trim();
+    }
+
+    // Fallbacks based on status
+    switch (resp.statusCode) {
+      case 400:
+        return 'Invalid request';
+      case 401:
+        return 'Authentication required';
+      case 403:
+        return 'Not permitted';
+      case 404:
+        return 'Not found';
+      case 409:
+        return 'Conflict';
+      case 500:
+        return 'Server error';
+      default:
+        return 'Something went wrong';
+    }
+  }
+
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -435,9 +484,10 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
           _currentRule = null;
         });
       } else {
-        final msg = resp.body.isNotEmpty ? resp.body : 'Unexpected error';
+        // ⬇️ Show only the clean server message, no "400 {json...}"
+        final clean = _extractErrorMessage(resp);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed: ${resp.statusCode} $msg')),
+          SnackBar(content: Text(clean)),
         );
       }
     } catch (e) {
@@ -462,8 +512,8 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
       // ✅ Full-width native AppBar so the title expands to screen width
       appBar: AppBar(
         backgroundColor: kAppBarColor,
-        centerTitle: true,
-        leading: BackButton(color: Colors.white),
+        centerTitle: false,
+        leading: const BackButton(color: Colors.white),
         title: const Text(
           "Apply Leave",
           maxLines: 1,
