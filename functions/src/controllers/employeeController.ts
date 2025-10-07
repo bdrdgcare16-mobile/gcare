@@ -134,7 +134,7 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
 // Get all employees (Admin; supports filters & pagination)
 export const getEmployees = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { status, search, page = '1', limit = '10' } = req.query;
+    const { status, search, page = '1', limit = '10000' } = req.query;
     const pageNum = Math.max(parseInt(page as string, 10) || 1, 1);
     const limitNum = Math.min(Math.max(parseInt(limit as string, 10) || 10, 1), 100);
     const offset = (pageNum - 1) * limitNum;

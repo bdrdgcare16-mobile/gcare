@@ -27,10 +27,10 @@ router.get('/', roleMiddleware(['admin']), leaveController.getAllLeaveRequests);
  * GET /api/leaves/my
  * Current user's leaves (filters optional)
  */
-router.get('/my', leaveController.getMyLeaveRequests);
+router.get('/my', leaveController.getAllLeaveRequests);
 
 // Legacy alias for clients already calling /mine
-router.get('/mine', leaveController.getMyLeaveRequests);
+router.get('/mine', leaveController.getAllLeaveRequests);
 
 /**
  * GET /api/leaves/pending
