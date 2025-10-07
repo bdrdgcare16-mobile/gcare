@@ -1287,83 +1287,182 @@ class _LoginPageState extends State<LoginPage> {
 
   // ---------- PERMISSION FLOW (NEW) ----------
   Future<void> _showPermissionIntroThenRequest() async {
-    // 1) Your own explanatory dialog first
     await showDialog(
       context: context,
-      barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        title: const Text('We need your permission'),
-        content: const Text(
-          'SERV uses biometrics for secure check-in and location (including background during shifts) '
-          'to record attendance accurately. Notifications are used for important alerts.\n\n'
-          'You can change these anytime in Settings.'
+      barrierDismissible: true,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16.0),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context), // Not now → continue without blocking
-            child: const Text('Not now'),
+        child: Container(
+          width: MediaQuery.of(context).size.width * 0.85,
+          padding: const EdgeInsets.all(24.0),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16.0),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: kAppBarColor),
-            onPressed: () async {
-              Navigator.pop(context); // close intro
-              await _requestAllPermissions(); // system prompts
-            },
-            child: const Text('Turn on', style: TextStyle(color: kTextColor)),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'We need location access',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'To track your attendance and location during work hours, we need the following permissions:',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.black54,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 24),
+              // Location Permission
+              _buildPermissionItem(
+                icon: Icons.location_on_outlined,
+                title: 'Device Location',
+                description: 'To track your location for attendance and work hours',
+                color: const Color(0xFF4CAF50),
+              ),
+              const SizedBox(height: 16),
+              // Location Accuracy
+              _buildPermissionItem(
+                icon: Icons.gps_fixed_outlined,
+                title: 'Location Accuracy',
+                description: 'For precise tracking of your work location',
+                color: const Color(0xFF2196F3),
+              ),
+              const SizedBox(height: 32),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                    ),
+                    child: const Text(
+                      'Not Now',
+                      style: TextStyle(
+                        color: Colors.black54,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _requestAllPermissions();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4CAF50),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8.0),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                      elevation: 0,
+                    ),
+                    child: const Text(
+                      'Allow All',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPermissionItem({
+    required IconData icon,
+    required String title,
+    required String description,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F5F5),
+        borderRadius: BorderRadius.circular(8.0),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  description,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.black54,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
     );
   }
 
   Future<void> _requestAllPermissions() async {
-    // Biometric (optional enrollment/availability)
-    final localAuth = LocalAuthentication();
-    try {
-      final canBio = await localAuth.canCheckBiometrics;
-      final supported = await localAuth.isDeviceSupported();
-      dev.log('Biometric supported: $supported canCheck: $canBio');
-      // You can optionally call authenticate here.
-      // await localAuth.authenticate(localizedReason: 'Enable biometric check-in');
-    } catch (e) {
-      dev.log('Biometric check error: $e');
+    // Request location permissions
+    var locationStatus = await Permission.locationWhenInUse.status;
+    if (!locationStatus.isGranted) {
+      locationStatus = await Permission.locationWhenInUse.request();
     }
 
-    // Foreground location
-    var fg = await Permission.locationWhenInUse.status;
-    if (!fg.isGranted) {
-      fg = await Permission.locationWhenInUse.request();
-    }
-
-    // Background location (ask only after foreground is granted)
-    if (fg.isGranted) {
-      var bg = await Permission.locationAlways.status;
-      if (bg.isDenied || bg.isRestricted) {
-        bg = await Permission.locationAlways.request();
-      }
-    }
-
-    // Notifications (Android 13+)
-    var note = await Permission.notification.status;
-    if (!note.isGranted && !note.isPermanentlyDenied) {
-      await Permission.notification.request();
-    }
-
-    // Offer battery optimization settings (Android)
-    try {
-      const intent = AndroidIntent(
-        action: 'android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS',
-      );
-      await intent.launch();
-    } catch (e) {
-      dev.log('Battery optimization settings open error: $e');
+    // Request precise location (Android 12+)
+    if (locationStatus.isGranted) {
+      await Permission.location.request();
     }
 
     // Ensure GPS is ON
     final gpsOn = await Geolocator.isLocationServiceEnabled();
     if (!gpsOn && mounted) {
-      _showSnack('Please enable Device Location (GPS) for accurate check-in.');
+      _showSnack('Please enable Location Services for accurate check-in.');
+      // Open location settings if GPS is off
+      try {
+        await Geolocator.openLocationSettings();
+      } catch (e) {
+        dev.log('Error opening location settings: $e');
+      }
     }
   }
 
@@ -1599,13 +1698,17 @@ class _LoginPageState extends State<LoginPage> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 96), // ~1 inch (96 logical pixels)
                           Container(
-                            height: 70,
-                            width: 70,
+                            height: 110, // Increased by 96px (1 inch) from 70px
+                            width: 110,  // Increased proportionally
                             decoration: BoxDecoration(
-                              color: kPrimaryBackgroundBottom,
+                              color: const Color.fromARGB(255, 255, 255, 255),
                               borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: const Color.fromARGB(255, 255, 255, 255), // Light lavender color
+                                width: 2.0,
+                              ),
                             ),
                             clipBehavior: Clip.antiAlias,
                             child: Image.asset('assets/images/splash_logo.png',

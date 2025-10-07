@@ -1449,6 +1449,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     WidgetsBinding.instance.addObserver(this);
     _loadUserInfo();
     _checkUserFaceRegistration();
+    _requestBackgroundLocationPermission();
   }
 
   @override
@@ -1735,6 +1736,196 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
   }
 
+  Future<void> _requestBackgroundLocationPermission() async {
+    // Check if we already have the permission
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.always) return;
+
+    // Show the permission dialog
+    if (!mounted) return;
+    
+    final shouldRequest = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16.0),
+        ),
+        child: Container(
+          width: MediaQuery.of(context).size.width * 0.85,
+          padding: const EdgeInsets.all(24.0),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16.0),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Background Location Access',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'To track your work hours accurately, please allow background location access:',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.black54,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 24),
+              // Location Permission
+              _buildPermissionItem(
+                icon: Icons.location_on_outlined,
+                title: 'Background Location',
+                description: 'To track your work hours even when the app is in the background',
+                color: const Color(0xFF4CAF50),
+              ),
+              const SizedBox(height: 32),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                    ),
+                    child: const Text(
+                      'Not Now',
+                      style: TextStyle(
+                        color: Colors.black54,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4CAF50),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8.0),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                      elevation: 0,
+                    ),
+                    child: const Text(
+                      'Allow',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (shouldRequest == true) {
+      // Request background location permission
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      
+      // If still not granted, show settings dialog
+      if (permission != LocationPermission.always && mounted) {
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Background Location Required'),
+            content: const Text(
+              'Background location is required for accurate work hour tracking. ' 
+              'Please enable "Always" location permission in app settings.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  Navigator.pop(context);
+                  // Open app settings directly to location permissions
+                  await openAppSettings();
+                  // Also open location settings to enable location if needed
+                  await Geolocator.openLocationSettings();
+                },
+                child: const Text('Open Settings'),
+              ),
+            ],
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildPermissionItem({
+    required IconData icon,
+    required String title,
+    required String description,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F5F5),
+        borderRadius: BorderRadius.circular(8.0),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  description,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.black54,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<bool> _ensurePermissionDemo({bool quiet = false}) async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
@@ -1881,7 +2072,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final start = _toDateTime(times.start);
     if (end.isBefore(start)) end = end.add(const Duration(days: 1));
     final now = DateTime.now();
-    if (now.isBefore(end.subtract(const Duration(minutes: 5)))) return 'Early Checkout';
+    if (now.isBefore(end.subtract(const Duration(minutes: 5)))) return 'Late Checkout';
     return null;
   }
 
@@ -1970,29 +2161,60 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       String? typed;
       await showDialog(
         context: context,
-        builder: (c) => AlertDialog(
-          title: const Text('Enter description'),
-          content: TextField(
-            controller: controller,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              hintText: 'Type your reason',
-              border: OutlineInputBorder(),
+        builder: (c) => Dialog(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.9,
+              maxHeight: MediaQuery.of(context).size.height * 0.5,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'Enter description',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  Flexible(
+                    child: TextField(
+                      controller: controller,
+                      maxLines: 5,
+                      maxLength: 500,
+                      decoration: const InputDecoration(
+                        hintText: 'Type your reason',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(c),
+                        child: const Text('Cancel'),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: () {
+                          final v = controller.text.trim();
+                          if (v.isNotEmpty) {
+                            typed = v;
+                            Navigator.pop(c);
+                          }
+                        },
+                        child: const Text('Save'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: () {
-                final v = controller.text.trim();
-                if (v.isNotEmpty) {
-                  typed = v;
-                  Navigator.pop(c);
-                }
-              },
-              child: const Text('Save'),
-            ),
-          ],
         ),
       );
 
@@ -2532,8 +2754,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 const SizedBox(height: 20),
                 // timer icon (enlarged earlier)
                 SizedBox(
-                  width: 89,
-                  height: 89,
+                  width: 96,
+                  height: 96,
                   child: Image.asset('assets/images/timer1.png', fit: BoxFit.contain),
                 ),
                 const SizedBox(height: 15),
