@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 
@@ -26,7 +28,7 @@ class ApiService {
   // ---------------- auth ----------------
   static Future<Map<String, String>> _authHeaders({bool json = true}) async {
     String? token = CompanyData.token;
-    if ((token!.isEmpty) && kIsWeb) {
+    if ((token == null || token.isEmpty) && kIsWeb) {
       try {
         final t1 = html.window.localStorage['token'];
         final t2 = html.window.sessionStorage['token'];
@@ -37,6 +39,50 @@ class ApiService {
       if (json) 'Content-Type': 'application/json',
       if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
     };
+  }
+
+  // ------------ friendly error helpers ------------
+  static Exception _friendlyNetworkError(Object e) {
+    const msg =
+        'Network unavailable. Please check your connection and try again.';
+    if (e is TimeoutException ||
+        e is SocketException ||
+        e is HandshakeException) {
+      return Exception(msg);
+    }
+    if (e is http.ClientException &&
+        (e.message.contains('Failed host lookup') ||
+            e.message.contains('No address associated with hostname'))) {
+      return Exception(msg);
+    }
+    return Exception(msg);
+  }
+
+  static Future<http.Response> _safeGet(
+    Uri uri, {
+    Map<String, String>? headers,
+  }) async {
+    try {
+      return await http
+          .get(uri, headers: headers)
+          .timeout(const Duration(seconds: 15));
+    } catch (e) {
+      throw _friendlyNetworkError(e);
+    }
+  }
+
+  static Future<http.Response> _safePost(
+    Uri uri, {
+    Map<String, String>? headers,
+    Object? body,
+  }) async {
+    try {
+      return await http
+          .post(uri, headers: headers, body: body)
+          .timeout(const Duration(seconds: 15));
+    } catch (e) {
+      throw _friendlyNetworkError(e);
+    }
   }
 
   // -------------- helpers --------------
@@ -136,7 +182,7 @@ class ApiService {
     http.Response? last;
     for (final p in paths) {
       final uri = Uri.parse('$apiBase$p').replace(queryParameters: query);
-      final resp = await http.get(uri, headers: headers);
+      final resp = await _safeGet(uri, headers: headers);
       last = resp;
       if (_ok(resp)) return resp;
     }
@@ -152,7 +198,7 @@ class ApiService {
     http.Response? last;
     for (final p in paths) {
       final uri = Uri.parse('$apiBase$p').replace(queryParameters: query);
-      final resp = await http.post(uri, headers: headers, body: body);
+      final resp = await _safePost(uri, headers: headers, body: body);
       last = resp;
       if (_ok(resp)) return resp;
     }
@@ -180,7 +226,7 @@ class ApiService {
           'Failed to fetch approvals (${res.statusCode}): ${res.body}');
     }
 
-    final body = jsonDecode(res.body);
+    final body = json.decode(res.body);
     if (body is List) {
       return body
           .whereType<Map>()
@@ -209,7 +255,7 @@ class ApiService {
       if (end != null && end.isNotEmpty) 'end': end,
     };
 
-    final first = await http.get(
+    final first = await _safeGet(
       Uri.parse('$apiBase$_otherLocPath').replace(queryParameters: qp),
       headers: headers,
     );
@@ -236,7 +282,7 @@ class ApiService {
         throw Exception(
             'Failed to fetch other-location via fallback (${res.statusCode}): ${res.body}');
       }
-      final body = jsonDecode(res.body);
+      final body = json.decode(res.body);
       if (body is List) {
         return body
             .whereType<Map>()
@@ -332,7 +378,7 @@ class ApiService {
             ? 'Rejected'
             : (throw Exception('Decision failed: invalid status "$status"'));
 
-    final first = await http.post(
+    final first = await _safePost(
       Uri.parse('$apiBase$_otherLocDecisionPath'),
       headers: await _authHeaders(),
       body: jsonEncode({
@@ -370,11 +416,11 @@ class ApiService {
     };
     final uri =
         Uri.parse('$apiBase$_myRequestsPath').replace(queryParameters: qp);
-    final res = await http.get(uri, headers: await _authHeaders());
+    final res = await _safeGet(uri, headers: await _authHeaders());
     if (!_ok(res)) {
       throw Exception('HTTP ${res.statusCode}: ${res.body}');
     }
-    final body = jsonDecode(res.body);
+    final body = json.decode(res.body);
     if (body is List) {
       return body
           .whereType<Map>()
@@ -407,14 +453,14 @@ class ApiService {
     final uri = Uri.parse('$apiBase/attendance/request-details')
         .replace(queryParameters: qp);
 
-    final res = await http.get(uri, headers: headers);
+    final res = await _safeGet(uri, headers: headers);
 
     if (res.statusCode == 404) {
       return <String, dynamic>{};
     }
 
     if (_ok(res)) {
-      final body = jsonDecode(res.body);
+      final body = json.decode(res.body);
       return (body is Map)
           ? Map<String, dynamic>.from(body)
           : <String, dynamic>{};
@@ -447,12 +493,12 @@ class ApiService {
     final uri = Uri.parse('$apiBase/liveEmployeeDetails/$empid')
         .replace(queryParameters: {'dateIso': dateIso});
 
-    final res = await http.get(uri, headers: headers);
+    final res = await _safeGet(uri, headers: headers);
     if (!_ok(res)) {
       throw Exception('liveEmployeeDetails ${res.statusCode}: ${res.body}');
     }
 
-    final body = jsonDecode(res.body);
+    final body = json.decode(res.body);
     if (body is Map && body['data'] is Map) {
       return Map<String, dynamic>.from(body['data']);
     }
@@ -471,13 +517,13 @@ class ApiService {
       'x-empid': empid,
     };
 
-    final uri =
-        Uri.parse('$apiBase/tracking/day').replace(queryParameters: {'dateIso': dateIso});
-    final res = await http.get(uri, headers: allHeaders);
+    final uri = Uri.parse('$apiBase/tracking/day')
+        .replace(queryParameters: {'dateIso': dateIso});
+    final res = await _safeGet(uri, headers: allHeaders);
     if (!_ok(res)) {
       throw Exception('tracking/day ${res.statusCode}: ${res.body}');
     }
-    final body = jsonDecode(res.body);
+    final body = json.decode(res.body);
     if (body is Map && body['data'] is Map) {
       return Map<String, dynamic>.from(body['data']);
     }

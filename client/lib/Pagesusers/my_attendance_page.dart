@@ -207,6 +207,36 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
           (k, v) => MapEntry(k.toString(), int.tryParse(v.toString()) ?? 0),
         );
 
+        // --------- MERGE WITH RAW ATTENDANCE (force Present if checkIn exists) ----------
+        try {
+          final detUri = Uri.parse('$apiBase/attendance/employee/$_empid');
+          final detResp = await http.get(
+            detUri,
+            headers: {
+              'Content-Type': 'application/json',
+              if (token != null) 'Authorization': 'Bearer $token',
+            },
+          );
+          if (detResp.statusCode == 200) {
+            final list = jsonDecode(detResp.body);
+            if (list is List) {
+              // for the same year-month, if checkIn is non-empty and not '-' and not Holiday/WeekOff, mark Present
+              for (final r in list) {
+                final date = (r['date'] ?? '').toString();
+                if (date.startsWith('$y-$m')) {
+                  final checkIn = (r['checkIn'] ?? '').toString();
+                  final isHoliday = (ds[date] == 'Holiday');
+                  final isWeekOff = (ds[date] == 'WeekOff');
+                  if (checkIn.isNotEmpty && checkIn != '-' && !isHoliday && !isWeekOff) {
+                    ds[date] = 'Present';
+                  }
+                }
+              }
+            }
+          }
+        } catch (_) {}
+        // -------------------------------------------------------------------------------
+
         setState(() {
           _dayStatusByDate = ds;
           _present = totals['present'] ?? 0;
@@ -251,15 +281,11 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
 
     // === Rule: For FUTURE dates, only show Sundays (WeekOff) and Holidays. ===
     if (day.isAfter(DateTime(now.year, now.month, now.day))) {
-      // Sunday?
       if (day.weekday == DateTime.sunday) return kWeekOffColor;
-      // Holiday (only if API flagged it)
       if (status == 'Holiday') return kHolidayColor;
-      // Nothing else should be marked for future
       return null;
     }
 
-    // Past/today — use API status (and legacy fallbacks if needed)
     switch (status) {
       case 'Present':
         return kPresentColor;
@@ -285,7 +311,7 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
   }
 
   // ---------- NEW: open detail page ----------
-  void _openDetail(DateTime day) {
+  void _openDetail(DateTime day) async {
     // Do not open detail for future dates
     final today = DateTime.now();
     final todayOnly = DateTime(today.year, today.month, today.day);
@@ -298,7 +324,8 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
       );
       return;
     }
-    Navigator.of(context).push(
+
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => MyAttendanceDetailPage(
           empId: _empid!,
@@ -308,6 +335,9 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
         ),
       ),
     );
+
+    // refresh after returning from detail
+    _loadMonth(_focusedDay);
   }
 
   // ================== UI ==================
@@ -393,7 +423,6 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
             _selectedDay = selectedDay;
             _focusedDay = focusedDay;
           });
-          // >>> open detail only for past/today dates
           _openDetail(selectedDay);
         },
         onPageChanged: (focusedDay) {
@@ -423,7 +452,7 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
     );
   }
 
-  /// ONLY CHANGE MADE: status color has priority over today/selected styling.
+  /// Status color has priority over today/selected styling.
   Widget _dayCell(
     DateTime day, {
     Color? color,
@@ -431,8 +460,6 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
     bool isToday = false,
     bool dim = false,
   }) {
-    // If a status color exists (Present/Absent/etc.), use it as the fill.
-    // Fall back to selected/today colors only when there is no status.
     final Color bg = (color != null)
         ? color
         : (isSelected

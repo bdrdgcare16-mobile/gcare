@@ -9,6 +9,8 @@ class _StorageMap {
   void clear() => _m.clear();
   String? putIfAbsent(String key, String Function() ifAbsent) =>
       _m.putIfAbsent(key, ifAbsent);
+
+  void remove(String s) {}
 }
 
 class _Window {

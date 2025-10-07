@@ -324,6 +324,10 @@ class _MyTrackPageState extends State<MyTrackPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // ✅ Use real AppBar so global AppBarTheme applies everywhere
+      appBar: AppBar(
+        title: const Text('My Track'),
+      ),
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -333,26 +337,9 @@ class _MyTrackPageState extends State<MyTrackPage> {
           ),
         ),
         child: SafeArea(
+          top: false, // AppBar already handles status bar
           child: Column(
             children: [
-              // Header
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                color: kAppBarColor,
-                child: Row(
-                  children: [
-                    GestureDetector(
-                      onTap: () => Navigator.pop(context),
-                      child: const Icon(Icons.arrow_back, color: kTextColor),
-                    ),
-                    const SizedBox(width: 10),
-                    const Text('My Track',
-                        style: TextStyle(color: kTextColor, fontWeight: FontWeight.bold)),
-                  ],
-                ),
-              ),
-
               // Controls
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),

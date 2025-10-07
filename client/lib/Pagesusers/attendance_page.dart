@@ -1,22 +1,1370 @@
+// import 'dart:async';
+// import 'dart:convert';
+
+// import 'package:flutter/material.dart';
+// import 'package:http/http.dart' as http;
+// import 'package:shared_preferences/shared_preferences.dart';
+// import 'package:geolocator/geolocator.dart';
+// import 'package:local_auth/local_auth.dart';
+
+// import 'package:permission_handler/permission_handler.dart';
+// import 'package:android_intent_plus/android_intent.dart';
+
+// import 'package:serv_app/models/company_data.dart';
+
+// // Background scheduler (WorkManager wrapper)
+// import 'package:serv_app/background/background_tasks.dart';
+// import 'package:serv_app/main.dart' show startFgTracking, stopFgTracking;
+// // Foreground timer (legacy – extra backup)
+// import 'package:serv_app/services/tracking_service.dart';
+
+// // ==== Colors ====
+// const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
+// const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
+// const Color kAppBarColor = Color(0xFF8C6EAF);
+// const Color kButtonColor = Color(0xFF655193);
+// const Color kTextColor = Colors.white;
+
+// // ---- API base ----
+// const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+
+// // ---- Local persistence keys ----
+// const String _kCheckedInKeyBase = 'att_checked_in_';
+// const String _kCheckInDateKeyBase = 'att_checkin_date_';
+// const String _kCheckInTimeKeyBase = 'att_checkin_time_';
+
+// class ShiftTimes {
+//   final TimeOfDay start;
+//   final TimeOfDay end;
+//   const ShiftTimes(this.start, this.end);
+// }
+
+// class _Branch {
+//   final String name;
+//   final double lat;
+//   final double lng;
+//   final double radius;
+//   const _Branch(this.name, this.lat, this.lng, this.radius);
+// }
+
+// class AttendanceScreen extends StatefulWidget {
+//   final String employeeDocId;
+//   const AttendanceScreen({super.key, required this.employeeDocId});
+
+//   @override
+//   State<AttendanceScreen> createState() => _AttendanceScreenState();
+// }
+
+// class _AttendanceScreenState extends State<AttendanceScreen>
+//     with WidgetsBindingObserver {
+//   bool isFaceRegistered = false;
+//   bool isShiftSelected = false;
+//   bool isCheckedIn = false;
+//   bool isTimerRunning = false;
+
+//   String userName = "";
+//   String userId = ""; // empid
+//   String dept = "";
+//   String location = "";
+
+//   String selectedShift = "Shift";
+//   bool shiftClicked = false;
+
+//   Timer? _timer;
+
+//   // No auto-checkout in client
+//   final bool _autoCheckoutEnabled = false;
+//   Timer? _autoCheckoutTimer;
+
+//   int totalSeconds = 0;
+//   String hours = "00";
+//   String minutes = "00";
+//   String seconds = "00";
+
+//   final LocalAuthentication _localAuth = LocalAuthentication();
+//   bool _authInProgress = false;
+
+//   // Optional legacy foreground tracker
+//   TrackingService? _tracking;
+
+//   @override
+//   void initState() {
+//     super.initState();
+//     WidgetsBinding.instance.addObserver(this);
+//     _loadUserInfo();
+//     _checkUserFaceRegistration();
+//   }
+
+//   @override
+//   void dispose() {
+//     WidgetsBinding.instance.removeObserver(this);
+//     _timer?.cancel();
+//     _cancelAutoCheckout();
+//     super.dispose();
+//   }
+
+//   @override
+//   void didChangeAppLifecycleState(AppLifecycleState state) {
+//     if (state == AppLifecycleState.resumed) {
+//       if (_authInProgress) return;
+//       _restoreCheckInFromPrefs().then((_) => _loadTodayStatus());
+//     }
+//   }
+
+//   Map<String, String> _authHeaders() {
+//     final token = CompanyData.token;
+//     return {
+//       'Content-Type': 'application/json',
+//       if (token.isNotEmpty) 'Authorization': 'Bearer $token',
+//     };
+//   }
+
+//   Future<SharedPreferences> _prefs() => SharedPreferences.getInstance();
+//   String _key(String base) => '$base$userId';
+
+//   Future<void> _saveCheckInToPrefs({DateTime? at}) async {
+//     if (userId.isEmpty) return;
+//     final prefs = await _prefs();
+//     final now = at ?? DateTime.now();
+//     final ymd =
+//         '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+//     final hms =
+//         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
+//     await prefs.setBool(_key(_kCheckedInKeyBase), true);
+//     await prefs.setString(_key(_kCheckInDateKeyBase), ymd);
+//     await prefs.setString(_key(_kCheckInTimeKeyBase), hms);
+//   }
+
+//   Future<void> _clearCheckInFromPrefs() async {
+//     if (userId.isEmpty) return;
+//     final prefs = await _prefs();
+//     await prefs.remove(_key(_kCheckedInKeyBase));
+//     await prefs.remove(_key(_kCheckInDateKeyBase));
+//     await prefs.remove(_key(_kCheckInTimeKeyBase));
+//   }
+
+//   Future<void> _restoreCheckInFromPrefs() async {
+//     if (userId.isEmpty) return;
+//     final prefs = await _prefs();
+//     final locallyCheckedIn = prefs.getBool(_key(_kCheckedInKeyBase)) ?? false;
+//     final dateStr = prefs.getString(_key(_kCheckInDateKeyBase));
+//     final timeStr = prefs.getString(_key(_kCheckInTimeKeyBase));
+//     if (!locallyCheckedIn || dateStr == null || timeStr == null) return;
+
+//     final today = DateTime.now();
+//     final todayStr =
+//         '${today.year.toString().padLeft(4, '0')}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+//     if (dateStr != todayStr) {
+//       await _clearCheckInFromPrefs();
+//       return;
+//     }
+
+//     if (!mounted) return;
+//     setState(() {
+//       isCheckedIn = true;
+//       isTimerRunning = true;
+//     });
+
+//     try {
+//       final hms = timeStr.split(':');
+//       final inDT = DateTime(
+//         today.year,
+//         today.month,
+//         today.day,
+//         int.parse(hms[0]),
+//         int.parse(hms[1]),
+//         int.parse(hms[2]),
+//       );
+//       final diff = DateTime.now().difference(inDT).inSeconds;
+//       totalSeconds = diff > 0 ? diff : 0;
+//     } catch (_) {
+//       totalSeconds = 0;
+//     }
+//     hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
+//     minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
+//     seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+
+//     _timer?.cancel();
+//     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+//       if (!mounted) return;
+//       setState(() {
+//         totalSeconds++;
+//         hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
+//         minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
+//         seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+//       });
+//     });
+//   }
+
+//   Future<void> _maybeAutoCheckoutImmediatelyIfPastShiftEnd() async {
+//     if (!_autoCheckoutEnabled) return;
+//     if (!isCheckedIn) return;
+//     final times = _getShiftTimes(selectedShift);
+//     var endDT = _toDateTime(times.end);
+//     final startDT = _toDateTime(times.start);
+//     if (endDT.isBefore(startDT)) endDT = endDT.add(const Duration(days: 1));
+//     if (DateTime.now().isAfter(endDT)) {
+//       await _performCheckOut(silent: true);
+//     }
+//   }
+
+//   Future<void> _loadUserInfo() async {
+//     final token = CompanyData.token;
+//     final url = Uri.parse('$_apiBase/auth/me');
+
+//     try {
+//       final res = await http.get(url, headers: {'Authorization': 'Bearer $token'});
+//       if (res.statusCode == 200) {
+//         final data = jsonDecode(res.body) as Map<String, dynamic>;
+//         final profile = (data['employeeProfile'] is Map<String, dynamic>)
+//             ? (data['employeeProfile'] as Map<String, dynamic>)
+//             : <String, dynamic>{};
+
+//         setState(() {
+//           userName = (data['name'] ?? profile['name'] ?? "") as String;
+//           userId = (data['empid'] ?? profile['empid'] ?? "") as String;
+//           dept = (profile['dept'] ?? data['dept'] ?? "") as String;
+//           location = (profile['location'] ?? data['location'] ?? "") as String;
+//           selectedShift =
+//               (profile['shiftGroup'] ?? data['shiftGroup'] ?? "Shift") as String;
+
+//           final hasShift = selectedShift.isNotEmpty && selectedShift != "Shift";
+//           shiftClicked = hasShift;
+//           isShiftSelected = hasShift;
+//         });
+
+//         await _restoreCheckInFromPrefs();
+//         await _loadTodayStatus();
+//       } else {
+//         setState(() {
+//           userName = "(unknown)";
+//           userId = widget.employeeDocId;
+//           dept = "";
+//           location = "";
+//         });
+//         await _restoreCheckInFromPrefs();
+//       }
+//     } catch (_) {
+//       setState(() {
+//         userName = "(error)";
+//         userId = widget.employeeDocId;
+//         dept = "";
+//         location = "";
+//       });
+//       await _restoreCheckInFromPrefs();
+//     }
+//   }
+
+//   Future<void> _loadTodayStatus() async {
+//     final token = CompanyData.token;
+//     if (userId.isEmpty || token.isEmpty) return;
+
+//     final url = Uri.parse('$_apiBase/attendance/live');
+
+//     try {
+//       final res = await http.get(url, headers: {'Authorization': 'Bearer $token'});
+//       if (res.statusCode != 200) return;
+
+//       final list = List<Map<String, dynamic>>.from(jsonDecode(res.body));
+//       final me = list.firstWhere(
+//         (e) => (e['empid']?.toString() ?? '') == userId,
+//         orElse: () => const {},
+//       );
+
+//       final checkIn = (me['checkIn']) as String?;
+//       final checkOut = (me['checkOut']) as String?;
+
+//       if (checkOut != null && checkOut.isNotEmpty) {
+//         _resetTimerAndState();
+//         _cancelAutoCheckout();
+//         await _clearCheckInFromPrefs();
+//         if (!mounted) return;
+//         setState(() => isCheckedIn = false);
+//         return;
+//       }
+
+//       if (checkIn != null && checkIn.isNotEmpty) {
+//         _applyCheckedInFromServer(checkIn);
+//         await _saveCheckInToPrefs();
+//         return;
+//       }
+
+//       _resetTimerAndState();
+//       _cancelAutoCheckout();
+//       await _clearCheckInFromPrefs();
+//       if (!mounted) return;
+//       setState(() => isCheckedIn = false);
+//     } catch (_) {}
+//   }
+
+//   void _applyCheckedInFromServer(String hhmmss) {
+//     try {
+//       final now = DateTime.now();
+//       final parts = hhmmss.split(':').map((s) => int.tryParse(s) ?? 0).toList();
+//       final inDT = DateTime(
+//         now.year, now.month, now.day, parts[0], parts[1], parts[2],
+//       );
+//       final diff = now.difference(inDT).inSeconds;
+//       final startSeconds = diff > 0 ? diff : 0;
+
+//       _timer?.cancel();
+//       setState(() {
+//         isCheckedIn = true;
+//         isTimerRunning = true;
+//         totalSeconds = startSeconds;
+//         hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
+//         minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
+//         seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+//       });
+
+//       _timer = Timer.periodic(const Duration(seconds: 1), (t) {
+//         if (!mounted) return;
+//         setState(() {
+//           totalSeconds++;
+//           hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
+//           minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
+//           seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+//         });
+//       });
+//     } catch (_) {
+//       _startWorkTimer();
+//       setState(() => isCheckedIn = true);
+//     }
+//   }
+
+//   void _resetTimerAndState() {
+//     _timer?.cancel();
+//     setState(() {
+//       isCheckedIn = false;
+//       isTimerRunning = false;
+//       totalSeconds = 0;
+//       hours = "00";
+//       minutes = "00";
+//       seconds = "00";
+//     });
+//   }
+
+//   Future<void> _checkUserFaceRegistration() async {
+//     setState(() => isFaceRegistered = false);
+//   }
+
+//   // ---------------- GEO ----------------
+//   Future<Position?> _getPositionUsingDemo({
+//     bool quiet = false,
+//     LocationAccuracy accuracy = LocationAccuracy.best,
+//   }) async {
+//     final hasPermission = await _ensurePermissionDemo(quiet: quiet);
+//     if (!hasPermission) return null;
+
+//     if (!await Geolocator.isLocationServiceEnabled()) {
+//       if (!quiet && mounted) {
+//         ScaffoldMessenger.of(context).showSnackBar(
+//           const SnackBar(content: Text('Location services are disabled')),
+//         );
+//       }
+//     }
+
+//     try {
+//       return await Geolocator.getCurrentPosition(
+//         desiredAccuracy: accuracy,
+//         timeLimit: const Duration(seconds: 15),
+//       );
+//     } catch (_) {
+//       if (!quiet && mounted) {
+//         ScaffoldMessenger.of(context).showSnackBar(
+//           const SnackBar(content: Text('Could not get current location')),
+//         );
+//       }
+//       return null;
+//     }
+//   }
+
+//   Future<bool> _ensurePermissionDemo({bool quiet = false}) async {
+//     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+//     if (!serviceEnabled) {
+//       if (quiet) return false;
+//       if (!mounted) return false;
+
+//       final go = await showDialog<bool>(
+//         context: context,
+//         builder: (context) => AlertDialog(
+//           title: const Text('Location Services Disabled'),
+//           content: const Text('Please enable location services to use this feature.'),
+//           actions: [
+//             TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+//             TextButton(
+//               onPressed: () async {
+//                 await Geolocator.openLocationSettings();
+//                 if (context.mounted) Navigator.pop(context, true);
+//               },
+//               child: const Text('Open Settings'),
+//             ),
+//           ],
+//         ),
+//       );
+
+//       if (go != true) return false;
+//       serviceEnabled = await Geolocator.isLocationServiceEnabled();
+//       if (!serviceEnabled) return false;
+//     }
+
+//     LocationPermission permission = await Geolocator.checkPermission();
+//     if (permission == LocationPermission.denied) {
+//       if (quiet) return false;
+//       permission = await Geolocator.requestPermission();
+//       if (permission == LocationPermission.denied) {
+//         if (mounted && !quiet) {
+//           ScaffoldMessenger.of(context).showSnackBar(
+//             const SnackBar(content: Text('Location permissions are required for this feature')),
+//           );
+//         }
+//         return false;
+//       }
+//     }
+
+//     if (permission == LocationPermission.deniedForever) {
+//       if (quiet) return false;
+//       if (!mounted) return false;
+
+//       final go = await showDialog<bool>(
+//         context: context,
+//         builder: (context) => AlertDialog(
+//           title: const Text('Location Permission Required'),
+//           content: const Text('Location permissions are permanently denied. Please enable them in app settings.'),
+//           actions: [
+//             TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+//             TextButton(
+//               onPressed: () async {
+//                 await Geolocator.openAppSettings();
+//                 if (context.mounted) Navigator.pop(context, true);
+//               },
+//               child: const Text('Open Settings'),
+//             ),
+//           ],
+//         ),
+//       );
+
+//       if (go != true) return false;
+//     }
+
+//     return permission == LocationPermission.always ||
+//         permission == LocationPermission.whileInUse;
+//   }
+
+//   Future<_Branch?> _fetchMyBranch() async {
+//     try {
+//       final res = await http.get(
+//         Uri.parse('$_apiBase/office/locations'),
+//         headers: _authHeaders(),
+//       );
+//       if (res.statusCode != 200) return null;
+//       final list = (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
+//       final match = list.firstWhere(
+//         (m) =>
+//             (m['branchName'] ?? m['name'] ?? '')
+//                 .toString()
+//                 .trim()
+//                 .toLowerCase() ==
+//             location.trim().toLowerCase(),
+//         orElse: () => const {},
+//       );
+//       if (match.isEmpty) return null;
+//       final lat = (match['latitude'] as num).toDouble();
+//       final lng = (match['longitude'] as num).toDouble();
+//       final rad = (match['radius'] as num).toDouble();
+//       final nm = (match['branchName'] ?? match['name'] ?? '').toString();
+//       return _Branch(nm, lat, lng, rad);
+//     } catch (_) {
+//       return null;
+//     }
+//   }
+
+//   double _distanceMeters({
+//     required double lat1,
+//     required double lng1,
+//     required double lat2,
+//     required double lng2,
+//   }) {
+//     return Geolocator.distanceBetween(lat1, lng1, lat2, lng2);
+//   }
+
+//   Future<bool> _confirmOutside(
+//     double distance,
+//     double radius,
+//     String branchName,
+//   ) async {
+//     return await showDialog<bool>(
+//           context: context,
+//           builder: (c) => AlertDialog(
+//             title: const Text('Other location'),
+//             content: Text(
+//               'You are in other location. Do you want to proceed with check-in here?',
+//             ),
+//             actions: [
+//               TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+//               TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Proceed')),
+//             ],
+//           ),
+//         ) ??
+//         false;
+//   }
+
+//   /// Detect category from time vs shift (for when to ask a reason)
+//   String? _detectCheckInCategory() {
+//     final times = _getShiftTimes(selectedShift);
+//     final now = DateTime.now();
+//     final start = _toDateTime(times.start);
+//     if (now.isAfter(start.add(const Duration(minutes: 5)))) return 'Late Check-in';
+//     if (now.isBefore(start.subtract(const Duration(minutes: 10)))) return 'Early Check-in';
+//     return null;
+//   }
+
+//   String? _detectCheckoutCategory() {
+//     final times = _getShiftTimes(selectedShift);
+//     var end = _toDateTime(times.end);
+//     final start = _toDateTime(times.start);
+//     if (end.isBefore(start)) end = end.add(const Duration(days: 1));
+//     final now = DateTime.now();
+//     if (now.isBefore(end.subtract(const Duration(minutes: 5)))) return 'Early Checkout';
+//     return null;
+//   }
+
+//   /// Fetch ALL reasons from /api/reasons (uses 'reason' text)
+//   Future<List<Map<String, String>>> _fetchAllReasons() async {
+//     try {
+//       final res = await http.get(Uri.parse('$_apiBase/reasons?limit=200'));
+//       if (res.statusCode != 200) return <Map<String, String>>[];
+
+//       final body = jsonDecode(res.body);
+//       final List items = (body is List) ? body : (body['items'] as List? ?? <dynamic>[]);
+
+//       return items.map<Map<String, String>>((raw) {
+//         final m = (raw as Map).cast<String, dynamic>();
+//         return {
+//           'id': (m['id'] ?? m['_id'] ?? '').toString(),
+//           'reason': (m['reason'] ?? '').toString(),
+//           'typeId': (m['typeId'] ?? '').toString(),
+//           'typeName': (m['typeName'] ?? '').toString(),
+//         };
+//       }).where((e) => (e['reason'] ?? '').toString().isNotEmpty).toList();
+//     } catch (_) {
+//       return <Map<String, String>>[];
+//     }
+//   }
+
+//   /// Dialog: dropdown of reason texts
+//   /// If "Others" is chosen, ask for a custom description and
+//   /// return it as `reasonText` with empty `reasonId`.
+//   Future<Map<String, String>?> _pickReason(String title, {String? prefer}) async {
+//     final reasons = await _fetchAllReasons();
+//     if (reasons.isEmpty) {
+//       _showInfoDialog('No reasons configured.');
+//       return null;
+//     }
+
+//     String? selectedId;
+//     if ((prefer ?? '').isNotEmpty) {
+//       final match = reasons.firstWhere(
+//         (r) => (r['reason'] ?? '').toLowerCase().contains(prefer!.toLowerCase()),
+//         orElse: () => reasons.first,
+//       );
+//       selectedId = match['id'];
+//     } else {
+//       selectedId = reasons.first['id'];
+//     }
+
+//     await showDialog(
+//       context: context,
+//       builder: (_) => StatefulBuilder(
+//         builder: (ctx, setSt) => AlertDialog(
+//           title: Text(title),
+//           content: DropdownButtonFormField<String>(
+//             initialValue: selectedId,
+//             isExpanded: true,
+//             items: reasons
+//                 .map((r) => DropdownMenuItem(
+//                       value: r['id'],
+//                       child: Text(r['reason'] ?? ''),
+//                     ))
+//                 .toList(),
+//             onChanged: (v) => setSt(() => selectedId = v),
+//             decoration: const InputDecoration(
+//               labelText: 'Select reason',
+//               border: OutlineInputBorder(),
+//             ),
+//           ),
+//           actions: [
+//             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+//             ElevatedButton(
+//               onPressed: selectedId == null ? null : () => Navigator.pop(ctx),
+//               child: const Text('OK'),
+//             ),
+//           ],
+//         ),
+//       ),
+//     );
+
+//     if (selectedId == null) return null;
+//     final chosen = reasons.firstWhere((r) => r['id'] == selectedId);
+//     final chosenText = (chosen['reason'] ?? '').toLowerCase();
+
+//     // If the user chose "Other"/"Others", collect a free-text description.
+//     if (chosenText.contains('other')) {
+//       final controller = TextEditingController();
+//       String? typed;
+//       await showDialog(
+//         context: context,
+//         builder: (c) => AlertDialog(
+//           title: const Text('Enter description'),
+//           content: TextField(
+//             controller: controller,
+//             maxLines: 3,
+//             decoration: const InputDecoration(
+//               hintText: 'Type your reason',
+//               border: OutlineInputBorder(),
+//             ),
+//           ),
+//           actions: [
+//             TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancel')),
+//             ElevatedButton(
+//               onPressed: () {
+//                 final v = controller.text.trim();
+//                 if (v.isNotEmpty) {
+//                   typed = v;
+//                   Navigator.pop(c);
+//                 }
+//               },
+//               child: const Text('Save'),
+//             ),
+//           ],
+//         ),
+//       );
+
+//       if (typed == null || typed!.isEmpty) return null; // user cancelled
+
+//       return {
+//         'reasonId': '', // free text -> no predefined id
+//         'reasonText': typed!,
+//         'reasonTypeId': chosen['typeId'] ?? '',
+//         'reasonTypeName': chosen['typeName'] ?? '',
+//       };
+//     }
+
+//     // Regular predefined reason
+//     return {
+//       'reasonId': chosen['id'] ?? '',
+//       'reasonText': chosen['reason'] ?? '',
+//       'reasonTypeId': chosen['typeId'] ?? '',
+//       'reasonTypeName': chosen['typeName'] ?? '',
+//     };
+//   }
+
+//   // -------------------- Check-in / out --------------------
+//   Future<void> _authenticateAndCheckIn() async {
+//     try {
+//       _authInProgress = true;
+
+//       final canBio = await _localAuth.canCheckBiometrics;
+//       final supported = await _localAuth.isDeviceSupported();
+//       if (!canBio && !supported) {
+//         _showErrorDialog('Biometric not available on this device');
+//         return;
+//       }
+
+//       final ok = await _localAuth.authenticate(
+//         localizedReason: 'Authenticate to check in',
+//         options: const AuthenticationOptions(
+//           stickyAuth: true,
+//           biometricOnly: false,
+//           useErrorDialogs: true,
+//           sensitiveTransaction: true,
+//         ),
+//       );
+
+//       if (ok) {
+//         if (mounted) await _performCheckIn('biometric');
+//       } else {
+//         _showInfoDialog('Authentication cancelled');
+//       }
+//     } catch (e) {
+//       _showErrorDialog('Auth error: $e');
+//     } finally {
+//       _authInProgress = false;
+//     }
+//   }
+
+//   Future<void> _performCheckIn(String type) async {
+//     Map<String, String>? reasonInfo;
+//     final category = _detectCheckInCategory();
+//     if (category != null) {
+//       reasonInfo = await _pickReason(category, prefer: category);
+//       if (category.isNotEmpty && reasonInfo == null) return;
+//     }
+
+//     final pos = await _getPositionUsingDemo(
+//       accuracy: LocationAccuracy.bestForNavigation,
+//     );
+//     if (pos == null) return;
+
+//     final branch = await _fetchMyBranch();
+
+//     bool within = true;
+//     double distance = 0.0;
+//     String branchName = location;
+//     double expLat = 0, expLng = 0, expRad = 0;
+
+//     if (branch != null) {
+//       branchName = branch.name;
+//       expLat = branch.lat;
+//       expLng = branch.lng;
+//       expRad = branch.radius;
+//       distance = _distanceMeters(
+//         lat1: pos.latitude,
+//         lng1: pos.longitude,
+//         lat2: branch.lat,
+//         lng2: branch.lng,
+//       );
+//       within = distance <= branch.radius;
+
+//       if (!within) {
+//         final ok = await _confirmOutside(distance, branch.radius, branch.name);
+//         if (!ok) return;
+//       }
+//     } else {
+//       final ok = await _confirmOutside(
+//         0,
+//         0,
+//         location.isEmpty ? 'Unknown' : location,
+//       );
+//       if (!ok) return;
+//       within = false;
+//     }
+
+//     final token = CompanyData.token;
+//     final url = Uri.parse('$_apiBase/attendance/check-in');
+
+//     final bodyMap = {
+//       'empid': userId,
+//       'name': userName,
+//       'location': location,
+//       'latitude': pos.latitude,
+//       'longitude': pos.longitude,
+//       'accuracy': pos.accuracy,
+//       'source': type,
+//       'branchName': branchName,
+//       'expectedLatitude': expLat,
+//       'expectedLongitude': expLng,
+//       'expectedRadius': expRad,
+//       'distanceFromBranch': double.parse(distance.toStringAsFixed(2)),
+//       'withinRadius': within,
+//       'otherLocation': !within,
+//       if (reasonInfo != null) 'reasonId': reasonInfo['reasonId'],
+//       if (reasonInfo != null) 'reasonText': reasonInfo['reasonText'],
+//       if (reasonInfo != null) 'reasonTypeId': reasonInfo['reasonTypeId'],
+//       if (reasonInfo != null) 'reasonTypeName': reasonInfo['reasonTypeName'],
+//     };
+
+//     _showLoadingDialog('Checking in…');
+//     try {
+//       final res = await http.post(
+//         url,
+//         headers: {
+//           'Content-Type': 'application/json',
+//           'Authorization': 'Bearer $token',
+//         },
+//         body: jsonEncode(bodyMap),
+//       );
+//       if (mounted) Navigator.of(context, rootNavigator: true).pop();
+
+//       if (res.statusCode == 200 || res.statusCode == 201) {
+//         // Seed route on server
+//         await _trackingCheckInAndSeed(pos);
+
+//         // Ask notif permission (Android 13+)
+//         await _ensureNotificationPermission();
+
+//         // Prompt for battery optimizations exemption
+//         await _maybePromptBatteryOptimization();
+
+//         // Start robust foreground service + keep WorkManager backup
+//         await startFgTracking(empid: userId, token: CompanyData.token);
+//         await scheduleBackgroundTracking(empid: userId, token: CompanyData.token);
+
+//         // (Optional extra backup – your old 20-min timer)
+//         _tracking ??= TrackingService(
+//           apiBase: _apiBase,
+//           jwtToken: CompanyData.token,
+//           empId: userId,
+//         );
+//         await _tracking!.startAfterCheckIn();
+
+//         setState(() => isCheckedIn = true);
+//         _startWorkTimer();
+//         await _saveCheckInToPrefs();
+//         _showSuccessDialog('Checked in successfully!');
+//       } else {
+//         final msg = (jsonDecode(res.body)['error'] ?? jsonDecode(res.body)['message']).toString();
+//         _showErrorDialog(msg);
+//       }
+//     } catch (e) {
+//       if (mounted) Navigator.of(context, rootNavigator: true).pop();
+//       _showErrorDialog('Network error: $e');
+//     }
+//   }
+
+//   Future<void> _performCheckOut({bool silent = false}) async {
+//     Map<String, String>? reasonInfo;
+//     final category = _detectCheckoutCategory();
+//     if (category != null) {
+//       reasonInfo = await _pickReason(category, prefer: category);
+//       if (category.isNotEmpty && reasonInfo == null) {
+//         if (!silent) _showInfoDialog('Checkout cancelled');
+//         return;
+//       }
+//     }
+
+//     final pos = await _getPositionUsingDemo(
+//       quiet: silent,
+//       accuracy: LocationAccuracy.bestForNavigation,
+//     );
+//     if (pos == null) {
+//       if (!silent) _showErrorDialog('Could not determine location');
+//       return;
+//     }
+
+//     final branch = await _fetchMyBranch();
+//     bool within = true;
+//     double distance = 0.0;
+//     String branchName = location;
+//     double expLat = 0, expLng = 0, expRad = 0;
+
+//     if (branch != null) {
+//       branchName = branch.name;
+//       expLat = branch.lat;
+//       expLng = branch.lng;
+//       expRad = branch.radius;
+//       distance = _distanceMeters(
+//         lat1: pos.latitude,
+//         lng1: pos.longitude,
+//         lat2: branch.lat,
+//         lng2: branch.lng,
+//       );
+//       within = distance <= branch.radius;
+//     }
+
+//     final token = CompanyData.token;
+//     final url = Uri.parse('$_apiBase/attendance/check-out');
+
+//     final bodyMap = {
+//       'empid': userId,
+//       'location': location,
+//       'latitude': pos.latitude,
+//       'longitude': pos.longitude,
+//       'accuracy': pos.accuracy,
+//       'branchName': branchName,
+//       'expectedLatitude': expLat,
+//       'expectedLongitude': expLng,
+//       'expectedRadius': expRad,
+//       'distanceFromBranch': double.parse(distance.toStringAsFixed(2)),
+//       'withinRadius': within,
+//       'otherLocation': !within,
+//       if (reasonInfo != null) 'reasonId': reasonInfo['reasonId'],
+//       if (reasonInfo != null) 'reasonText': reasonInfo['reasonText'],
+//       if (reasonInfo != null) 'reasonTypeId': reasonInfo['reasonTypeId'],
+//       if (reasonInfo != null) 'reasonTypeName': reasonInfo['reasonTypeName'],
+//     };
+
+//     if (!silent) _showLoadingDialog('Checking out…');
+//     try {
+//       final res = await http.post(
+//         url,
+//         headers: {
+//           'Content-Type': 'application/json',
+//           'Authorization': 'Bearer $token',
+//         },
+//         body: jsonEncode(bodyMap),
+//       );
+//       if (!silent && mounted) Navigator.of(context, rootNavigator: true).pop();
+
+//       if (res.statusCode == 200) {
+//         // stop services
+//         await stopFgTracking();
+//         await cancelBackgroundTracking(empid: userId);
+//         await _tracking?.stopAfterCheckOut();
+
+//         _stopWorkTimer();
+//         _cancelAutoCheckout();
+//         await _clearCheckInFromPrefs();
+//         setState(() => isCheckedIn = false);
+//         if (!silent) _showSuccessDialog('Checked out successfully!');
+//         await _trackingCheckOut();
+//       } else {
+//         final msg = (jsonDecode(res.body)['error'] ?? jsonDecode(res.body)['message']).toString();
+//         if (!silent) _showErrorDialog(msg);
+//       }
+//     } catch (e) {
+//       if (!silent) {
+//         if (mounted) Navigator.of(context, rootNavigator: true).pop();
+//         _showErrorDialog('Network error: $e');
+//       }
+//     }
+//   }
+
+//   // -------------------- Tracking glue (server) --------------------
+//   Future<void> _trackingCheckInAndSeed(Position pos) async {
+//     final token = CompanyData.token;
+//     if (token.isEmpty || userId.isEmpty) return;
+//     try {
+//       final base = 'https://api-zmj7dqloiq-el.a.run.app/api/tracking';
+
+//       await http.post(
+//         Uri.parse('$base/check-in'),
+//         headers: {
+//           'Content-Type': 'application/json',
+//           'Authorization': 'Bearer $token',
+//           'x-empid': userId,
+//         },
+//         body: jsonEncode({}),
+//       );
+
+//       await http.post(
+//         Uri.parse('$base/pos'),
+//         headers: {
+//           'Content-Type': 'application/json',
+//           'Authorization': 'Bearer $token',
+//           'x-empid': userId,
+//         },
+//         body: jsonEncode({'lat': pos.latitude, 'lng': pos.longitude}),
+//       );
+//     } catch (_) {}
+//   }
+
+//   Future<void> _trackingCheckOut() async {
+//     final token = CompanyData.token;
+//     if (token.isEmpty || userId.isEmpty) return;
+//     try {
+//       final base = 'https://api-zmj7dqloiq-el.a.run.app/api/tracking';
+//       await http.post(
+//         Uri.parse('$base/check-out'),
+//         headers: {
+//           'Content-Type': 'application/json',
+//           'Authorization': 'Bearer $token',
+//           'x-empid': userId,
+//         },
+//         body: jsonEncode({}),
+//       );
+//     } catch (_) {}
+//   }
+
+//   // ---------- Permissions / Settings nudges ----------
+//   Future<void> _ensureNotificationPermission() async {
+//     final status = await Permission.notification.status;
+//     if (!status.isGranted) {
+//       await Permission.notification.request();
+//     }
+//   }
+
+//   Future<void> _maybePromptBatteryOptimization() async {
+//     try {
+//       const intent = AndroidIntent(
+//         action: 'android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+//       );
+//       await intent.launch();
+//     } catch (_) {
+//       try {
+//         const intent = AndroidIntent(
+//           action: 'android.settings.IGNORE_BATTERY_OPTIMATION_SETTINGS',
+//         );
+//         await intent.launch();
+//       } catch (_) {}
+//     }
+//   }
+
+//   // ---------- UI helpers ----------
+//   void _startWorkTimer() {
+//     _timer?.cancel();
+//     setState(() {
+//       isTimerRunning = true;
+//       totalSeconds = 0;
+//       hours = "00";
+//       minutes = "00";
+//       seconds = "00";
+//     });
+
+//     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+//       if (!mounted) return;
+//       setState(() {
+//         totalSeconds++;
+//         hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
+//         minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
+//         seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+//       });
+//     });
+//   }
+
+//   void _stopWorkTimer() {
+//     final h = hours, m = minutes, s = seconds;
+//     _resetTimerAndState();
+//     _showSuccessDialog('Check-out successful!\nWork duration: ${h}h ${m}m ${s}s');
+//   }
+
+//   ShiftTimes _getShiftTimes(String shift) {
+//     switch (shift.toLowerCase()) {
+//       case 'shift1':
+//       case 'day':
+//         return const ShiftTimes(TimeOfDay(hour: 9, minute: 0), TimeOfDay(hour: 18, minute: 0));
+//       case 'shift2':
+//       case 'morning':
+//         return const ShiftTimes(TimeOfDay(hour: 6, minute: 0), TimeOfDay(hour: 15, minute: 0));
+//       case 'shift3':
+//       case 'evening':
+//         return const ShiftTimes(TimeOfDay(hour: 14, minute: 0), TimeOfDay(hour: 23, minute: 0));
+//       default:
+//         return const ShiftTimes(TimeOfDay(hour: 9, minute: 0), TimeOfDay(hour: 18, minute: 0));
+//     }
+//   }
+
+//   DateTime _toDateTime(TimeOfDay tod, {DateTime? base}) {
+//     final b = base ?? DateTime.now();
+//     return DateTime(b.year, b.month, b.day, tod.hour, tod.minute);
+//   }
+
+//   void _scheduleAutoCheckout() {
+//     _cancelAutoCheckout();
+//     if (!_autoCheckoutEnabled) return;
+//     if (!isCheckedIn) return;
+
+//     final times = _getShiftTimes(selectedShift);
+//     var endDT = _toDateTime(times.end);
+//     final startDT = _toDateTime(times.start);
+//     if (endDT.isBefore(startDT)) endDT = endDT.add(const Duration(days: 1));
+
+//     final now = DateTime.now();
+//     final wait = endDT.isAfter(now) ? endDT.difference(now) : const Duration(seconds: 1);
+
+//     _autoCheckoutTimer = Timer(wait, () async {
+//       if (!mounted || !isCheckedIn) return;
+//     });
+//   }
+
+//   void _cancelAutoCheckout() {
+//     _autoCheckoutTimer?.cancel();
+//     _autoCheckoutTimer = null;
+//   }
+
+//   // -------------------- UI --------------------
+//   @override
+//   Widget build(BuildContext context) {
+//     return Scaffold(
+//       appBar: AppBar(
+//         backgroundColor: kAppBarColor,
+//         elevation: 0,
+//         leading: IconButton(
+//           icon: const Icon(Icons.arrow_back, color: kTextColor),
+//           onPressed: () => Navigator.pop(context),
+//         ),
+//         title: const Text(
+//           'Attendance',
+//           style: TextStyle(color: kTextColor, fontSize: 18, fontWeight: FontWeight.w600),
+//         ),
+//         centerTitle: false,
+//         titleSpacing: 0,
+//       ),
+//       body: Container(
+//         decoration: const BoxDecoration(
+//           gradient: LinearGradient(
+//             begin: Alignment.topLeft,
+//             end: Alignment.bottomRight,
+//             colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
+//           ),
+//         ),
+//         child: SafeArea(
+//           child: Padding(
+//             padding: EdgeInsets.only(
+//               left: 16,
+//               top: 16,
+//               right: 16,
+//               bottom: 16 + MediaQuery.of(context).padding.bottom,
+//             ),
+//             child: Column(
+//               children: [
+//                 Container(
+//                   width: double.infinity,
+//                   padding: const EdgeInsets.all(12),
+//                   decoration: BoxDecoration(
+//                     color: Colors.white,
+//                     borderRadius: BorderRadius.circular(12),
+//                     boxShadow: [
+//                       BoxShadow(
+//                         color: Colors.grey.withOpacity(0.1),
+//                         spreadRadius: 1,
+//                         blurRadius: 5,
+//                         offset: const Offset(0, 2),
+//                       ),
+//                     ],
+//                   ),
+//                   child: Column(
+//                     crossAxisAlignment: CrossAxisAlignment.start,
+//                     children: [
+//                       Text(userName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+//                       const SizedBox(height: 4),
+//                       Text('$userId | $dept', style: const TextStyle(fontSize: 14, color: Colors.grey)),
+//                       const SizedBox(height: 6),
+//                       Row(
+//                         children: [
+//                           Icon(Icons.calendar_today, size: 14, color: Colors.grey[600]),
+//                           const SizedBox(width: 6),
+//                           Text(
+//                             '${DateTime.now().day.toString().padLeft(2, '0')} '
+//                             '${_getMonthName(DateTime.now().month)} '
+//                             '${DateTime.now().year}'),
+//                         ],
+//                       ),
+//                     ],
+//                   ),
+//                 ),
+//                 const SizedBox(height: 20),
+//                 // timer icon (enlarged earlier)
+//                 SizedBox(
+//                   width: 89,
+//                   height: 89,
+//                   child: Image.asset('assets/images/timer1.png', fit: BoxFit.contain),
+//                 ),
+//                 const SizedBox(height: 15),
+//                 Row(
+//                   mainAxisAlignment: MainAxisAlignment.center,
+//                   children: [
+//                     _buildTimeBox(hours),
+//                     const SizedBox(width: 6),
+//                     Text(':', style: TextStyle(fontSize: 20, color: Color.fromARGB(255, 169, 163, 182), fontWeight: FontWeight.bold)),
+//                     const SizedBox(width: 6),
+//                     _buildTimeBox(minutes),
+//                     const SizedBox(width: 6),
+//                     Text(':', style: TextStyle(fontSize: 20, color: Color.fromARGB(255, 169, 163, 182), fontWeight: FontWeight.bold)),
+//                     const SizedBox(width: 6),
+//                     _buildTimeBox(seconds),
+//                   ],
+//                 ),
+//                 const SizedBox(height: 20),
+//                 Container(
+//                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+//                   decoration: BoxDecoration(color: kButtonColor, borderRadius: BorderRadius.circular(4)),
+//                   child: Text(selectedShift, style: const TextStyle(color: kTextColor, fontSize: 14, fontWeight: FontWeight.w500)),
+//                 ),
+//                 const SizedBox(height: 15),
+//                 if (!isCheckedIn)
+//                   Row(
+//                     children: [
+//                       Expanded(
+//                         child: SizedBox(
+//                           height: 50,
+//                           child: ElevatedButton(
+//                             onPressed: _authenticateAndCheckIn,
+//                             style: ElevatedButton.styleFrom(
+//                               backgroundColor: kButtonColor,
+//                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+//                               elevation: 2,
+//                             ),
+//                             child: const Column(
+//                               mainAxisAlignment: MainAxisAlignment.center,
+//                               children: [
+//                                 Icon(Icons.face, color: kTextColor, size: 14),
+//                                 SizedBox(height: 2),
+//                                 Text('Biometric', style: TextStyle(color: kTextColor, fontSize: 9, fontWeight: FontWeight.w500)),
+//                               ],
+//                             ),
+//                           ),
+//                         ),
+//                       ),
+//                       const SizedBox(width: 12),
+//                       Expanded(
+//                         child: SizedBox(
+//                           height: 50,
+//                           child: ElevatedButton(
+//                             onPressed: () => _performCheckIn('manual'),
+//                             style: ElevatedButton.styleFrom(
+//                               backgroundColor: kButtonColor,
+//                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+//                               elevation: 2,
+//                             ),
+//                             child: const Column(
+//                               mainAxisAlignment: MainAxisAlignment.center,
+//                               children: [
+//                                 Icon(Icons.touch_app, color: kTextColor, size: 14),
+//                                 SizedBox(height: 2),
+//                                 Text('Manual', style: TextStyle(color: kTextColor, fontSize: 9, fontWeight: FontWeight.w500)),
+//                               ],
+//                             ),
+//                           ),
+//                         ),
+//                       ),
+//                     ],
+//                   )
+//                 else
+//                   SizedBox(
+//                     width: double.infinity,
+//                     height: 50,
+//                     child: ElevatedButton(
+//                       onPressed: _confirmCheckOut,
+//                       style: ElevatedButton.styleFrom(
+//                         backgroundColor: const Color(0xFFFF6B6B),
+//                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+//                         elevation: 2,
+//                       ),
+//                       child: const Row(
+//                         mainAxisAlignment: MainAxisAlignment.center,
+//                         children: [
+//                           Icon(Icons.logout, color: kTextColor, size: 13),
+//                           SizedBox(width: 8),
+//                           Text('Check Out', style: TextStyle(color: kTextColor, fontSize: 12, fontWeight: FontWeight.w500)),
+//                         ],
+//                       ),
+//                     ),
+//                   ),
+//                 const Spacer(),
+//               ],
+//             ),
+//           ),
+//         ),
+//       ),
+//     );
+//   }
+
+//   Widget _buildTimeBox(String time) {
+//     // No border — just a soft shadow so each box stands out subtly.
+//     return Container(
+//       width: 42,
+//       height: 32,
+//       decoration: BoxDecoration(
+//         color: Colors.white,
+//         borderRadius: BorderRadius.circular(8),
+//         boxShadow: const [
+//           BoxShadow(
+//             color: Color(0x22000000), // gentle shadow
+//             blurRadius: 8,
+//             spreadRadius: 1,
+//             offset: Offset(0, 2),
+//           ),
+//         ],
+//       ),
+//       child: Center(
+//         child: Text(
+//           time,
+//           style: const TextStyle(
+//             fontSize: 16,
+//             fontWeight: FontWeight.w700,
+//             color: kButtonColor,
+//           ),
+//         ),
+//       ),
+//     );
+//   }
+
+//   String _getMonthName(int month) {
+//     const months = ['', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+//     return months[month];
+//   }
+
+//   void _confirmCheckOut() {
+//     showDialog(
+//       context: context,
+//       useRootNavigator: true,
+//       builder: (c) => AlertDialog(
+//         title: const Text('Check Out'),
+//         content: Text('Are you sure you want to check out?\nWork duration: ${hours}h ${minutes}m ${seconds}s'),
+//         actions: [
+//           TextButton(onPressed: () => Navigator.of(c, rootNavigator: true).pop(), child: const Text('Cancel')),
+//           TextButton(
+//             onPressed: () {
+//               Navigator.of(c, rootNavigator: true).pop();
+//               _performCheckOut();
+//             },
+//             child: const Text('Check Out'),
+//           ),
+//         ],
+//       ),
+//     );
+//   }
+
+//   void _showLoadingDialog(String message) {
+//     showDialog(
+//       context: context,
+//       barrierDismissible: false,
+//       useRootNavigator: true,
+//       builder: (_) => AlertDialog(
+//         content: Row(
+//           children: [
+//             const CircularProgressIndicator(),
+//             const SizedBox(width: 16),
+//             Expanded(child: Text(message)),
+//           ],
+//         ),
+//       ),
+//     );
+//   }
+
+//   void _showSuccessDialog(String message) {
+//     showDialog(
+//       context: context,
+//       useRootNavigator: true,
+//       builder: (dialogContext) => AlertDialog(
+//         title: const Text('Success'),
+//         content: Text(message),
+//         actions: [
+//           TextButton(
+//             onPressed: () => Navigator.of(dialogContext, rootNavigator: true).pop(),
+//             child: const Text('OK'),
+//           ),
+//         ],
+//       ),
+//     );
+//   }
+
+//   void _showInfoDialog(String message, {String title = 'Notice'}) {
+//     showDialog(
+//       context: context,
+//       useRootNavigator: true,
+//       builder: (dialogContext) => AlertDialog(
+//         title: Text(title),
+//         content: Text(message),
+//         actions: [
+//           TextButton(
+//             onPressed: () => Navigator.of(dialogContext, rootNavigator: true).pop(),
+//             child: const Text('OK'),
+//           ),
+//         ],
+//       ),
+//     );
+//   }
+
+//   void _showErrorDialog(String message) {
+//     showDialog(
+//       context: context,
+//       useRootNavigator: true,
+//       builder: (dialogContext) => AlertDialog(
+//         title: const Text('Error'),
+//         content: Text(message),
+//         actions: [
+//           TextButton(
+//             onPressed: () => Navigator.of(dialogContext, rootNavigator: true).pop(),
+//             child: const Text('OK'),
+//           ),
+//         ],
+//       ),
+//     );
+//   }
+// }
 import 'dart:async';
 import 'dart:convert';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:local_auth/local_auth.dart';
 
-import 'package:permission_handler/permission_handler.dart';
-import 'package:android_intent_plus/android_intent.dart';
-
 import 'package:serv_app/models/company_data.dart';
-
-// Background scheduler (WorkManager wrapper)
 import 'package:serv_app/background/background_tasks.dart';
-import 'package:serv_app/main.dart' show startFgTracking, stopFgTracking;
-// Foreground timer (legacy – extra backup)
-import 'package:serv_app/services/tracking_service.dart';
 
 // ==== Colors ====
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -71,11 +1419,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   bool shiftClicked = false;
 
   Timer? _timer;
-
-  // No auto-checkout in client
-  final bool _autoCheckoutEnabled = false;
   Timer? _autoCheckoutTimer;
-
   int totalSeconds = 0;
   String hours = "00";
   String minutes = "00";
@@ -84,13 +1428,19 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   final LocalAuthentication _localAuth = LocalAuthentication();
   bool _authInProgress = false;
 
-  // Optional legacy foreground tracker
-  TrackingService? _tracking;
+  // ---------- NEW: fast UID that works before /auth/me ----------
+  String get _uid => (userId.isNotEmpty ? userId : widget.employeeDocId);
+  String _key(String base) => '$base$_uid';
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    // ✅ Instant local restore on first frame (no dependency on /auth/me)
+    _restoreCheckInFromPrefs();
+
+    // Then slower work
     _loadUserInfo();
     _checkUserFaceRegistration();
   }
@@ -107,7 +1457,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       if (_authInProgress) return;
-      _restoreCheckInFromPrefs().then((_) => _loadTodayStatus());
+      _restoreCheckInFromPrefs().then((_) {
+        _loadTodayStatus();
+      });
     }
   }
 
@@ -120,10 +1472,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Future<SharedPreferences> _prefs() => SharedPreferences.getInstance();
-  String _key(String base) => '$base$userId';
 
   Future<void> _saveCheckInToPrefs({DateTime? at}) async {
-    if (userId.isEmpty) return;
     final prefs = await _prefs();
     final now = at ?? DateTime.now();
     final ymd =
@@ -133,18 +1483,22 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     await prefs.setBool(_key(_kCheckedInKeyBase), true);
     await prefs.setString(_key(_kCheckInDateKeyBase), ymd);
     await prefs.setString(_key(_kCheckInTimeKeyBase), hms);
+    if (kDebugMode) {
+      print('[AttendanceScreen] persisted check-in for $_uid at $ymd $hms');
+    }
   }
 
   Future<void> _clearCheckInFromPrefs() async {
-    if (userId.isEmpty) return;
     final prefs = await _prefs();
     await prefs.remove(_key(_kCheckedInKeyBase));
     await prefs.remove(_key(_kCheckInDateKeyBase));
     await prefs.remove(_key(_kCheckInTimeKeyBase));
+    if (kDebugMode) {
+      print('[AttendanceScreen] cleared persisted check-in for $_uid');
+    }
   }
 
   Future<void> _restoreCheckInFromPrefs() async {
-    if (userId.isEmpty) return;
     final prefs = await _prefs();
     final locallyCheckedIn = prefs.getBool(_key(_kCheckedInKeyBase)) ?? false;
     final dateStr = prefs.getString(_key(_kCheckInDateKeyBase));
@@ -180,29 +1534,34 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     } catch (_) {
       totalSeconds = 0;
     }
-    hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
-    minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
-    seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+    _recomputeHMS();
 
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
-      setState(() {
-        totalSeconds++;
-        hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
-        minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
-        seconds = (totalSeconds % 60).toString().padLeft(2, '0');
-      });
+      totalSeconds++;
+      _recomputeHMS();
+      setState(() {});
     });
+
+    _scheduleAutoCheckout();
+    _maybeAutoCheckoutImmediatelyIfPastShiftEnd();
+  }
+
+  void _recomputeHMS() {
+    hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
+    minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
+    seconds = (totalSeconds % 60).toString().padLeft(2, '0');
   }
 
   Future<void> _maybeAutoCheckoutImmediatelyIfPastShiftEnd() async {
-    if (!_autoCheckoutEnabled) return;
     if (!isCheckedIn) return;
     final times = _getShiftTimes(selectedShift);
     var endDT = _toDateTime(times.end);
     final startDT = _toDateTime(times.start);
-    if (endDT.isBefore(startDT)) endDT = endDT.add(const Duration(days: 1));
+    if (endDT.isBefore(startDT)) {
+      endDT = endDT.add(const Duration(days: 1));
+    }
     if (DateTime.now().isAfter(endDT)) {
       await _performCheckOut(silent: true);
     }
@@ -213,7 +1572,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final url = Uri.parse('$_apiBase/auth/me');
 
     try {
-      final res = await http.get(url, headers: {'Authorization': 'Bearer $token'});
+      final res =
+          await http.get(url, headers: {'Authorization': 'Bearer $token'});
+      if (kDebugMode) {
+        print('[AttendanceScreen] /auth/me -> ${res.statusCode}');
+        print('[AttendanceScreen] body: ${res.body}');
+      }
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
         final profile = (data['employeeProfile'] is Map<String, dynamic>)
@@ -225,15 +1589,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           userId = (data['empid'] ?? profile['empid'] ?? "") as String;
           dept = (profile['dept'] ?? data['dept'] ?? "") as String;
           location = (profile['location'] ?? data['location'] ?? "") as String;
-          selectedShift =
-              (profile['shiftGroup'] ?? data['shiftGroup'] ?? "Shift") as String;
+          selectedShift = (profile['shiftGroup'] ??
+              data['shiftGroup'] ??
+              "Shift") as String;
 
           final hasShift = selectedShift.isNotEmpty && selectedShift != "Shift";
           shiftClicked = hasShift;
           isShiftSelected = hasShift;
         });
 
-        await _restoreCheckInFromPrefs();
+        // Reconcile with server after local instant restore
         await _loadTodayStatus();
       } else {
         setState(() {
@@ -242,32 +1607,38 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           dept = "";
           location = "";
         });
-        await _restoreCheckInFromPrefs();
       }
-    } catch (_) {
+    } catch (e) {
+      if (kDebugMode) print('[AttendanceScreen] _loadUserInfo error: $e');
       setState(() {
         userName = "(error)";
         userId = widget.employeeDocId;
         dept = "";
         location = "";
       });
-      await _restoreCheckInFromPrefs();
     }
   }
 
   Future<void> _loadTodayStatus() async {
     final token = CompanyData.token;
-    if (userId.isEmpty || token.isEmpty) return;
+    if (_uid.isEmpty || token.isEmpty) return;
 
     final url = Uri.parse('$_apiBase/attendance/live');
 
     try {
-      final res = await http.get(url, headers: {'Authorization': 'Bearer $token'});
+      final res =
+          await http.get(url, headers: {'Authorization': 'Bearer $token'});
+      if (kDebugMode) {
+        print('[AttendanceScreen] /attendance/live -> ${res.statusCode}');
+        if (res.statusCode == 200) {
+          print('[AttendanceScreen] live body: ${res.body}');
+        }
+      }
       if (res.statusCode != 200) return;
 
       final list = List<Map<String, dynamic>>.from(jsonDecode(res.body));
       final me = list.firstWhere(
-        (e) => (e['empid']?.toString() ?? '') == userId,
+        (e) => (e['empid']?.toString() ?? '') == _uid,
         orElse: () => const {},
       );
 
@@ -286,6 +1657,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       if (checkIn != null && checkIn.isNotEmpty) {
         _applyCheckedInFromServer(checkIn);
         await _saveCheckInToPrefs();
+        _scheduleAutoCheckout();
         return;
       }
 
@@ -294,41 +1666,38 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       await _clearCheckInFromPrefs();
       if (!mounted) return;
       setState(() => isCheckedIn = false);
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) print('[AttendanceScreen] _loadTodayStatus error: $e');
+    }
   }
 
   void _applyCheckedInFromServer(String hhmmss) {
     try {
       final now = DateTime.now();
       final parts = hhmmss.split(':').map((s) => int.tryParse(s) ?? 0).toList();
-      final inDT = DateTime(
-        now.year, now.month, now.day, parts[0], parts[1], parts[2],
-      );
+      final inDT = DateTime(now.year, now.month, now.day, parts.elementAt(0),
+          parts.elementAt(1), parts.elementAt(2));
       final diff = now.difference(inDT).inSeconds;
       final startSeconds = diff > 0 ? diff : 0;
 
       _timer?.cancel();
-      setState(() {
-        isCheckedIn = true;
-        isTimerRunning = true;
-        totalSeconds = startSeconds;
-        hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
-        minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
-        seconds = (totalSeconds % 60).toString().padLeft(2, '0');
-      });
+      isCheckedIn = true;
+      isTimerRunning = true;
+      totalSeconds = startSeconds;
+      _recomputeHMS();
+      setState(() {});
 
       _timer = Timer.periodic(const Duration(seconds: 1), (t) {
         if (!mounted) return;
-        setState(() {
-          totalSeconds++;
-          hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
-          minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
-          seconds = (totalSeconds % 60).toString().padLeft(2, '0');
-        });
+        totalSeconds++;
+        _recomputeHMS();
+        setState(() {});
       });
     } catch (_) {
+      setState(() {
+        isCheckedIn = true;
+      });
       _startWorkTimer();
-      setState(() => isCheckedIn = true);
     }
   }
 
@@ -348,50 +1717,23 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     setState(() => isFaceRegistered = false);
   }
 
-  // ---------------- GEO ----------------
-  Future<Position?> _getPositionUsingDemo({
-    bool quiet = false,
-    LocationAccuracy accuracy = LocationAccuracy.best,
-  }) async {
-    final hasPermission = await _ensurePermissionDemo(quiet: quiet);
-    if (!hasPermission) return null;
-
-    if (!await Geolocator.isLocationServiceEnabled()) {
-      if (!quiet && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Location services are disabled')),
-        );
-      }
-    }
-
-    try {
-      return await Geolocator.getCurrentPosition(
-        desiredAccuracy: accuracy,
-        timeLimit: const Duration(seconds: 15),
-      );
-    } catch (_) {
-      if (!quiet && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not get current location')),
-        );
-      }
-      return null;
-    }
-  }
-
+  // -----------------------------------------------------------------
+  // GEO helpers
+  // -----------------------------------------------------------------
   Future<bool> _ensurePermissionDemo({bool quiet = false}) async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       if (quiet) return false;
       if (!mounted) return false;
-
       final go = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Location Services Disabled'),
           content: const Text('Please enable location services to use this feature.'),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel')),
             TextButton(
               onPressed: () async {
                 await Geolocator.openLocationSettings();
@@ -402,7 +1744,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           ],
         ),
       );
-
       if (go != true) return false;
       serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) return false;
@@ -425,17 +1766,19 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (permission == LocationPermission.deniedForever) {
       if (quiet) return false;
       if (!mounted) return false;
-
       final go = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Location Permission Required'),
           content: const Text('Location permissions are permanently denied. Please enable them in app settings.'),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel')),
             TextButton(
               onPressed: () async {
                 await Geolocator.openAppSettings();
+                await Geolocator.openLocationSettings();
                 if (context.mounted) Navigator.pop(context, true);
               },
               child: const Text('Open Settings'),
@@ -443,20 +1786,80 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           ],
         ),
       );
-
       if (go != true) return false;
     }
 
-    return permission == LocationPermission.always ||
-        permission == LocationPermission.whileInUse;
+    if (permission == LocationPermission.whileInUse && mounted && !quiet) {
+      final upgrade = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Enable Background Location'),
+          content: const Text(
+            'To track every 15 minutes in the background, please change the app’s '
+            'Location permission to “Allow all the time” in Settings.',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Not now')),
+            TextButton(
+              onPressed: () async {
+                await Geolocator.openAppSettings();
+                await Geolocator.openLocationSettings();
+                if (context.mounted) Navigator.pop(context, true);
+              },
+              child: const Text('Open Settings'),
+            ),
+          ],
+        ),
+      );
+      if (upgrade == true) {
+        await Geolocator.checkPermission();
+      }
+    }
+
+    return true;
   }
 
+  Future<Position?> _getPositionUsingDemo({bool quiet = false}) async {
+    final ok = await _ensurePermissionDemo(quiet: quiet);
+    if (!ok) return null;
+
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      if (mounted && !quiet) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Location services are disabled')),
+        );
+      }
+      return null;
+    }
+
+    Position? pos;
+    try {
+      pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
+      );
+    } catch (_) {
+      if (mounted && !quiet) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not get current location')),
+        );
+      }
+      pos = await Geolocator.getLastKnownPosition();
+    }
+
+    if (pos == null && mounted && !quiet) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not determine location')),
+      );
+    }
+    return pos;
+  }
+
+  // -------------------- BRANCH lookup + geofence check --------------------
   Future<_Branch?> _fetchMyBranch() async {
     try {
-      final res = await http.get(
-        Uri.parse('$_apiBase/office/locations'),
-        headers: _authHeaders(),
-      );
+      final res = await http.get(Uri.parse('$_apiBase/office/locations'),
+          headers: _authHeaders());
       if (res.statusCode != 200) return null;
       final list = (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
       final match = list.firstWhere(
@@ -489,130 +1892,91 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Future<bool> _confirmOutside(
-    double distance,
-    double radius,
-    String branchName,
-  ) async {
+      double distance, double radius, String branchName) async {
     return await showDialog<bool>(
           context: context,
           builder: (c) => AlertDialog(
             title: const Text('Other location'),
             content: Text(
-              'You are in other location. Do you want to proceed with check-in here?',
+              'You are ${(distance).toStringAsFixed(0)}m away from "$branchName" '
+              '(radius ${radius.toStringAsFixed(0)}m).\n'
+              'Do you want to proceed with check-in here?',
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-              TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Proceed')),
+              TextButton(
+                  onPressed: () => Navigator.pop(c, false),
+                  child: const Text('Cancel')),
+              TextButton(
+                  onPressed: () => Navigator.pop(c, true),
+                  child: const Text('Proceed')),
             ],
           ),
         ) ??
         false;
   }
 
-  /// Detect category from time vs shift (for when to ask a reason)
-  String? _detectCheckInCategory() {
+  // -------------------- Late reason modal --------------------
+  Future<Map<String, String>?> _maybeAskLateReason({required bool isCheckIn}) async {
     final times = _getShiftTimes(selectedShift);
-    final now = DateTime.now();
-    final start = _toDateTime(times.start);
-    if (now.isAfter(start.add(const Duration(minutes: 5)))) return 'Late Check-in';
-    if (now.isBefore(start.subtract(const Duration(minutes: 10)))) return 'Early Check-in';
-    return null;
-  }
+    final startDT = _toDateTime(times.start);
+    final late = DateTime.now().isAfter(startDT.add(const Duration(minutes: 5)));
 
-  String? _detectCheckoutCategory() {
-    final times = _getShiftTimes(selectedShift);
-    var end = _toDateTime(times.end);
-    final start = _toDateTime(times.start);
-    if (end.isBefore(start)) end = end.add(const Duration(days: 1));
-    final now = DateTime.now();
-    if (now.isBefore(end.subtract(const Duration(minutes: 5)))) return 'Early Checkout';
-    return null;
-  }
+    if (!late) return {'reason': '', 'notes': ''};
 
-  /// Fetch ALL reasons from /api/reasons (uses 'reason' text)
-  Future<List<Map<String, String>>> _fetchAllReasons() async {
-    try {
-      final res = await http.get(Uri.parse('$_apiBase/reasons?limit=200'));
-      if (res.statusCode != 200) return <Map<String, String>>[];
+    String? reason = 'Traffic';
+    String notes = '';
 
-      final body = jsonDecode(res.body);
-      final List items = (body is List) ? body : (body['items'] as List? ?? <dynamic>[]);
-
-      return items.map<Map<String, String>>((raw) {
-        final m = (raw as Map).cast<String, dynamic>();
-        return {
-          'id': (m['id'] ?? m['_id'] ?? '').toString(),
-          'reason': (m['reason'] ?? '').toString(),
-          'typeId': (m['typeId'] ?? '').toString(),
-          'typeName': (m['typeName'] ?? '').toString(),
-        };
-      }).where((e) => (e['reason'] ?? '').toString().isNotEmpty).toList();
-    } catch (_) {
-      return <Map<String, String>>[];
-    }
-  }
-
-  /// Dialog: dropdown of reason texts
-  Future<Map<String, String>?> _pickReason(String title, {String? prefer}) async {
-    final reasons = await _fetchAllReasons();
-    if (reasons.isEmpty) {
-      _showInfoDialog('No reasons configured.');
-      return null;
-    }
-
-    String? selectedId;
-    if ((prefer ?? '').isNotEmpty) {
-      final match = reasons.firstWhere(
-        (r) => (r['reason'] ?? '').toLowerCase().contains(prefer!.toLowerCase()),
-        orElse: () => reasons.first,
-      );
-      selectedId = match['id'];
-    } else {
-      selectedId = reasons.first['id'];
-    }
-
-    await showDialog(
+    return showDialog<Map<String, String>>(
       context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (ctx, setSt) => AlertDialog(
-          title: Text(title),
-          content: DropdownButtonFormField<String>(
-            initialValue: selectedId,
-            isExpanded: true,
-            items: reasons
-                .map((r) => DropdownMenuItem(
-                      value: r['id'],
-                      child: Text(r['reason'] ?? ''),
-                    ))
-                .toList(),
-            onChanged: (v) => setSt(() => selectedId = v),
-            decoration: const InputDecoration(
-              labelText: 'Select reason',
-              border: OutlineInputBorder(),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (c, setS) => AlertDialog(
+            title: Text(isCheckIn ? 'Late Check-in' : 'Late Check-out'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('Select reason')),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: reason,
+                  items: const [
+                    DropdownMenuItem(value: 'Traffic', child: Text('Traffic')),
+                    DropdownMenuItem(value: 'Health', child: Text('Health')),
+                    DropdownMenuItem(value: 'Personal', child: Text('Personal')),
+                    DropdownMenuItem(value: 'Others', child: Text('Others')),
+                  ],
+                  onChanged: (v) => setS(() => reason = v),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  decoration: const InputDecoration(
+                    labelText: 'Notes (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                  minLines: 1,
+                  maxLines: 3,
+                  onChanged: (v) => notes = v,
+                ),
+              ],
             ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(c, null),
+                  child: const Text('Cancel')),
+              TextButton(
+                  onPressed: () =>
+                      Navigator.pop(c, {'reason': reason ?? '', 'notes': notes}),
+                  child: const Text('OK')),
+            ],
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: selectedId == null ? null : () => Navigator.pop(ctx),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      ),
+        );
+      },
     );
-
-    if (selectedId == null) return null;
-    final chosen = reasons.firstWhere((r) => r['id'] == selectedId);
-    return {
-      'reasonId': chosen['id'] ?? '',
-      'reasonText': chosen['reason'] ?? '',
-      'reasonTypeId': chosen['typeId'] ?? '',
-      'reasonTypeName': chosen['typeName'] ?? '',
-    };
   }
 
-  // -------------------- Check-in / out --------------------
+  // -------------------- Inline biometric -> Check-in --------------------
   Future<void> _authenticateAndCheckIn() async {
     try {
       _authInProgress = true;
@@ -646,18 +2010,19 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
   }
 
+  // -------------------- Check-in / out --------------------
   Future<void> _performCheckIn(String type) async {
-    Map<String, String>? reasonInfo;
-    final category = _detectCheckInCategory();
-    if (category != null) {
-      reasonInfo = await _pickReason(category, prefer: category);
-      if (category.isNotEmpty && reasonInfo == null) return;
-    }
+    if (kDebugMode) print('[AttendanceScreen] starting _performCheckIn()');
 
-    final pos = await _getPositionUsingDemo(
-      accuracy: LocationAccuracy.bestForNavigation,
-    );
-    if (pos == null) return;
+    // Ask reason if late
+    final reasonData = await _maybeAskLateReason(isCheckIn: true);
+    if (reasonData == null) return; // cancelled
+
+    final pos = await _getPositionUsingDemo();
+    if (pos == null) {
+      if (kDebugMode) print('[AttendanceScreen] no GPS -> abort');
+      return;
+    }
 
     final branch = await _fetchMyBranch();
 
@@ -684,11 +2049,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         if (!ok) return;
       }
     } else {
-      final ok = await _confirmOutside(
-        0,
-        0,
-        location.isEmpty ? 'Unknown' : location,
-      );
+      final ok =
+          await _confirmOutside(0, 0, location.isEmpty ? 'Unknown' : location);
       if (!ok) return;
       within = false;
     }
@@ -696,8 +2058,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final token = CompanyData.token;
     final url = Uri.parse('$_apiBase/attendance/check-in');
 
-    final bodyMap = {
-      'empid': userId,
+    final body = jsonEncode({
+      'empid': _uid,
       'name': userName,
       'location': location,
       'latitude': pos.latitude,
@@ -711,53 +2073,91 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       'distanceFromBranch': double.parse(distance.toStringAsFixed(2)),
       'withinRadius': within,
       'otherLocation': !within,
-      if (reasonInfo != null) 'reasonId': reasonInfo['reasonId'],
-      if (reasonInfo != null) 'reasonText': reasonInfo['reasonText'],
-      if (reasonInfo != null) 'reasonTypeId': reasonInfo['reasonTypeId'],
-      if (reasonInfo != null) 'reasonTypeName': reasonInfo['reasonTypeName'],
-    };
+      // late info
+      'lateReason': reasonData['reason'],
+      'lateNotes': reasonData['notes'],
+    });
 
+    if (kDebugMode) {
+      print('[AttendanceScreen] POST /attendance/check-in body ready');
+    }
     _showLoadingDialog('Checking in…');
     try {
       final res = await http.post(
         url,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
+          'Authorization': 'Bearer $token'
         },
-        body: jsonEncode(bodyMap),
+        body: body,
       );
       if (mounted) Navigator.of(context, rootNavigator: true).pop();
 
+      if (kDebugMode) {
+        print('[AttendanceScreen] check-in ${res.statusCode} ${res.body}');
+      }
+
       if (res.statusCode == 200 || res.statusCode == 201) {
-        // Seed route on server
-        await _trackingCheckInAndSeed(pos);
+        try {
+          final data = jsonDecode(res.body) as Map<String, dynamic>;
+          final code = (data['code'] ?? '').toString();
 
-        // Ask notif permission (Android 13+)
-        await _ensureNotificationPermission();
+          final record = (data['record'] ?? {}) as Map<String, dynamic>;
+          final recCheckIn = (record['checkIn'] ?? '') as String?;
+          final recCheckOut = (record['checkOut'] ?? '') as String?;
 
-        // Prompt for battery optimizations exemption
-        await _maybePromptBatteryOptimization();
+          if (recCheckOut != null && recCheckOut.isNotEmpty) {
+            _resetTimerAndState();
+            _cancelAutoCheckout();
+            await _clearCheckInFromPrefs();
+            setState(() => isCheckedIn = false);
+            _showInfoDialog("You've already checked out today.");
+            return;
+          }
 
-        // Start robust foreground service + keep WorkManager backup
-        await startFgTracking(empid: userId, token: CompanyData.token);
-        await scheduleBackgroundTracking(empid: userId, token: CompanyData.token);
+          // Start timer immediately (before showing any info)
+          if (recCheckIn != null && recCheckIn.isNotEmpty) {
+            _applyCheckedInFromServer(recCheckIn);
+          } else {
+            setState(() => isCheckedIn = true);
+            _startWorkTimer();
+          }
+          await _saveCheckInToPrefs();
+          _scheduleAutoCheckout();
 
-        // (Optional extra backup – your old 20-min timer)
-        _tracking ??= TrackingService(
-          apiBase: _apiBase,
-          jwtToken: CompanyData.token,
-          empId: userId,
-        );
-        await _tracking!.startAfterCheckIn();
+          if (code == 'ALREADY_CHECKED_IN') {
+            _showInfoDialog('You are already checked in.');
+          } else {
+            _showSuccessDialog('Checked in successfully!');
+          }
 
-        setState(() => isCheckedIn = true);
-        _startWorkTimer();
-        await _saveCheckInToPrefs();
-        _showSuccessDialog('Checked in successfully!');
+          // tracking
+          await _trackingCheckInAndSeed(pos);
+
+          // background 15-min worker
+          await scheduleBackgroundTracking(empid: _uid, token: CompanyData.token);
+        } catch (_) {
+          setState(() => isCheckedIn = true);
+          _startWorkTimer();
+          await _saveCheckInToPrefs();
+          _scheduleAutoCheckout();
+          _showSuccessDialog('Checked in successfully!');
+          await _trackingCheckInAndSeed(pos);
+          await scheduleBackgroundTracking(empid: _uid, token: CompanyData.token);
+        }
       } else {
-        final msg = (jsonDecode(res.body)['error'] ?? jsonDecode(res.body)['message']).toString();
-        _showErrorDialog(msg);
+        final parsed = jsonDecode(res.body);
+        final msg = (parsed['error'] ?? parsed['message']).toString();
+        if (msg.toLowerCase().contains('already') &&
+            msg.toLowerCase().contains('checked out')) {
+          _resetTimerAndState();
+          _cancelAutoCheckout();
+          await _clearCheckInFromPrefs();
+          setState(() => isCheckedIn = false);
+          _showInfoDialog("You've already checked out today.");
+        } else {
+          _showErrorDialog(msg);
+        }
       }
     } catch (e) {
       if (mounted) Navigator.of(context, rootNavigator: true).pop();
@@ -766,20 +2166,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Future<void> _performCheckOut({bool silent = false}) async {
-    Map<String, String>? reasonInfo;
-    final category = _detectCheckoutCategory();
-    if (category != null) {
-      reasonInfo = await _pickReason(category, prefer: category);
-      if (category.isNotEmpty && reasonInfo == null) {
-        if (!silent) _showInfoDialog('Checkout cancelled');
-        return;
-      }
-    }
+    final reasonData = await _maybeAskLateReason(isCheckIn: false);
+    if (reasonData == null) return;
 
-    final pos = await _getPositionUsingDemo(
-      quiet: silent,
-      accuracy: LocationAccuracy.bestForNavigation,
-    );
+    final pos = await _getPositionUsingDemo(quiet: silent);
     if (pos == null) {
       if (!silent) _showErrorDialog('Could not determine location');
       return;
@@ -808,8 +2198,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final token = CompanyData.token;
     final url = Uri.parse('$_apiBase/attendance/check-out');
 
-    final bodyMap = {
-      'empid': userId,
+    final body = jsonEncode({
+      'empid': _uid,
       'location': location,
       'latitude': pos.latitude,
       'longitude': pos.longitude,
@@ -821,11 +2211,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       'distanceFromBranch': double.parse(distance.toStringAsFixed(2)),
       'withinRadius': within,
       'otherLocation': !within,
-      if (reasonInfo != null) 'reasonId': reasonInfo['reasonId'],
-      if (reasonInfo != null) 'reasonText': reasonInfo['reasonText'],
-      if (reasonInfo != null) 'reasonTypeId': reasonInfo['reasonTypeId'],
-      if (reasonInfo != null) 'reasonTypeName': reasonInfo['reasonTypeName'],
-    };
+      'lateReason': reasonData['reason'],
+      'lateNotes': reasonData['notes'],
+    });
 
     if (!silent) _showLoadingDialog('Checking out…');
     try {
@@ -833,27 +2221,41 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         url,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
+          'Authorization': 'Bearer $token'
         },
-        body: jsonEncode(bodyMap),
+        body: body,
       );
       if (!silent && mounted) Navigator.of(context, rootNavigator: true).pop();
 
-      if (res.statusCode == 200) {
-        // stop services
-        await stopFgTracking();
-        await cancelBackgroundTracking(empid: userId);
-        await _tracking?.stopAfterCheckOut();
+      if (kDebugMode) {
+        print('[AttendanceScreen] check-out ${res.statusCode} ${res.body}');
+      }
 
+      if (res.statusCode == 200) {
         _stopWorkTimer();
         _cancelAutoCheckout();
         await _clearCheckInFromPrefs();
         setState(() => isCheckedIn = false);
         if (!silent) _showSuccessDialog('Checked out successfully!');
+
         await _trackingCheckOut();
+        await cancelBackgroundTracking(empid: _uid);
       } else {
-        final msg = (jsonDecode(res.body)['error'] ?? jsonDecode(res.body)['message']).toString();
-        if (!silent) _showErrorDialog(msg);
+        final parsed = jsonDecode(res.body);
+        final msg = (parsed['error'] ?? parsed['message']).toString();
+
+        if (msg.toLowerCase().contains('already') &&
+            msg.toLowerCase().contains('checked out')) {
+          _resetTimerAndState();
+          _cancelAutoCheckout();
+          await _clearCheckInFromPrefs();
+          setState(() => isCheckedIn = false);
+          if (!silent) _showInfoDialog("You've already checked out today.");
+          await _trackingCheckOut();
+          await cancelBackgroundTracking(empid: _uid);
+        } else {
+          if (!silent) _showErrorDialog(msg);
+        }
       }
     } catch (e) {
       if (!silent) {
@@ -866,7 +2268,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   // -------------------- Tracking glue (server) --------------------
   Future<void> _trackingCheckInAndSeed(Position pos) async {
     final token = CompanyData.token;
-    if (token.isEmpty || userId.isEmpty) return;
+    if (token.isEmpty || _uid.isEmpty) return;
+
     try {
       final base = 'https://api-zmj7dqloiq-el.a.run.app/api/tracking';
 
@@ -875,7 +2278,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
-          'x-empid': userId,
+          'x-empid': _uid,
         },
         body: jsonEncode({}),
       );
@@ -885,16 +2288,18 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
-          'x-empid': userId,
+          'x-empid': _uid,
         },
         body: jsonEncode({'lat': pos.latitude, 'lng': pos.longitude}),
       );
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) print('[AttendanceScreen] tracking seed error: $e');
+    }
   }
 
   Future<void> _trackingCheckOut() async {
     final token = CompanyData.token;
-    if (token.isEmpty || userId.isEmpty) return;
+    if (token.isEmpty || _uid.isEmpty) return;
     try {
       final base = 'https://api-zmj7dqloiq-el.a.run.app/api/tracking';
       await http.post(
@@ -902,56 +2307,28 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
-          'x-empid': userId,
+          'x-empid': _uid,
         },
         body: jsonEncode({}),
       );
-    } catch (_) {}
-  }
-
-  // ---------- Permissions / Settings nudges ----------
-  Future<void> _ensureNotificationPermission() async {
-    final status = await Permission.notification.status;
-    if (!status.isGranted) {
-      await Permission.notification.request();
+    } catch (e) {
+      if (kDebugMode) print('[AttendanceScreen] tracking checkout error: $e');
     }
   }
+  // ---------------------------------------------------------------
 
-  Future<void> _maybePromptBatteryOptimization() async {
-    try {
-      const intent = AndroidIntent(
-        action: 'android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
-      );
-      await intent.launch();
-    } catch (_) {
-      try {
-        const intent = AndroidIntent(
-          action: 'android.settings.IGNORE_BATTERY_OPTIMATION_SETTINGS',
-        );
-        await intent.launch();
-      } catch (_) {}
-    }
-  }
-
-  // ---------- UI helpers ----------
   void _startWorkTimer() {
     _timer?.cancel();
-    setState(() {
-      isTimerRunning = true;
-      totalSeconds = 0;
-      hours = "00";
-      minutes = "00";
-      seconds = "00";
-    });
+    isTimerRunning = true;
+    totalSeconds = 0;
+    _recomputeHMS();
+    setState(() {}); // show immediate "running" state
 
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
-      setState(() {
-        totalSeconds++;
-        hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
-        minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
-        seconds = (totalSeconds % 60).toString().padLeft(2, '0');
-      });
+      totalSeconds++;
+      _recomputeHMS();
+      setState(() {});
     });
   }
 
@@ -965,15 +2342,19 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     switch (shift.toLowerCase()) {
       case 'shift1':
       case 'day':
-        return const ShiftTimes(TimeOfDay(hour: 9, minute: 0), TimeOfDay(hour: 18, minute: 0));
+        return const ShiftTimes(
+            TimeOfDay(hour: 9, minute: 0), TimeOfDay(hour: 18, minute: 0));
       case 'shift2':
       case 'morning':
-        return const ShiftTimes(TimeOfDay(hour: 6, minute: 0), TimeOfDay(hour: 15, minute: 0));
+        return const ShiftTimes(
+            TimeOfDay(hour: 6, minute: 0), TimeOfDay(hour: 15, minute: 0));
       case 'shift3':
       case 'evening':
-        return const ShiftTimes(TimeOfDay(hour: 14, minute: 0), TimeOfDay(hour: 23, minute: 0));
+        return const ShiftTimes(
+            TimeOfDay(hour: 14, minute: 0), TimeOfDay(hour: 23, minute: 0));
       default:
-        return const ShiftTimes(TimeOfDay(hour: 9, minute: 0), TimeOfDay(hour: 18, minute: 0));
+        return const ShiftTimes(
+            TimeOfDay(hour: 9, minute: 0), TimeOfDay(hour: 18, minute: 0));
     }
   }
 
@@ -984,19 +2365,27 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   void _scheduleAutoCheckout() {
     _cancelAutoCheckout();
-    if (!_autoCheckoutEnabled) return;
     if (!isCheckedIn) return;
 
     final times = _getShiftTimes(selectedShift);
     var endDT = _toDateTime(times.end);
     final startDT = _toDateTime(times.start);
-    if (endDT.isBefore(startDT)) endDT = endDT.add(const Duration(days: 1));
+    if (endDT.isBefore(startDT)) {
+      endDT = endDT.add(const Duration(days: 1));
+    }
 
     final now = DateTime.now();
-    final wait = endDT.isAfter(now) ? endDT.difference(now) : const Duration(seconds: 1);
+    final wait =
+        endDT.isAfter(now) ? endDT.difference(now) : const Duration(seconds: 1);
+
+    if (kDebugMode) {
+      print(
+          '[AttendanceScreen] Auto-checkout at $endDT (in ${wait.inMinutes} min) for "$selectedShift"');
+    }
 
     _autoCheckoutTimer = Timer(wait, () async {
       if (!mounted || !isCheckedIn) return;
+      await _performCheckOut(silent: true);
     });
   }
 
@@ -1005,177 +2394,252 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     _autoCheckoutTimer = null;
   }
 
-  // -------------------- UI --------------------
+  // -------------------- UI helpers --------------------
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: kAppBarColor,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: kTextColor),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          'Attendance',
-          style: TextStyle(color: kTextColor, fontSize: 18, fontWeight: FontWeight.w600),
-        ),
-        centerTitle: false,
-        titleSpacing: 0,
-      ),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
+    final textScaler = MediaQuery.of(context).textScaler.clamp(minScaleFactor: 1.0, maxScaleFactor: 1.15);
+
+    return MediaQuery(
+      data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+      child: Scaffold(
+        appBar: AppBar(
+          backgroundColor: kAppBarColor,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: kTextColor),
+            onPressed: () => Navigator.pop(context),
           ),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: EdgeInsets.only(
-              left: 16,
-              top: 16,
-              right: 16,
-              bottom: 16 + MediaQuery.of(context).padding.bottom,
+          title: const Text(
+            'Attendance',
+            style: TextStyle(
+              color: kTextColor,
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
             ),
-            child: Column(
-              children: [
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.withOpacity(0.1),
-                        spreadRadius: 1,
-                        blurRadius: 5,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
+          ),
+          centerTitle: false,
+        ),
+        body: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
+            ),
+          ),
+          child: SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  padding: EdgeInsets.only(
+                    left: 16,
+                    top: 16,
+                    right: 16,
+                    bottom: 16 + MediaQuery.of(context).padding.bottom,
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(userName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 4),
-                      Text('$userId | $dept', style: const TextStyle(fontSize: 14, color: Colors.grey)),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          Icon(Icons.calendar_today, size: 14, color: Colors.grey[600]),
-                          const SizedBox(width: 6),
-                          Text(
-                            '${DateTime.now().day.toString().padLeft(2, '0')} '
-                            '${_getMonthName(DateTime.now().month)} '
-                            '${DateTime.now().year}'),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
-                // timer icon (enlarged earlier)
-                SizedBox(
-                  width: 89,
-                  height: 89,
-                  child: Image.asset('assets/images/timer1.png', fit: BoxFit.contain),
-                ),
-                const SizedBox(height: 15),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _buildTimeBox(hours),
-                    const SizedBox(width: 6),
-                    Text(':', style: TextStyle(fontSize: 20, color: Color.fromARGB(255, 169, 163, 182), fontWeight: FontWeight.bold)),
-                    const SizedBox(width: 6),
-                    _buildTimeBox(minutes),
-                    const SizedBox(width: 6),
-                    Text(':', style: TextStyle(fontSize: 20, color: Color.fromARGB(255, 169, 163, 182), fontWeight: FontWeight.bold)),
-                    const SizedBox(width: 6),
-                    _buildTimeBox(seconds),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  decoration: BoxDecoration(color: kButtonColor, borderRadius: BorderRadius.circular(4)),
-                  child: Text(selectedShift, style: const TextStyle(color: kTextColor, fontSize: 14, fontWeight: FontWeight.w500)),
-                ),
-                const SizedBox(height: 15),
-                if (!isCheckedIn)
-                  Row(
-                    children: [
-                      Expanded(
-                        child: SizedBox(
-                          height: 50,
-                          child: ElevatedButton(
-                            onPressed: _authenticateAndCheckIn,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: kButtonColor,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                              elevation: 2,
-                            ),
-                            child: const Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.face, color: kTextColor, size: 14),
-                                SizedBox(height: 2),
-                                Text('Biometric', style: TextStyle(color: kTextColor, fontSize: 9, fontWeight: FontWeight.w500)),
-                              ],
-                            ),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: constraints.maxHeight - 32),
+                    child: Column(
+                      children: [
+                        // Header card
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.grey.withOpacity(0.1),
+                                spreadRadius: 1,
+                                blurRadius: 5,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(userName,
+                                  style: const TextStyle(
+                                      fontSize: 18, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 4),
+                              Text('${_uid} | $dept',
+                                  style: const TextStyle(
+                                      fontSize: 14, color: Colors.grey)),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  Icon(Icons.calendar_today,
+                                      size: 14, color: Colors.grey[600]),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    '${DateTime.now().day.toString().padLeft(2, '0')} '
+                                    '${_getMonthName(DateTime.now().month)} '
+                                    '${DateTime.now().year}',
+                                    style: TextStyle(
+                                        fontSize: 12, color: Colors.grey[600]),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: SizedBox(
-                          height: 50,
-                          child: ElevatedButton(
-                            onPressed: () => _performCheckIn('manual'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: kButtonColor,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                              elevation: 2,
-                            ),
-                            child: const Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.touch_app, color: kTextColor, size: 14),
-                                SizedBox(height: 2),
-                                Text('Manual', style: TextStyle(color: kTextColor, fontSize: 9, fontWeight: FontWeight.w500)),
-                              ],
-                            ),
+                        const SizedBox(height: 20),
+
+                        SizedBox(
+                          width: 65,
+                          height: 65,
+                          child: Image.asset('assets/images/timer1.png',
+                              fit: BoxFit.contain),
+                        ),
+                        const SizedBox(height: 15),
+
+                        // Timer display
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _buildTimeBox(hours),
+                            const SizedBox(width: 6),
+                            Text(':',
+                                style: TextStyle(
+                                    fontSize: 20,
+                                    color: kButtonColor,
+                                    fontWeight: FontWeight.bold)),
+                            const SizedBox(width: 6),
+                            _buildTimeBox(minutes),
+                            const SizedBox(width: 6),
+                            Text(':',
+                                style: TextStyle(
+                                    fontSize: 20,
+                                    color: kButtonColor,
+                                    fontWeight: FontWeight.bold)),
+                            const SizedBox(width: 6),
+                            _buildTimeBox(seconds),
+                            const SizedBox(width: 12),
+                            Text(isTimerRunning ? 'Work' : 'Hrs',
+                                style: TextStyle(
+                                    fontSize: 14,
+                                    color: kButtonColor,
+                                    fontWeight: FontWeight.w500)),
+                          ],
+                        ),
+
+                        const SizedBox(height: 20),
+
+                        // Shift pill
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: kButtonColor,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            selectedShift,
+                            style: const TextStyle(
+                                color: kTextColor,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500),
                           ),
                         ),
-                      ),
-                    ],
-                  )
-                else
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton(
-                      onPressed: _confirmCheckOut,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFFF6B6B),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        elevation: 2,
-                      ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.logout, color: kTextColor, size: 13),
-                          SizedBox(width: 8),
-                          Text('Check Out', style: TextStyle(color: kTextColor, fontSize: 12, fontWeight: FontWeight.w500)),
+
+                        const SizedBox(height: 16),
+
+                        if (!isCheckedIn) ...[
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SizedBox(
+                                  height: 56,
+                                  child: ElevatedButton.icon(
+                                    onPressed: _authenticateAndCheckIn,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: kButtonColor,
+                                      shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(10)),
+                                      elevation: 2,
+                                    ),
+                                    icon: const Icon(Icons.face, color: kTextColor, size: 18),
+                                    label: const FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: Padding(
+                                        padding: EdgeInsets.symmetric(horizontal: 4.0),
+                                        child: Text(
+                                          'Biometric Check-in',
+                                          style: TextStyle(
+                                              color: kTextColor,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: SizedBox(
+                                  height: 56,
+                                  child: ElevatedButton.icon(
+                                    onPressed: () => _performCheckIn('manual'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: kButtonColor,
+                                      shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(10)),
+                                      elevation: 2,
+                                    ),
+                                    icon: const Icon(Icons.touch_app,
+                                        color: kTextColor, size: 18),
+                                    label: const FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: Padding(
+                                        padding: EdgeInsets.symmetric(horizontal: 4.0),
+                                        child: Text(
+                                          'Manual Check-in',
+                                          style: TextStyle(
+                                              color: kTextColor,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ] else ...[
+                          SizedBox(
+                            width: double.infinity,
+                            height: 56,
+                            child: ElevatedButton.icon(
+                              onPressed: _confirmCheckOut,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFFF6B6B),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10)),
+                                elevation: 2,
+                              ),
+                              icon: const Icon(Icons.logout, color: kTextColor, size: 18),
+                              label: const Text(
+                                'Check Out',
+                                style: TextStyle(
+                                    color: kTextColor,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ),
                         ],
-                      ),
+
+                        const SizedBox(height: 16),
+
+                        SizedBox(height: 8),
+                      ],
                     ),
                   ),
-                const Spacer(),
-              ],
+                );
+              },
             ),
           ),
         ),
@@ -1184,29 +2648,31 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Widget _buildTimeBox(String time) {
-    // No border — just a soft shadow so each box stands out subtly.
     return Container(
-      width: 42,
-      height: 32,
+      width: 46,
+      height: 34,
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: const [
+        borderRadius: BorderRadius.circular(6),
+        border: isTimerRunning
+            ? Border.all(color: Colors.green, width: 2)
+            : Border.all(color: Colors.grey.withOpacity(0.3), width: 1),
+        boxShadow: [
           BoxShadow(
-            color: Color(0x22000000), // gentle shadow
-            blurRadius: 8,
+            color: Colors.grey.withOpacity(0.1),
             spreadRadius: 1,
-            offset: Offset(0, 2),
+            blurRadius: 3,
+            offset: const Offset(0, 1),
           ),
         ],
       ),
       child: Center(
         child: Text(
           time,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 16,
-            fontWeight: FontWeight.w700,
-            color: kButtonColor,
+            fontWeight: FontWeight.bold,
+            color: isTimerRunning ? Colors.green : kButtonColor,
           ),
         ),
       ),
@@ -1214,7 +2680,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   String _getMonthName(int month) {
-    const months = ['', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    const months = [
+      '',
+      'JAN','FEB','MAR','APR','MAY','JUN',
+      'JUL','AUG','SEP','OCT','NOV','DEC'
+    ];
     return months[month];
   }
 
@@ -1224,9 +2694,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       useRootNavigator: true,
       builder: (c) => AlertDialog(
         title: const Text('Check Out'),
-        content: Text('Are you sure you want to check out?\nWork duration: ${hours}h ${minutes}m ${seconds}s'),
+        content: Text(
+          'Are you sure you want to check out?\n'
+          'Work duration: ${hours}h ${minutes}m ${seconds}s',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(c, rootNavigator: true).pop(), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.of(c, rootNavigator: true).pop(),
+              child: const Text('Cancel')),
           TextButton(
             onPressed: () {
               Navigator.of(c, rootNavigator: true).pop();
@@ -1265,9 +2740,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         content: Text(message),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(dialogContext, rootNavigator: true).pop(),
-            child: const Text('OK'),
-          ),
+              onPressed: () =>
+                  Navigator.of(dialogContext, rootNavigator: true).pop(),
+              child: const Text('OK')),
         ],
       ),
     );
@@ -1282,9 +2757,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         content: Text(message),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(dialogContext, rootNavigator: true).pop(),
-            child: const Text('OK'),
-          ),
+              onPressed: () =>
+                  Navigator.of(dialogContext, rootNavigator: true).pop(),
+              child: const Text('OK')),
         ],
       ),
     );
@@ -1299,9 +2774,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         content: Text(message),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(dialogContext, rootNavigator: true).pop(),
-            child: const Text('OK'),
-          ),
+              onPressed: () =>
+                  Navigator.of(dialogContext, rootNavigator: true).pop(),
+              child: const Text('OK')),
         ],
       ),
     );

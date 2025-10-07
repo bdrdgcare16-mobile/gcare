@@ -9,6 +9,9 @@
 // import 'package:serv_app/html_stub.dart'
 //     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
+// // >>> NEW: read token from the same in-memory place as other pages
+// import 'package:serv_app/models/company_data.dart';
+
 // // ===== Theme =====
 // const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 // const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
@@ -17,8 +20,7 @@
 // const Color kTextColor = Colors.white;
 
 // // ===== API base =====
-// const String apiBase =
-//     'https://api-zmj7dqloiq-el.a.run.app/api'; // keep /api here
+// const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api'; // keep /api here
 
 // // ===== Model =====
 // class Employee {
@@ -86,13 +88,53 @@
 
 // // ===== Service =====
 // class EmployeeService {
+//   static bool _looksLikeJwt(String v) =>
+//       RegExp(r'^[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+$')
+//           .hasMatch(v);
+
 //   static String? _readToken() {
-//     final t1 = html.window.localStorage['token'];
-//     if (t1 != null && t1.isNotEmpty) return t1;
-//     final t2 = html.window.localStorage['jwt'];
-//     if (t2 != null && t2.isNotEmpty) return t2;
-//     final t3 = html.window.localStorage['authToken'];
-//     if (t3 != null && t3.isNotEmpty) return t3;
+//     // --- MOST IMPORTANT: app-wide in-memory token (works on Android/iOS) ---
+//     final mem = CompanyData.token;
+//     if (mem != null && mem.isNotEmpty) return mem;
+
+//     // Known keys that might be used on Web builds
+//     const candidates = [
+//       'token',
+//       'jwt',
+//       'authToken',
+//       'access_token',
+//       'accessToken',
+//       'id_token',
+//     ];
+
+//     // localStorage (Web)
+//     for (final k in candidates) {
+//       final v = html.window.localStorage[k];
+//       if (v != null && v.isNotEmpty) return v;
+//     }
+
+//     // sessionStorage (Web)
+//     try {
+//       for (final k in candidates) {
+//         final v = html.window.sessionStorage[k];
+//         if (v != null && v.isNotEmpty) return v;
+//       }
+//     } catch (_) {}
+
+//     // Fallback: scan storages for any JWT-looking value (Web)
+//     try {
+//       for (final k in html.window.localStorage.keys) {
+//         final v = html.window.localStorage[k];
+//         if (v != null && _looksLikeJwt(v)) return v;
+//       }
+//     } catch (_) {}
+//     try {
+//       for (final k in html.window.sessionStorage.keys) {
+//         final v = html.window.sessionStorage[k];
+//         if (v != null && _looksLikeJwt(v)) return v;
+//       }
+//     } catch (_) {}
+
 //     return null;
 //   }
 
@@ -106,41 +148,68 @@
 //     return headers;
 //   }
 
-//   static Future<List<Employee>> fetchEmployees() async {
-//     // NOTE: correct path (no double /api)
-//     final res =
-//         await http.get(Uri.parse('$apiBase/employees'), headers: _headers());
+//   // static Future<List<Employee>> fetchEmployees() async {
+//   //   final res =
+//   //       await http.get(Uri.parse('$apiBase/employees'), headers: _headers());
+//   //
+//   //   if (res.statusCode == 200) {
+//   //     final decoded = jsonDecode(res.body);
+//   //     final List<dynamic> list = decoded is List
+//   //         ? decoded
+//   //         : (decoded is Map<String, dynamic> && decoded['data'] is List)
+//   //             ? decoded['data'] as List
+//   //             : <dynamic>[];
+//   //     return list
+//   //         .map((e) => Employee.fromServer(e as Map<String, dynamic>))
+//   //         .toList();
+//   //   }
+//   //   if (res.statusCode == 404) return <Employee>[];
+//   //   throw Exception('Failed to fetch employees (${res.statusCode}): ${res.body}');
+//   // }
 
-//     if (res.statusCode == 200) {
-//       final decoded = jsonDecode(res.body);
+//   static Future<List<Employee>> fetchEmployees({int limit = 50}) async {
+//     int page = 1;
+//     final List<Employee> all = [];
 
-//       // Accept either a bare list OR { data: [...] }
-//       final List<dynamic> list = decoded is List
-//           ? decoded
-//           : (decoded is Map<String, dynamic> && decoded['data'] is List)
-//               ? decoded['data'] as List
-//               : <dynamic>[];
+//     while (true) {
+//       final url = Uri.parse('$apiBase/employees?page=$page&limit=$limit');
+//       final res = await http.get(url, headers: _headers());
 
-//       return list
-//           .map((e) => Employee.fromServer(e as Map<String, dynamic>))
-//           .toList();
+//       if (res.statusCode == 200) {
+//         final decoded = jsonDecode(res.body);
+//         final List<dynamic> raw = decoded is List
+//             ? decoded
+//             : (decoded is Map<String, dynamic> && decoded['data'] is List)
+//                 ? decoded['data'] as List
+//                 : <dynamic>[];
+
+//         final items = raw
+//             .map((e) => Employee.fromServer(e as Map<String, dynamic>))
+//             .toList();
+//         all.addAll(items);
+
+//         if (items.length < limit) break; // last page
+//         page += 1;
+//         continue;
+//       }
+
+//       if (res.statusCode == 404) break; // no data
+//       throw Exception(
+//           'Failed to fetch employees (${res.statusCode}): ${res.body}');
 //     }
 
-//     if (res.statusCode == 404) return <Employee>[];
-//     throw Exception(
-//         'Failed to fetch employees (${res.statusCode}): ${res.body}');
+//     return all;
 //   }
 
 //   static Future<String> createEmployee(Employee e) async {
 //     final body = jsonEncode(e.toCreateBody());
 //     final res = await http.post(
-//       Uri.parse('$apiBase/employees'), // correct path
+//       Uri.parse('$apiBase/employees'),
 //       headers: _headers(),
 //       body: body,
 //     );
 //     if (res.statusCode == 201) {
 //       final j = jsonDecode(res.body) as Map<String, dynamic>;
-//       // support { id, ... } or { data: { id, ... } }
 //       if (j['id'] != null) return j['id'].toString();
 //       if (j['data'] is Map && (j['data'] as Map)['id'] != null) {
 //         return (j['data'] as Map)['id'].toString();
@@ -153,13 +222,30 @@
 //   static Future<void> updateEmployee(
 //       String docId, Map<String, dynamic> updates) async {
 //     final res = await http.put(
-//       Uri.parse('$apiBase/employees/$docId'), // correct path
+//       Uri.parse('$apiBase/employees/$docId'),
 //       headers: _headers(),
 //       body: jsonEncode(updates),
 //     );
 //     if (res.statusCode != 200) {
 //       throw Exception('Update failed (${res.statusCode}): ${res.body}');
 //     }
+//   }
+
+//   // === fetch shift groups for dropdown ===
+//   static Future<List<String>> fetchShiftGroups() async {
+//     final res =
+//         await http.get(Uri.parse('$apiBase/shifts'), headers: _headers());
+//     if (res.statusCode != 200) {
+//       throw Exception('Failed to load shifts (${res.statusCode})');
+//     }
+//     final list = jsonDecode(res.body) as List<dynamic>;
+//     final names = <String>[];
+//     for (final it in list) {
+//       final m = it as Map<String, dynamic>;
+//       final n = (m['name'] ?? m['shiftname'] ?? '').toString().trim();
+//       if (n.isNotEmpty) names.add(n);
+//     }
+//     return names;
 //   }
 // }
 
@@ -204,9 +290,8 @@
 //     });
 //   }
 
-//   int countStatus(String status) => employees
-//       .where((e) => e.status.toLowerCase() == status.toLowerCase())
-//       .length;
+//   int countStatus(String status) =>
+//       employees.where((e) => e.status.toLowerCase() == status.toLowerCase()).length;
 
 //   Widget statButton(String label, int count, Color color) {
 //     return SizedBox(
@@ -216,8 +301,7 @@
 //         style: ElevatedButton.styleFrom(
 //           backgroundColor: color,
 //           foregroundColor: kTextColor,
-//           shape:
-//               RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+//           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
 //           padding: EdgeInsets.zero,
 //         ),
 //         onPressed: () {},
@@ -247,8 +331,7 @@
 //         toolbarHeight: 50,
 //         backgroundColor: kAppBarColor,
 //         foregroundColor: Colors.white,
-//         leading: IconButton(
-//             icon: const Icon(Icons.arrow_back, size: 0), onPressed: () {}),
+//         leading: IconButton(icon: const Icon(Icons.arrow_back, size: 0), onPressed: () {}),
 //         titleSpacing: 0,
 //         title: const Text("Employee Management",
 //             style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
@@ -283,23 +366,20 @@
 //                   onPressed: () async {
 //                     final result = await Navigator.push<Employee>(
 //                       context,
-//                       MaterialPageRoute(
-//                           builder: (_) => const CreateEmployeeScreen()),
+//                       MaterialPageRoute(builder: (_) => const CreateEmployeeScreen()),
 //                     );
 //                     if (result != null) {
 //                       try {
 //                         await EmployeeService.createEmployee(result);
 //                         await _loadEmployees();
 //                         if (context.mounted) {
-//                           ScaffoldMessenger.of(context).showSnackBar(
-//                             const SnackBar(content: Text('Employee created.')),
-//                           );
+//                           ScaffoldMessenger.of(context)
+//                               .showSnackBar(const SnackBar(content: Text('Employee created.')));
 //                         }
 //                       } catch (e) {
 //                         if (context.mounted) {
-//                           ScaffoldMessenger.of(context).showSnackBar(
-//                             SnackBar(content: Text('Create failed: $e')),
-//                           );
+//                           ScaffoldMessenger.of(context)
+//                               .showSnackBar(SnackBar(content: Text('Create failed: $e')));
 //                         }
 //                       }
 //                     }
@@ -308,11 +388,9 @@
 //                     backgroundColor: kButtonColor,
 //                     foregroundColor: kTextColor,
 //                     minimumSize: const Size(120, 36),
-//                     shape: RoundedRectangleBorder(
-//                         borderRadius: BorderRadius.circular(20)),
+//                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
 //                   ),
-//                   child: const Text("Create Employee",
-//                       style: TextStyle(fontSize: 12)),
+//                   child: const Text("Create Employee", style: TextStyle(fontSize: 12)),
 //                 ),
 //                 const SizedBox(height: 10),
 //                 ElevatedButton(
@@ -326,11 +404,9 @@
 //                     backgroundColor: kButtonColor,
 //                     foregroundColor: kTextColor,
 //                     minimumSize: const Size(120, 36),
-//                     shape: RoundedRectangleBorder(
-//                         borderRadius: BorderRadius.circular(20)),
+//                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
 //                   ),
-//                   child: const Text("Create Report Scheduler",
-//                       style: TextStyle(fontSize: 12)),
+//                   child: const Text("Create Report Scheduler", style: TextStyle(fontSize: 12)),
 //                 ),
 //               ],
 //             ),
@@ -344,8 +420,7 @@
 //                   hintText: 'Search',
 //                   filled: true,
 //                   fillColor: Colors.white,
-//                   border: OutlineInputBorder(
-//                       borderRadius: BorderRadius.circular(10)),
+//                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
 //                 ),
 //               ),
 //             ),
@@ -358,67 +433,20 @@
 //                     children: [
 //                       Container(
 //                         color: Colors.grey[300],
-//                         padding: const EdgeInsets.symmetric(
-//                             horizontal: 12, vertical: 8),
+//                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
 //                         child: const Row(
 //                           children: [
-//                             Expanded(
-//                                 flex: 4,
-//                                 child: Text("ID",
-//                                     style: TextStyle(
-//                                         fontWeight: FontWeight.bold))),
-//                             Expanded(
-//                                 flex: 6,
-//                                 child: Text("Name",
-//                                     style: TextStyle(
-//                                         fontWeight: FontWeight.bold))),
-//                             Expanded(
-//                                 flex: 8,
-//                                 child: Text("Email",
-//                                     style: TextStyle(
-//                                         fontWeight: FontWeight.bold))),
-//                             Expanded(
-//                                 flex: 7,
-//                                 child: Text("Mobile",
-//                                     style: TextStyle(
-//                                         fontWeight: FontWeight.bold))),
-//                             Expanded(
-//                                 flex: 6,
-//                                 child: Text("Shift Group",
-//                                     style: TextStyle(
-//                                         fontWeight: FontWeight.bold))),
-//                             Expanded(
-//                                 flex: 6,
-//                                 child: Text("Location",
-//                                     style: TextStyle(
-//                                         fontWeight: FontWeight.bold))),
-//                             Expanded(
-//                                 flex: 6,
-//                                 child: Text("Department",
-//                                     style: TextStyle(
-//                                         fontWeight: FontWeight.bold))),
-//                             Expanded(
-//                                 flex: 6,
-//                                 child: Text("Designation",
-//                                     style: TextStyle(
-//                                         fontWeight: FontWeight.bold))),
-//                             Expanded(
-//                                 flex: 4,
-//                                 child: Text("Status",
-//                                     style: TextStyle(
-//                                         fontWeight: FontWeight.bold))),
-//                             Expanded(
-//                                 flex: 5,
-//                                 child: Center(
-//                                     child: Text("Delete",
-//                                         style: TextStyle(
-//                                             fontWeight: FontWeight.bold)))),
-//                             Expanded(
-//                                 flex: 5,
-//                                 child: Center(
-//                                     child: Text("Edit",
-//                                         style: TextStyle(
-//                                             fontWeight: FontWeight.bold)))),
+//                             Expanded(flex: 4, child: Text("ID", style: TextStyle(fontWeight: FontWeight.bold))),
+//                             Expanded(flex: 6, child: Text("Name", style: TextStyle(fontWeight: FontWeight.bold))),
+//                             Expanded(flex: 8, child: Text("Email", style: TextStyle(fontWeight: FontWeight.bold))),
+//                             Expanded(flex: 7, child: Text("Mobile", style: TextStyle(fontWeight: FontWeight.bold))),
+//                             Expanded(flex: 6, child: Text("Shift Group", style: TextStyle(fontWeight: FontWeight.bold))),
+//                             Expanded(flex: 6, child: Text("Location", style: TextStyle(fontWeight: FontWeight.bold))),
+//                             Expanded(flex: 6, child: Text("Department", style: TextStyle(fontWeight: FontWeight.bold))),
+//                             Expanded(flex: 6, child: Text("Designation", style: TextStyle(fontWeight: FontWeight.bold))),
+//                             Expanded(flex: 4, child: Text("Status", style: TextStyle(fontWeight: FontWeight.bold))),
+//                             Expanded(flex: 5, child: Center(child: Text("Delete", style: TextStyle(fontWeight: FontWeight.bold)))),
+//                             Expanded(flex: 5, child: Center(child: Text("Edit", style: TextStyle(fontWeight: FontWeight.bold)))),
 //                           ],
 //                         ),
 //                       ),
@@ -429,8 +457,7 @@
 //                             final e = filtered[i];
 //                             return Container(
 //                               color: Colors.white,
-//                               padding: const EdgeInsets.symmetric(
-//                                   vertical: 6, horizontal: 10),
+//                               padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
 //                               child: Row(
 //                                 crossAxisAlignment: CrossAxisAlignment.center,
 //                                 children: [
@@ -447,15 +474,11 @@
 //                                     flex: 5,
 //                                     child: Center(
 //                                       child: IconButton(
-//                                         icon: const Icon(Icons.delete,
-//                                             color: Colors.red),
+//                                         icon: const Icon(Icons.delete, color: Colors.red),
 //                                         onPressed: () {
 //                                           setState(() {
-//                                             employees.removeWhere((emp) =>
-//                                                 emp.docId == e.docId ||
-//                                                 emp.id == e.id);
-//                                             updateFiltered(
-//                                                 searchController.text);
+//                                             employees.removeWhere((emp) => emp.docId == e.docId || emp.id == e.id);
+//                                             updateFiltered(searchController.text);
 //                                           });
 //                                         },
 //                                       ),
@@ -465,44 +488,33 @@
 //                                     flex: 5,
 //                                     child: Center(
 //                                       child: IconButton(
-//                                         icon: const Icon(Icons.edit,
-//                                             color: Colors.blue),
+//                                         icon: const Icon(Icons.edit, color: Colors.blue),
 //                                         onPressed: () async {
-//                                           final edited =
-//                                               await Navigator.push<Employee>(
+//                                           final edited = await Navigator.push<Employee>(
 //                                             context,
 //                                             MaterialPageRoute(
-//                                               builder: (_) =>
-//                                                   CreateEmployeeScreen(
-//                                                       editEmployee: e),
+//                                               builder: (_) => CreateEmployeeScreen(editEmployee: e),
 //                                             ),
 //                                           );
 //                                           if (edited != null) {
 //                                             if (e.docId != null) {
 //                                               try {
-//                                                 await EmployeeService
-//                                                     .updateEmployee(e.docId!, {
+//                                                 await EmployeeService.updateEmployee(e.docId!, {
 //                                                   'name': edited.name,
 //                                                   'empid': edited.id,
 //                                                   'email': edited.email,
 //                                                   'phone': edited.mobile,
 //                                                   'location': edited.location,
 //                                                   'dept': edited.dept,
-//                                                   'designation':
-//                                                       edited.designation,
-//                                                   'shiftGroup':
-//                                                       edited.shiftGroup,
-//                                                   'status': edited.status
-//                                                       .toLowerCase(),
+//                                                   'designation': edited.designation,
+//                                                   'shiftGroup': edited.shiftGroup,
+//                                                   'status': edited.status.toLowerCase(),
 //                                                 });
 //                                                 await _loadEmployees();
 //                                               } catch (err) {
 //                                                 if (context.mounted) {
-//                                                   ScaffoldMessenger.of(context)
-//                                                       .showSnackBar(
-//                                                     SnackBar(
-//                                                         content: Text(
-//                                                             'Update failed: $err')),
+//                                                   ScaffoldMessenger.of(context).showSnackBar(
+//                                                     SnackBar(content: Text('Update failed: $err')),
 //                                                   );
 //                                                 }
 //                                               }
@@ -554,13 +566,10 @@
 //   String status = 'Active';
 //   String dialCode = '+91';
 
-//   final List<String> shiftOptions = [
-//     'GCC Shift 1',
-//     'General Shift 2',
-//     'Open Shift',
-//     'Shift',
-//     'General shift2',
-//   ];
+//   // === dynamic shift groups pulled from API ===
+//   List<String> _shiftOptions = [];
+//   bool _shiftsLoading = false;
+//   String? _shiftsError;
 
 //   @override
 //   void initState() {
@@ -576,6 +585,29 @@
 //       dept.text = emp.dept;
 //       desig.text = emp.designation;
 //       status = emp.status;
+//     }
+//     _loadShiftGroups();
+//   }
+
+//   Future<void> _loadShiftGroups() async {
+//     setState(() {
+//       _shiftsLoading = true;
+//       _shiftsError = null;
+//     });
+//     try {
+//       final list = await EmployeeService.fetchShiftGroups();
+//       setState(() {
+//         _shiftOptions = list;
+//         _shiftsLoading = false;
+//         if (shiftgroup.text.isNotEmpty && !_shiftOptions.contains(shiftgroup.text)) {
+//           _shiftOptions = [shiftgroup.text, ..._shiftOptions];
+//         }
+//       });
+//     } catch (e) {
+//       setState(() {
+//         _shiftsError = 'Failed to load shifts';
+//         _shiftsLoading = false;
+//       });
 //     }
 //   }
 
@@ -627,20 +659,16 @@
 //         },
 //         decoration: InputDecoration(
 //           label: RichText(
-//             text: TextSpan(
+//             text: const TextSpan(
 //               text: "Password",
 //               style: TextStyle(color: Colors.black),
-//               children: [
-//                 TextSpan(text: ' *', style: TextStyle(color: Colors.red))
-//               ],
+//               children: [TextSpan(text: ' *', style: TextStyle(color: Colors.red))],
 //             ),
 //           ),
 //           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
 //           suffixIcon: IconButton(
-//             icon: Icon(
-//                 _obscurePassword ? Icons.visibility_off : Icons.visibility),
-//             onPressed: () =>
-//                 setState(() => _obscurePassword = !_obscurePassword),
+//             icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
+//             onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
 //           ),
 //         ),
 //       ),
@@ -648,27 +676,35 @@
 //   }
 
 //   Widget shiftDropdownField() {
+//     if (_shiftsLoading) {
+//       return const Padding(
+//         padding: EdgeInsets.symmetric(vertical: 6),
+//         child: LinearProgressIndicator(minHeight: 2),
+//       );
+//     }
+//     final error = _shiftsError;
+//     final options = _shiftOptions;
 //     return Padding(
 //       padding: const EdgeInsets.symmetric(vertical: 6),
 //       child: DropdownButtonFormField<String>(
-//         initialValue: shiftgroup.text.isNotEmpty ? shiftgroup.text : null,
-//         items: shiftOptions
-//             .map((value) =>
-//                 DropdownMenuItem<String>(value: value, child: Text(value)))
+//         isExpanded: true,
+//         initialValue: shiftgroup.text.isNotEmpty && options.contains(shiftgroup.text)
+//             ? shiftgroup.text
+//             : null,
+//         items: options
+//             .map((value) => DropdownMenuItem<String>(value: value, child: Text(value)))
 //             .toList(),
 //         onChanged: (value) => setState(() => shiftgroup.text = value ?? ''),
-//         validator: (value) =>
-//             value == null || value.isEmpty ? 'Required' : null,
+//         validator: (value) => (value == null || value.isEmpty) ? 'Required' : null,
 //         decoration: InputDecoration(
 //           label: RichText(
-//             text: TextSpan(
+//             text: const TextSpan(
 //               text: 'Shift Group',
 //               style: TextStyle(color: Colors.black),
-//               children: [
-//                 TextSpan(text: ' *', style: TextStyle(color: Colors.red))
-//               ],
+//               children: [TextSpan(text: ' *', style: TextStyle(color: Colors.red))],
 //             ),
 //           ),
+//           helperText: (error != null) ? error : null,
 //           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
 //         ),
 //       ),
@@ -722,17 +758,12 @@
 //                 formField("Email", email, type: TextInputType.emailAddress),
 //                 IntlPhoneField(
 //                   decoration: InputDecoration(
-//                     border: OutlineInputBorder(
-//                         borderRadius: BorderRadius.circular(10)),
-//                     label: RichText(
-//                       text: TextSpan(
+//                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+//                     label: const Text.rich(
+//                       TextSpan(
 //                         text: 'Mobile',
 //                         style: TextStyle(color: Colors.black, fontSize: 16),
-//                         children: [
-//                           TextSpan(
-//                               text: ' *',
-//                               style: TextStyle(color: Colors.red, fontSize: 16))
-//                         ],
+//                         children: [TextSpan(text: ' *', style: TextStyle(color: Colors.red, fontSize: 16))],
 //                       ),
 //                     ),
 //                   ),
@@ -770,16 +801,13 @@
 //                   children: [
 //                     ElevatedButton(
 //                       onPressed: () => Navigator.pop(context),
-//                       style: ElevatedButton.styleFrom(
-//                           backgroundColor: Colors.grey),
+//                       style: ElevatedButton.styleFrom(backgroundColor: Colors.grey),
 //                       child: const Text("Cancel"),
 //                     ),
 //                     ElevatedButton(
 //                       onPressed: submit,
-//                       style: ElevatedButton.styleFrom(
-//                           backgroundColor: Colors.green),
-//                       child: Text(
-//                           widget.editEmployee == null ? "Create" : "Update"),
+//                       style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+//                       child: Text(widget.editEmployee == null ? "Create" : "Update"),
 //                     ),
 //                   ],
 //                 ),
@@ -801,6 +829,9 @@ import 'report_scheduler_page.dart';
 // ignore: avoid_web_libraries_in_flutter
 import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
+
+// >>> NEW: read token from the same in-memory place as other pages
+import 'package:serv_app/models/company_data.dart';
 
 // ===== Theme =====
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -878,13 +909,53 @@ class Employee {
 
 // ===== Service =====
 class EmployeeService {
+  static bool _looksLikeJwt(String v) =>
+      RegExp(r'^[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+$')
+          .hasMatch(v);
+
   static String? _readToken() {
-    final t1 = html.window.localStorage['token'];
-    if (t1 != null && t1.isNotEmpty) return t1;
-    final t2 = html.window.localStorage['jwt'];
-    if (t2 != null && t2.isNotEmpty) return t2;
-    final t3 = html.window.localStorage['authToken'];
-    if (t3 != null && t3.isNotEmpty) return t3;
+    // --- MOST IMPORTANT: app-wide in-memory token (works on Android/iOS) ---
+    final mem = CompanyData.token;
+    if (mem != null && mem.isNotEmpty) return mem;
+
+    // Known keys that might be used on Web builds
+    const candidates = [
+      'token',
+      'jwt',
+      'authToken',
+      'access_token',
+      'accessToken',
+      'id_token',
+    ];
+
+    // localStorage (Web)
+    for (final k in candidates) {
+      final v = html.window.localStorage[k];
+      if (v != null && v.isNotEmpty) return v;
+    }
+
+    // sessionStorage (Web)
+    try {
+      for (final k in candidates) {
+        final v = html.window.sessionStorage[k];
+        if (v != null && v.isNotEmpty) return v;
+      }
+    } catch (_) {}
+
+    // Fallback: scan storages for any JWT-looking value (Web)
+    try {
+      for (final k in html.window.localStorage.keys) {
+        final v = html.window.localStorage[k];
+        if (v != null && _looksLikeJwt(v)) return v;
+      }
+    } catch (_) {}
+    try {
+      for (final k in html.window.sessionStorage.keys) {
+        final v = html.window.sessionStorage[k];
+        if (v != null && _looksLikeJwt(v)) return v;
+      }
+    } catch (_) {}
+
     return null;
   }
 
@@ -898,28 +969,38 @@ class EmployeeService {
     return headers;
   }
 
-  static Future<List<Employee>> fetchEmployees() async {
-    final res =
-        await http.get(Uri.parse('$apiBase/employees'), headers: _headers());
+  static Future<List<Employee>> fetchEmployees({int limit = 50}) async {
+    int page = 1;
+    final List<Employee> all = [];
 
-    if (res.statusCode == 200) {
-      final decoded = jsonDecode(res.body);
+    while (true) {
+      final url = Uri.parse('$apiBase/employees?page=$page&limit=$limit');
+      final res = await http.get(url, headers: _headers());
 
-      // Accept either a bare list OR { data: [...] }
-      final List<dynamic> list = decoded is List
-          ? decoded
-          : (decoded is Map<String, dynamic> && decoded['data'] is List)
-              ? decoded['data'] as List
-              : <dynamic>[];
+      if (res.statusCode == 200) {
+        final decoded = jsonDecode(res.body);
+        final List<dynamic> raw = decoded is List
+            ? decoded
+            : (decoded is Map<String, dynamic> && decoded['data'] is List)
+                ? decoded['data'] as List
+                : <dynamic>[];
 
-      return list
-          .map((e) => Employee.fromServer(e as Map<String, dynamic>))
-          .toList();
+        final items = raw
+            .map((e) => Employee.fromServer(e as Map<String, dynamic>))
+            .toList();
+        all.addAll(items);
+
+        if (items.length < limit) break; // last page
+        page += 1;
+        continue;
+      }
+
+      if (res.statusCode == 404) break; // no data
+      throw Exception(
+          'Failed to fetch employees (${res.statusCode}): ${res.body}');
     }
 
-    if (res.statusCode == 404) return <Employee>[];
-    throw Exception(
-        'Failed to fetch employees (${res.statusCode}): ${res.body}');
+    return all;
   }
 
   static Future<String> createEmployee(Employee e) async {
@@ -952,7 +1033,7 @@ class EmployeeService {
     }
   }
 
-  // === NEW: fetch shift groups for dropdown ===
+  // === fetch shift groups for dropdown ===
   static Future<List<String>> fetchShiftGroups() async {
     final res =
         await http.get(Uri.parse('$apiBase/shifts'), headers: _headers());
@@ -960,7 +1041,6 @@ class EmployeeService {
       throw Exception('Failed to load shifts (${res.statusCode})');
     }
     final list = jsonDecode(res.body) as List<dynamic>;
-    // Prefer `name`, fall back to `shiftname`
     final names = <String>[];
     for (final it in list) {
       final m = it as Map<String, dynamic>;
@@ -968,6 +1048,17 @@ class EmployeeService {
       if (n.isNotEmpty) names.add(n);
     }
     return names;
+  }
+
+  // >>> NEW: delete employee by Firestore document id
+  static Future<void> deleteEmployeeById(String docId) async {
+    final res = await http.delete(
+      Uri.parse('$apiBase/employees/$docId'),
+      headers: _headers(),
+    );
+    if (res.statusCode != 200) {
+      throw Exception('Delete failed (${res.statusCode}): ${res.body}');
+    }
   }
 }
 
@@ -1192,20 +1283,62 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
                                   _cell(e.dept, flex: 6),
                                   _cell(e.designation, flex: 6),
                                   _cell(e.status, flex: 4),
+
+                                  // >>> UPDATED DELETE BUTTON
                                   Expanded(
                                     flex: 5,
                                     child: Center(
                                       child: IconButton(
                                         icon: const Icon(Icons.delete, color: Colors.red),
-                                        onPressed: () {
-                                          setState(() {
-                                            employees.removeWhere((emp) => emp.docId == e.docId || emp.id == e.id);
-                                            updateFiltered(searchController.text);
-                                          });
+                                        onPressed: () async {
+                                          final idToDelete = e.docId;
+                                          if (idToDelete == null || idToDelete.isEmpty) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              const SnackBar(content: Text('Missing server id for this employee')),
+                                            );
+                                            return;
+                                          }
+
+                                          final sure = await showDialog<bool>(
+                                            context: context,
+                                            builder: (ctx) => AlertDialog(
+                                              title: const Text('Delete employee?'),
+                                              content: Text('This will permanently delete ${e.name}.'),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () => Navigator.pop(ctx, false),
+                                                  child: const Text('Cancel'),
+                                                ),
+                                                ElevatedButton(
+                                                  onPressed: () => Navigator.pop(ctx, true),
+                                                  child: const Text('Delete'),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+
+                                          if (sure != true) return;
+
+                                          try {
+                                            await EmployeeService.deleteEmployeeById(idToDelete);
+                                            await _loadEmployees();
+                                            if (context.mounted) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(content: Text('Employee deleted')),
+                                              );
+                                            }
+                                          } catch (err) {
+                                            if (context.mounted) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                SnackBar(content: Text('Delete failed: $err')),
+                                              );
+                                            }
+                                          }
                                         },
                                       ),
                                     ),
                                   ),
+
                                   Expanded(
                                     flex: 5,
                                     child: Center(
@@ -1288,7 +1421,7 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
   String status = 'Active';
   String dialCode = '+91';
 
-  // === NEW: dynamic shift groups pulled from API ===
+  // === dynamic shift groups pulled from API ===
   List<String> _shiftOptions = [];
   bool _shiftsLoading = false;
   String? _shiftsError;
@@ -1321,7 +1454,6 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
       setState(() {
         _shiftOptions = list;
         _shiftsLoading = false;
-        // If editing and existing value not in list, keep it visible
         if (shiftgroup.text.isNotEmpty && !_shiftOptions.contains(shiftgroup.text)) {
           _shiftOptions = [shiftgroup.text, ..._shiftOptions];
         }

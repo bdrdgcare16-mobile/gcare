@@ -27,14 +27,20 @@
 //     _loadAll(adjustForType: true);
 //   }
 
+//   // ── helpers ────────────────────────────────────────────────────────────────
+
 //   bool _isOtherLocationTab(String label) {
 //     final t = label.trim().toLowerCase();
 //     return t == 'other location' || t == 'other_location';
 //   }
 
+//   /// Map UI tab → API `type` query value (what your backend expects)
 //   String _apiTypeForTab(String ui) {
 //     final t = ui.trim().toLowerCase();
-//     if (t == 'other location' || t == 'other_location') return 'Other Location';
+//     if (t == 'other location' || t == 'other_location') {
+//       // We won’t pass this to fetchApprovals(); other-location uses its own API.
+//       return 'Other Location';
+//     }
 //     switch (t) {
 //       case 'late check in':
 //         return 'attendance:late_check_in';
@@ -64,27 +70,48 @@
 //     return input.trim();
 //   }
 
+//   /// Heuristic to decide if a row is attendance, leaves, or other_location.
 //   String _sourceFromItemOrTab(Map<String, dynamic> item) {
+//     // Explicit source wins.
 //     final s = (item['source'] ?? '').toString().toLowerCase();
 //     if (s == 'attendance' || s == 'leaves' || s == 'other_location') return s;
 
+//     // The tab can force it.
 //     if (_isOtherLocationTab(selectedTab)) return 'other_location';
 
+//     // Type/category hints.
 //     final typeStr =
 //         (item['type'] ?? item['category'] ?? '').toString().toLowerCase();
-//     if (typeStr.contains('other') && typeStr.contains('location')) return 'other_location';
-//     if (typeStr.contains('late') || typeStr.contains('early')) return 'attendance';
+//     if (typeStr.contains('other') && typeStr.contains('location')) {
+//       return 'other_location';
+//     }
+//     if (typeStr.contains('late') || typeStr.contains('early')) {
+//       return 'attendance';
+//     }
 //     if (typeStr.contains('leave') ||
 //         typeStr.contains('permission') ||
 //         typeStr.contains('overtime') ||
-//         typeStr.contains('half')) return 'leaves';
+//         typeStr.contains('half')) {
+//       return 'leaves';
+//     }
 
+//     // Field-based hints (covers All tab where type looks like check-in/out):
+//     // Any of these are strong signals of otherLocation docs.
 //     if (item.containsKey('withinRadius') ||
 //         item.containsKey('expectedLatitude') ||
-//         item.containsKey('otherLocation')) return 'other_location';
+//         item.containsKey('expectedLongitude') ||
+//         item.containsKey('distanceFromBranch') ||
+//         item.containsKey('requestLocation') ||
+//         item.containsKey('otherLocation') ||
+//         (item.containsKey('latitude') && item.containsKey('longitude'))) {
+//       return 'other_location';
+//     }
+
+//     // Attendance fall-back.
 //     return 'attendance';
 //   }
 
+//   // ✅ Only allow navigation for: Other Location, Late Check-In, Early Check-Out
 //   bool _isRowTappable(Map<String, dynamic> item) {
 //     if (_isOtherLocationTab(selectedTab)) return true;
 
@@ -116,6 +143,7 @@
 //     final requestDate =
 //         pickStr(['requestDate', 'date', 'startDate', 'selectDate'], fallback: '');
 
+//     // Only the selected fields get shown
 //     return <String, dynamic>{
 //       'type': pickStr(['type', 'category'], fallback: '-'),
 //       'empid': pickStr(['empid', 'empId', 'employeeId'], fallback: '-'),
@@ -125,15 +153,21 @@
 //       'requestTime': requestTime,
 //       'requestDate': requestDate,
 //       'reason': pickStr(['reason', 'otherLocation'], fallback: '-'),
-//       'location': pickStr(['location'], fallback: '-'),
+//       'location': pickStr(['location', 'requestLocation'], fallback: '-'),
 //       'branchName': pickStr(['branchName', 'branchLocation'], fallback: '-'),
 //       'status': pickStr(['status', 'approvalStatus'], fallback: 'Pending'),
 //     };
 //   }
 
+//   // 🔧 Prefer otherLocId first to avoid mixing ids between sources
 //   String _pickAnyId(Map<String, dynamic> item) {
 //     for (final k in [
-//       'requestId', 'id', 'docId', 'attendanceId', 'leaveId', 'otherLocId',
+//       'otherLocId',      // moved to the front
+//       'requestId',
+//       'id',
+//       'docId',
+//       'attendanceId',
+//       'leaveId',
 //     ]) {
 //       final v = item[k]?.toString();
 //       if (v != null && v.trim().isNotEmpty) return v;
@@ -147,7 +181,12 @@
 //   ) async {
 //     Map<String, dynamic> details = {};
 //     try {
-//       final src = _sourceFromItemOrTab(backendItem);
+//       // Decide source; if user is on Other Location tab, force that source.
+//       String src = _sourceFromItemOrTab(backendItem);
+//       if (_isOtherLocationTab(selectedTab)) {
+//         src = 'other_location';
+//       }
+
 //       if (src == 'attendance' || src == 'other_location') {
 //         final id = _pickAnyId(backendItem);
 //         String empid =
@@ -159,14 +198,13 @@
 //         if (id.isNotEmpty) {
 //           details = await ApiService.fetchRequestDetails(
 //             id: id,
-//             src: (src == 'other_location') ? 'other_location' : 'attendance',
+//             src: src, // <- correct source now
 //           );
 //         } else if (empid.isNotEmpty && date.isNotEmpty) {
 //           details = await ApiService.fetchRequestDetails(empid: empid, date: date);
 //         }
 //       }
 //     } catch (e) {
-//       // non-fatal; UI will still open with whatever data we have
 //       debugPrint('fetchRequestDetails failed: $e');
 //     }
 
@@ -209,14 +247,28 @@
 //     }
 //   }
 
+//   /// Fetch rows for a given tab+status.
+//   Future<List<Map<String, dynamic>>> _fetchByTabAndStatus(
+//       String tab, String status) async {
+//     // For OTHER LOCATION: use the dedicated endpoint so only otherLocation docs are returned.
+//     if (_isOtherLocationTab(tab)) {
+//       debugPrint('[Approvals] OTHER-LOCATION  STATUS="$status"');
+//       return ApiService.fetchOtherLocation(status: status);
+//     }
+
+//     // All other tabs go through the aggregator with mapped type.
+//     final apiType = _apiTypeForTab(tab);
+//     debugPrint('[Approvals] TAB="$tab"  STATUS="$status"  type="$apiType"');
+//     return ApiService.fetchApprovals(type: apiType, status: status);
+//   }
+
 //   Future<void> _loadAll({bool adjustForType = false}) async {
 //     setState(() => _loading = true);
 //     try {
-//       final apiType = _apiTypeForTab(selectedTab);
-
-//       final pending  = await ApiService.fetchApprovals(type: apiType, status: 'Pending');
-//       final approved = await ApiService.fetchApprovals(type: apiType, status: 'Approved');
-//       final rejected = await ApiService.fetchApprovals(type: apiType, status: 'Rejected');
+//       // Pull counts & rows per status for the current tab.
+//       final pending  = await _fetchByTabAndStatus(selectedTab, 'Pending');
+//       final approved = await _fetchByTabAndStatus(selectedTab, 'Approved');
+//       final rejected = await _fetchByTabAndStatus(selectedTab, 'Rejected');
 
 //       final newPendingCount = pending.length;
 //       final newApprovedCount = approved.length;
@@ -228,8 +280,9 @@
 //             (nextStatus == 'Approved' && newApprovedCount == 0) ||
 //             (nextStatus == 'Rejected' && newRejectedCount == 0);
 //         if (emptyNow) {
-//           if (newPendingCount > 0) nextStatus = 'Pending';
-//           else if (newApprovedCount > 0) nextStatus = 'Approved';
+//           if (newPendingCount > 0) {
+//             nextStatus = 'Pending';
+//           } else if (newApprovedCount > 0) nextStatus = 'Approved';
 //           else if (newRejectedCount > 0) nextStatus = 'Rejected';
 //         }
 //       }
@@ -271,6 +324,8 @@
 //   void _snack(String msg) =>
 //       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
 
+//   // ── UI ─────────────────────────────────────────────────────────────────────
+
 //   @override
 //   Widget build(BuildContext context) {
 //     const kAppBarColor = Color(0xFF8C6EAF);
@@ -279,6 +334,7 @@
 
 //     final today = DateFormat('dd MMM yyyy').format(DateTime.now());
 
+//     // Build display list with only selected fields; support search
 //     final displayList = _rows.map(_toDisplay).toList();
 //     final q = searchController.text.toLowerCase();
 
@@ -398,7 +454,7 @@
 //                           final tappable = _isRowTappable(backendItem);
 
 //                           final card = LeaveCard(
-//                             item: viewItem,
+//                             item: viewItem, // only selected fields shown
 //                             onStatusChange: (status) async {
 //                               try {
 //                                 final normalized = _normalizeDecision(status);
@@ -560,6 +616,11 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     // The tab can force it.
     if (_isOtherLocationTab(selectedTab)) return 'other_location';
 
+    // If a leaveType field is present, it's definitely leaves.
+    if ((item['leaveType'] ?? item['leave type'] ?? item['leave_type']) != null) {
+      return 'leaves';
+    }
+
     // Type/category hints.
     final typeStr =
         (item['type'] ?? item['category'] ?? '').toString().toLowerCase();
@@ -576,8 +637,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
       return 'leaves';
     }
 
-    // Field-based hints (covers All tab where type looks like check-in/out):
-    // Any of these are strong signals of otherLocation docs.
+    // Field-based hints:
     if (item.containsKey('withinRadius') ||
         item.containsKey('expectedLatitude') ||
         item.containsKey('expectedLongitude') ||
@@ -611,6 +671,170 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     return isLateIn || isEarlyOut;
   }
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // LEAVE SUBTYPE HELPERS
+  // ───────────────────────────────────────────────────────────────────────────
+
+  String _stringOf(Map<String, dynamic> it, List<String> keys) {
+    for (final k in keys) {
+      final v = it[k];
+      if (v is String && v.trim().isNotEmpty) return v.trim();
+    }
+    return '';
+  }
+
+  String _leaveTypeOf(Map<String, dynamic> it) {
+    return _stringOf(it, [
+      'leave type', 'leaveType', 'leave_type',
+      'leaveCategory', 'leave_category',
+      'category', 'type'
+    ]);
+  }
+
+  bool _looksPermission(Map<String, dynamic> it) {
+    final lt = _leaveTypeOf(it).toLowerCase();
+    final rsn = (it['reason'] ?? '').toString().toLowerCase();
+    return lt == 'permission time' || lt == 'permission' || rsn.contains('permission');
+  }
+
+  bool _looksOvertime(Map<String, dynamic> it) {
+    final lt = _leaveTypeOf(it).toLowerCase();
+    final rsn = (it['reason'] ?? '').toString().toLowerCase();
+    return lt == 'overtime' || lt == 'over time' || rsn.contains('overtime') || rsn.contains('over time');
+  }
+
+  bool _looksHalfday(Map<String, dynamic> it) {
+    final lt = _leaveTypeOf(it).toLowerCase();
+    final rsn = (it['reason'] ?? '').toString().toLowerCase();
+    return lt == 'half-day' || lt == 'half day' || lt == 'halfday' ||
+        (rsn.contains('half') && rsn.contains('day'));
+  }
+
+  bool _looksCompoff(Map<String, dynamic> it) {
+    final lt = _leaveTypeOf(it).toLowerCase();
+    final rsn = (it['reason'] ?? '').toString().toLowerCase();
+    return lt == 'comp off' || lt == 'compoff' || lt == 'comp-off' ||
+        rsn.contains('comp off') || rsn.contains('compoff');
+  }
+
+  bool _isSpecificSubtype(Map<String, dynamic> it) {
+    return _looksPermission(it) || _looksOvertime(it) || _looksHalfday(it) || _looksCompoff(it);
+  }
+
+  /// NEW: map Firestore leaveType → **UI label used in dropdown/tabs**
+  String _uiLabelForLeaveType(Map<String, dynamic> it) {
+    if (_looksPermission(it)) return 'Permission';
+    if (_looksOvertime(it)) return 'Over Time';
+    if (_looksHalfday(it)) return 'Half Day Leave';
+    if (_looksCompoff(it)) return 'Comp Off';
+    // anything else (Casual/Planned/Sick/etc.) shows under generic "Leave Type"
+    return 'Leave Type';
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // UPDATED FILTER:
+  // - For the 4 specific tabs, also FILTER CLIENT-SIDE by leaveType.
+  // - For "Leave Type" tab, EXCLUDE those 4 subtypes.
+  // ───────────────────────────────────────────────────────────────────────────
+  List<Map<String, dynamic>> _filterByTabSmart(
+      List<Map<String, dynamic>> items, String tab) {
+    final t = tab.trim().toLowerCase();
+
+    if (t == 'permission') {
+      return items.where(_looksPermission).toList();
+    }
+    if (t == 'over time') {
+      return items.where(_looksOvertime).toList();
+    }
+    if (t == 'half day leave') {
+      return items.where(_looksHalfday).toList();
+    }
+    if (t == 'comp off') {
+      return items.where(_looksCompoff).toList();
+    }
+
+    if (t == 'leave type') {
+      return items.where((it) => !_isSpecificSubtype(it)).toList();
+    }
+
+    // All / other tabs unchanged.
+    return items;
+  }
+
+  /// Fetch rows for a given tab+status.
+  Future<List<Map<String, dynamic>>> _fetchByTabAndStatus(
+      String tab, String status) async {
+    if (_isOtherLocationTab(tab)) {
+      final data = await ApiService.fetchOtherLocation(status: status);
+      return _filterByTabSmart(data, tab);
+    }
+
+    final apiType = _apiTypeForTab(tab);
+    final data = await ApiService.fetchApprovals(type: apiType, status: status);
+    return _filterByTabSmart(data, tab);
+  }
+
+  Future<void> _loadAll({bool adjustForType = false}) async {
+    setState(() => _loading = true);
+    try {
+      final pending  = await _fetchByTabAndStatus(selectedTab, 'Pending');
+      final approved = await _fetchByTabAndStatus(selectedTab, 'Approved');
+      final rejected = await _fetchByTabAndStatus(selectedTab, 'Rejected');
+
+      final newPendingCount = pending.length;
+      final newApprovedCount = approved.length;
+      final newRejectedCount = rejected.length;
+
+      String nextStatus = selectedStatusFilter;
+      if (adjustForType) {
+        final emptyNow = (nextStatus == 'Pending' && newPendingCount == 0) ||
+            (nextStatus == 'Approved' && newApprovedCount == 0) ||
+            (nextStatus == 'Rejected' && newRejectedCount == 0);
+        if (emptyNow) {
+          if (newPendingCount > 0) nextStatus = 'Pending';
+          else if (newApprovedCount > 0) nextStatus = 'Approved';
+          else if (newRejectedCount > 0) nextStatus = 'Rejected';
+        }
+      }
+
+      List<Map<String, dynamic>> current;
+      switch (nextStatus) {
+        case 'Approved':
+          current = approved;
+          break;
+        case 'Rejected':
+          current = rejected;
+          break;
+        case 'Pending':
+        default:
+          current = pending;
+          break;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _cPending = newPendingCount;
+        _cApproved = newApprovedCount;
+        _cRejected = newRejectedCount;
+        selectedStatusFilter = nextStatus;
+        _rows = current;
+      });
+    } catch (e) {
+      _snack('Failed to fetch approvals: $e');
+      if (!mounted) return;
+      setState(() {
+        _rows = [];
+        _cPending = _cApproved = _cRejected = 0;
+      });
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _snack(String msg) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+
+  // Turn raw backend item into values for the card
   Map<String, dynamic> _toDisplay(Map<String, dynamic> item) {
     String pickStr(List keys, {String fallback = '-'}) {
       for (final k in keys) {
@@ -624,9 +848,13 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     final requestDate =
         pickStr(['requestDate', 'date', 'startDate', 'selectDate'], fallback: '');
 
-    // Only the selected fields get shown
+    // Show the right UI label in the card based on leaveType
+    final typeLabel = _sourceFromItemOrTab(item) == 'leaves'
+        ? _uiLabelForLeaveType(item)
+        : pickStr(['type', 'category'], fallback: '-');
+
     return <String, dynamic>{
-      'type': pickStr(['type', 'category'], fallback: '-'),
+      'type': typeLabel,
       'empid': pickStr(['empid', 'empId', 'employeeId'], fallback: '-'),
       'department': pickStr(['department', 'dept'], fallback: '-'),
       'name': pickStr(['name', 'employeeName'], fallback: '-'),
@@ -643,7 +871,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
   // 🔧 Prefer otherLocId first to avoid mixing ids between sources
   String _pickAnyId(Map<String, dynamic> item) {
     for (final k in [
-      'otherLocId',      // moved to the front
+      'otherLocId',
       'requestId',
       'id',
       'docId',
@@ -662,7 +890,6 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
   ) async {
     Map<String, dynamic> details = {};
     try {
-      // Decide source; if user is on Other Location tab, force that source.
       String src = _sourceFromItemOrTab(backendItem);
       if (_isOtherLocationTab(selectedTab)) {
         src = 'other_location';
@@ -677,10 +904,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
         if (date.length > 10) date = date.substring(0, 10);
 
         if (id.isNotEmpty) {
-          details = await ApiService.fetchRequestDetails(
-            id: id,
-            src: src, // <- correct source now
-          );
+          details = await ApiService.fetchRequestDetails(id: id, src: src);
         } else if (empid.isNotEmpty && date.isNotEmpty) {
           details = await ApiService.fetchRequestDetails(empid: empid, date: date);
         }
@@ -728,83 +952,6 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     }
   }
 
-  /// Fetch rows for a given tab+status.
-  Future<List<Map<String, dynamic>>> _fetchByTabAndStatus(
-      String tab, String status) async {
-    // For OTHER LOCATION: use the dedicated endpoint so only otherLocation docs are returned.
-    if (_isOtherLocationTab(tab)) {
-      debugPrint('[Approvals] OTHER-LOCATION  STATUS="$status"');
-      return ApiService.fetchOtherLocation(status: status);
-    }
-
-    // All other tabs go through the aggregator with mapped type.
-    final apiType = _apiTypeForTab(tab);
-    debugPrint('[Approvals] TAB="$tab"  STATUS="$status"  type="$apiType"');
-    return ApiService.fetchApprovals(type: apiType, status: status);
-  }
-
-  Future<void> _loadAll({bool adjustForType = false}) async {
-    setState(() => _loading = true);
-    try {
-      // Pull counts & rows per status for the current tab.
-      final pending  = await _fetchByTabAndStatus(selectedTab, 'Pending');
-      final approved = await _fetchByTabAndStatus(selectedTab, 'Approved');
-      final rejected = await _fetchByTabAndStatus(selectedTab, 'Rejected');
-
-      final newPendingCount = pending.length;
-      final newApprovedCount = approved.length;
-      final newRejectedCount = rejected.length;
-
-      String nextStatus = selectedStatusFilter;
-      if (adjustForType) {
-        final emptyNow = (nextStatus == 'Pending' && newPendingCount == 0) ||
-            (nextStatus == 'Approved' && newApprovedCount == 0) ||
-            (nextStatus == 'Rejected' && newRejectedCount == 0);
-        if (emptyNow) {
-          if (newPendingCount > 0) {
-            nextStatus = 'Pending';
-          } else if (newApprovedCount > 0) nextStatus = 'Approved';
-          else if (newRejectedCount > 0) nextStatus = 'Rejected';
-        }
-      }
-
-      List<Map<String, dynamic>> current;
-      switch (nextStatus) {
-        case 'Approved':
-          current = approved;
-          break;
-        case 'Rejected':
-          current = rejected;
-          break;
-        case 'Pending':
-        default:
-          current = pending;
-          break;
-      }
-
-      if (!mounted) return;
-      setState(() {
-        _cPending = newPendingCount;
-        _cApproved = newApprovedCount;
-        _cRejected = newRejectedCount;
-        selectedStatusFilter = nextStatus;
-        _rows = current;
-      });
-    } catch (e) {
-      _snack('Failed to fetch approvals: $e');
-      if (!mounted) return;
-      setState(() {
-        _rows = [];
-        _cPending = _cApproved = _cRejected = 0;
-      });
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  void _snack(String msg) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-
   // ── UI ─────────────────────────────────────────────────────────────────────
 
   @override
@@ -815,7 +962,6 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
 
     final today = DateFormat('dd MMM yyyy').format(DateTime.now());
 
-    // Build display list with only selected fields; support search
     final displayList = _rows.map(_toDisplay).toList();
     final q = searchController.text.toLowerCase();
 
@@ -935,7 +1081,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                           final tappable = _isRowTappable(backendItem);
 
                           final card = LeaveCard(
-                            item: viewItem, // only selected fields shown
+                            item: viewItem,
                             onStatusChange: (status) async {
                               try {
                                 final normalized = _normalizeDecision(status);

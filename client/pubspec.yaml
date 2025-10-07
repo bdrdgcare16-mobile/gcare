@@ -80,18 +80,68 @@ dependencies:
 
   # Status-bar notification for the foreground service (Android 13+ permission too)
   flutter_local_notifications: ^19.4.2
-
+  connectivity_plus: ^6.0.5
+  internet_connection_checker_plus: ^2.3.0
+  share_plus: ^12.0.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.4.1
+
+flutter_launcher_icons:
+  # Generate icons for both platforms
+  android: "ic_launcher"
+  ios: true
+
+  min_sdk_android: 21
+
+  # Base image used by iOS and as a fallback
+  image_path: "assets/images/loginlogo.png"
+
+  # Adaptive icons (Android 8+)
+  adaptive_icon_foreground: "assets/images/loginlogo.png"
+  adaptive_icon_background: "#FFFFFF"
+
+# Splash screen configuration
+flutter_native_splash:
+  # Basic settings
+  color: "#FFFFFF"  # White background
+  color_dark: "#FFFFFF"  # White background for dark mode
+  
+  # Image settings - using the same logo as login page
+  image: assets/images/loginlogo.png
+  image_dark: assets/images/loginlogo.png
+  
+  # Android settings
+  android: true
+  android_gravity: center
+  
+  # iOS settings
+  ios: true
+  ios_content_mode: scaleAspectFit
+  
+  # Android 12+ specific settings
+  android_12:
+    color: "#FFFFFF"
+    color_dark: "#FFFFFF"
+    image: assets/images/loginlogo.png
+    image_dark: assets/images/loginlogo.png
+    
+  # Optional: Adjust the size of the splash screen logo
+  # web: false  # Disable web splash screen if not needed
+    
+  # Web settings (if needed)
+  web: false
 
 flutter:
   uses-material-design: true
 
   assets:
     - assets/images/
+    - assets/icons/
 
   fonts:
     - family: Inter

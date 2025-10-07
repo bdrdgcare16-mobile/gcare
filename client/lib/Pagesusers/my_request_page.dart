@@ -79,6 +79,10 @@ class _MyRequestPageState extends State<MyRequestPage> {
     final fromText = _fmtDate(selectedDate);
 
     return Scaffold(
+      // ✅ Use a real AppBar so it matches the global theme everywhere
+      appBar: AppBar(
+        title: const Text('My Request'),
+      ),
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -88,33 +92,12 @@ class _MyRequestPageState extends State<MyRequestPage> {
           ),
         ),
         child: SafeArea(
+          top: false, // AppBar already handles the top inset
           child: Padding(
             padding: const EdgeInsets.all(16.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header with back
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 15, horizontal: 20),
-                  decoration: BoxDecoration(
-                    color: kAppBarColor,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: GestureDetector(
-                    onTap: () => Navigator.pop(context),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.arrow_back, color: kTextColor),
-                        SizedBox(width: 10),
-                        Text("My Request", style: TextStyle(fontSize: 18, color: kTextColor)),
-                      ],
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
                 // Date + Status filters
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,

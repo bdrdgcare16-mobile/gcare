@@ -159,6 +159,14 @@ class _ApplyHalfDayFormState extends State<ApplyHalfDayForm> {
         body: jsonEncode(body),
       );
 
+      // ──────────────── CHANGED: friendly message handling ────────────────
+      Map<String, dynamic>? j;
+      try {
+        j = jsonDecode(response.body) as Map<String, dynamic>?;
+      } catch (_) {
+        j = null;
+      }
+
       if (response.statusCode == 201) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -171,19 +179,22 @@ class _ApplyHalfDayFormState extends State<ApplyHalfDayForm> {
           replaceWorkDate = null;
           reasonController.clear();
         });
-      } else if (response.statusCode == 403) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Forbidden: Employees only')),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '❌ Submission Failed: ${response.statusCode} ${response.body}',
-            ),
-          ),
-        );
+        return;
       }
+
+      // Backend may return 200 with {"message": "..."} for overlap/duplicate.
+      if (response.statusCode == 200 && (j?['message'] is String)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(j!['message'] as String)),
+        );
+        return;
+      }
+
+      // Other errors: show clean text only (no status code / raw JSON)
+      final msg =
+          (j?['error'] ?? j?['message'] ?? 'Something went wrong').toString();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      // ─────────────────────────────────────────────────────────────────────
     } catch (e) {
       ScaffoldMessenger.of(
         context,

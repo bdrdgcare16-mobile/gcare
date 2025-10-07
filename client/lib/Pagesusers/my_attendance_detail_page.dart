@@ -174,18 +174,18 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
     final shiftName = get<String>(['shiftName', 'shift_name']) ?? '';
     final shiftGroup = _shiftGroup; // from /api/attendance/me
 
-    // Status (server value — will be overridden if check-in exists)
-    String status = get<String>(['status', 'attendanceStatus']) ?? '-';
-
     // Check-in/out (NO fallback to shift end)
     final checkIn = parseDT(get(['checkIn', 'check_in', 'inTime', 'firstCheckIn']));
     final checkOut = parseDT(get(['checkOut', 'check_out', 'outTime', 'lastCheckOut']));
 
-    // 🔒 OVERRIDE RULE:
-    // If there is a check-in time, ALWAYS treat as Present
-    // (even if the backend marks Holiday/WeekOff/etc.)
+    // Status determination
+    String status;
     if (checkIn != null) {
+      // If there's a check-in, it's always Present
       status = 'Present';
+    } else {
+      // If no check-in, check the status from server
+      status = get<String>(['status', 'attendanceStatus']) ?? 'Absent';
     }
 
     // Permission / OT minutes (optional)
@@ -350,6 +350,22 @@ class _ShiftCard extends StatelessWidget {
   final String shiftGroup;
   final String totalHoursText;
 
+  Color _getStatusColor(String status) {
+    final statusLower = status.toLowerCase();
+    if (statusLower.contains('present')) {
+      return Colors.green.shade700; // Green for present
+    } else if (statusLower.contains('absent')) {
+      return Colors.pink.shade200; // Light pink for absent
+    } else if (statusLower.contains('leave')) {
+      return Colors.orange.shade700; // Orange for leave
+    } else if (statusLower.contains('week off') || statusLower.contains('holiday')) {
+      return Colors.blue.shade700; // Blue for week off/holiday
+    } else if (statusLower.contains('half') && statusLower.contains('day')) {
+      return Colors.amber.shade700; // Amber for half day
+    }
+    return Colors.grey.shade700; // Default grey for unknown status
+  }
+
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
@@ -414,7 +430,7 @@ class _ShiftCard extends StatelessWidget {
                         value: statusText,
                         valueStyle: textTheme.bodyMedium?.copyWith(
                           fontWeight: FontWeight.w700,
-                          color: Colors.green.shade700,
+                          color: _getStatusColor(statusText),
                         ),
                       ),
                     ),
