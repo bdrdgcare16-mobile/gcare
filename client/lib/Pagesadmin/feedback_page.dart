@@ -390,15 +390,6 @@ class _FeedbackPageState extends State<FeedbackPage> {
                     ? Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const SizedBox(height: 10),
-                          const Text(
-                            'Submitted Feedback',
-                            style: TextStyle(
-                              fontSize: 26,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black,
-                            ),
-                          ),
                           const SizedBox(height: 20),
                           Text(_error!,
                               style: const TextStyle(color: Colors.red)),

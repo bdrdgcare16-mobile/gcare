@@ -285,8 +285,7 @@
 //                 style: ElevatedButton.styleFrom(backgroundColor: kAppBarColor),
 //                 onPressed: sending ? null : () => sendOtp(setDlgState),
 //                 child: sending
-//                     ? const _ArcLoader(
-//                         size: 20, color: Colors.white, strokeWidth: 2)
+//                     ? const _ArcLoader(size: 20, color: Colors.white, strokeWidth: 2)
 //                     : const Text("Send OTP",
 //                         style: TextStyle(color: kTextColor)),
 //               ),
@@ -327,8 +326,7 @@
 //                 style: ElevatedButton.styleFrom(backgroundColor: kAppBarColor),
 //                 onPressed: verifying ? null : () => verifyOtp(setDlgState),
 //                 child: verifying
-//                     ? const _ArcLoader(
-//                         size: 20, color: Colors.white, strokeWidth: 2)
+//                     ? const _ArcLoader(size: 20, color: Colors.white, strokeWidth: 2)
 //                     : const Text("Verify OTP",
 //                         style: TextStyle(color: kTextColor)),
 //               ),
@@ -379,8 +377,7 @@
 //                 style: ElevatedButton.styleFrom(backgroundColor: kAppBarColor),
 //                 onPressed: resetting ? null : () => resetPassword(setDlgState),
 //                 child: resetting
-//                     ? const _ArcLoader(
-//                         size: 20, color: Colors.white, strokeWidth: 2)
+//                     ? const _ArcLoader(size: 20, color: Colors.white, strokeWidth: 2)
 //                     : const Text("Submit", style: TextStyle(color: kTextColor)),
 //               ),
 //             ];
@@ -461,18 +458,18 @@
 
 //             if (exists) {
 //               if (!mounted) return;
-//               Navigator.pushReplacement(
-//                 context,
-//                 MaterialPageRoute(
-//                   builder: (_) => AdminDashboard(
-//                     companyProfile: CompanyProfile(
-//                       name: (companyData['companyName'] ?? '').toString(),
-//                       adminName: (companyData['adminName'] ?? '').toString(),
-//                       logoUrl: companyData['logoUrl']?.toString(),
-//                     ),
-//                   ),
-//                 ),
-//               );
+// Navigator.of(context).pushAndRemoveUntil(
+//   MaterialPageRoute(builder: (_) => AdminDashboard(
+//     companyProfile: CompanyProfile(
+//       name: (companyData['companyName'] ?? '').toString(),
+//       adminName: (companyData['adminName'] ?? '').toString(),
+//       logoUrl: companyData['logoUrl']?.toString(),
+//     ),
+//   )),
+//   (route) => false,
+// );
+
+
 //             } else {
 //               if (!mounted) return;
 //               Navigator.pushReplacement(
@@ -572,16 +569,16 @@
 //           if (docId.isNotEmpty) await _persist('userDocId', docId);
 
 //           if (!mounted) return;
-//           Navigator.pushReplacement(
-//             context,
-//             MaterialPageRoute(
-//               builder: (_) => HomeScreen(
-//                 userName:
-//                     nameSeed.isNotEmpty ? nameSeed : email.split('@').first,
-//                 employeeDocId: docId,
-//               ),
-//             ),
-//           );
+// Navigator.of(context).pushAndRemoveUntil(
+//   MaterialPageRoute(
+//     builder: (_) => HomeScreen(
+//       userName: nameSeed.isNotEmpty ? nameSeed : email.split('@').first,
+//       employeeDocId: docId,
+//     ),
+//   ),
+//   (route) => false,
+// );
+
 //         }
 //       } else {
 //         final msg =
@@ -631,25 +628,16 @@
 //                         mainAxisSize: MainAxisSize.min,
 //                         children: [
 //                           const SizedBox(height: 10),
-//                           // Logo container matching splash screen
-//                           Padding(
-//                             padding: const EdgeInsets.only(
-//                                 top: 40.0), // Add top padding
-//                             child: SizedBox(
-//                               width: 120, // Larger container
-//                               height: 120, // Larger container
-//                               child: Center(
-//                                 child: ClipRRect(
-//                                   borderRadius: BorderRadius.circular(20), // Adjust the radius as needed
-//                                   child: Image.asset(
-//                                     'assets/images/loginlogo.png',
-//                                     fit: BoxFit.contain,
-//                                     width: 150, // Larger image
-//                                     height: 150, // Larger image
-//                                   ),
-//                                 ),
-//                               ),
+//                           Container(
+//                             height: 70,
+//                             width: 70,
+//                             decoration: BoxDecoration(
+//                               color: kPrimaryBackgroundBottom,
+//                               borderRadius: BorderRadius.circular(16),
 //                             ),
+//                             clipBehavior: Clip.antiAlias,
+//                             child: Image.asset('assets/images/loginlogo.png',
+//                                 fit: BoxFit.cover),
 //                           ),
 //                           const SizedBox(height: 10),
 //                           const Text('Sign In',
@@ -761,8 +749,7 @@
 //                                     borderRadius: BorderRadius.circular(8)),
 //                               ),
 //                               child: _isEmpLoading
-//                                   ? const _ArcLoader(
-//                                       size: 22, color: Colors.white)
+//                                   ? const _ArcLoader(size: 22, color: Colors.white)
 //                                   : const Text("Sign in as employee",
 //                                       style: TextStyle(color: kTextColor)),
 //                             ),
@@ -783,8 +770,7 @@
 //                                     borderRadius: BorderRadius.circular(8)),
 //                               ),
 //                               child: _isAdminLoading
-//                                   ? const _ArcLoader(
-//                                       size: 22, color: Colors.white)
+//                                   ? const _ArcLoader(size: 22, color: Colors.white)
 //                                   : const Text("Sign in as admin",
 //                                       style: TextStyle(color: kTextColor)),
 //                             ),
@@ -831,6 +817,7 @@
 //   @override
 //   void initState() {
 //     super.initState();
+    
 //     _c = AnimationController(
 //       vsync: this,
 //       duration: const Duration(milliseconds: 900),
@@ -902,6 +889,12 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:jwt_decoder/jwt_decoder.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+// ⬇️ NEW: permission + biometric + intents + gps
+import 'package:permission_handler/permission_handler.dart';
+import 'package:local_auth/local_auth.dart';
+import 'package:android_intent_plus/android_intent.dart';
+import 'package:geolocator/geolocator.dart';
 
 // Web localStorage shim
 import 'package:serv_app/html_stub.dart'
@@ -1292,6 +1285,88 @@ class _LoginPageState extends State<LoginPage> {
     });
   }
 
+  // ---------- PERMISSION FLOW (NEW) ----------
+  Future<void> _showPermissionIntroThenRequest() async {
+    // 1) Your own explanatory dialog first
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: const Text('We need your permission'),
+        content: const Text(
+          'SERV uses biometrics for secure check-in and location (including background during shifts) '
+          'to record attendance accurately. Notifications are used for important alerts.\n\n'
+          'You can change these anytime in Settings.'
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context), // Not now → continue without blocking
+            child: const Text('Not now'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: kAppBarColor),
+            onPressed: () async {
+              Navigator.pop(context); // close intro
+              await _requestAllPermissions(); // system prompts
+            },
+            child: const Text('Turn on', style: TextStyle(color: kTextColor)),
+          ),
+        ],
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+    );
+  }
+
+  Future<void> _requestAllPermissions() async {
+    // Biometric (optional enrollment/availability)
+    final localAuth = LocalAuthentication();
+    try {
+      final canBio = await localAuth.canCheckBiometrics;
+      final supported = await localAuth.isDeviceSupported();
+      dev.log('Biometric supported: $supported canCheck: $canBio');
+      // You can optionally call authenticate here.
+      // await localAuth.authenticate(localizedReason: 'Enable biometric check-in');
+    } catch (e) {
+      dev.log('Biometric check error: $e');
+    }
+
+    // Foreground location
+    var fg = await Permission.locationWhenInUse.status;
+    if (!fg.isGranted) {
+      fg = await Permission.locationWhenInUse.request();
+    }
+
+    // Background location (ask only after foreground is granted)
+    if (fg.isGranted) {
+      var bg = await Permission.locationAlways.status;
+      if (bg.isDenied || bg.isRestricted) {
+        bg = await Permission.locationAlways.request();
+      }
+    }
+
+    // Notifications (Android 13+)
+    var note = await Permission.notification.status;
+    if (!note.isGranted && !note.isPermanentlyDenied) {
+      await Permission.notification.request();
+    }
+
+    // Offer battery optimization settings (Android)
+    try {
+      const intent = AndroidIntent(
+        action: 'android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS',
+      );
+      await intent.launch();
+    } catch (e) {
+      dev.log('Battery optimization settings open error: $e');
+    }
+
+    // Ensure GPS is ON
+    final gpsOn = await Geolocator.isLocationServiceEnabled();
+    if (!gpsOn && mounted) {
+      _showSnack('Please enable Device Location (GPS) for accurate check-in.');
+    }
+  }
+
   // ---------- LOGIN ----------
   Future<void> _login({required bool isAdmin}) async {
     if (!_formKey.currentState!.validate()) return;
@@ -1353,18 +1428,16 @@ class _LoginPageState extends State<LoginPage> {
 
             if (exists) {
               if (!mounted) return;
-Navigator.of(context).pushAndRemoveUntil(
-  MaterialPageRoute(builder: (_) => AdminDashboard(
-    companyProfile: CompanyProfile(
-      name: (companyData['companyName'] ?? '').toString(),
-      adminName: (companyData['adminName'] ?? '').toString(),
-      logoUrl: companyData['logoUrl']?.toString(),
-    ),
-  )),
-  (route) => false,
-);
-
-
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => AdminDashboard(
+                  companyProfile: CompanyProfile(
+                    name: (companyData['companyName'] ?? '').toString(),
+                    adminName: (companyData['adminName'] ?? '').toString(),
+                    logoUrl: companyData['logoUrl']?.toString(),
+                  ),
+                )),
+                (route) => false,
+              );
             } else {
               if (!mounted) return;
               Navigator.pushReplacement(
@@ -1463,17 +1536,21 @@ Navigator.of(context).pushAndRemoveUntil(
 
           if (docId.isNotEmpty) await _persist('userDocId', docId);
 
-          if (!mounted) return;
-Navigator.of(context).pushAndRemoveUntil(
-  MaterialPageRoute(
-    builder: (_) => HomeScreen(
-      userName: nameSeed.isNotEmpty ? nameSeed : email.split('@').first,
-      employeeDocId: docId,
-    ),
-  ),
-  (route) => false,
-);
+          // ⬇️ NEW: Immediately show permission intro + system prompts (employee)
+          if (mounted) {
+            await _showPermissionIntroThenRequest();
+          }
 
+          if (!mounted) return;
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(
+              builder: (_) => HomeScreen(
+                userName: nameSeed.isNotEmpty ? nameSeed : email.split('@').first,
+                employeeDocId: docId,
+              ),
+            ),
+            (route) => false,
+          );
         }
       } else {
         final msg =
@@ -1531,7 +1608,7 @@ Navigator.of(context).pushAndRemoveUntil(
                               borderRadius: BorderRadius.circular(16),
                             ),
                             clipBehavior: Clip.antiAlias,
-                            child: Image.asset('assets/images/loginlogo.png',
+                            child: Image.asset('assets/images/splash_logo.png',
                                 fit: BoxFit.cover),
                           ),
                           const SizedBox(height: 10),

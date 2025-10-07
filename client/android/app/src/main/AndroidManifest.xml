@@ -21,7 +21,7 @@
 
     <application
         android:name="${applicationName}"
-        android:label="serv_app"
+        android:label="SERV"
         android:icon="@mipmap/ic_launcher">
 
         <activity

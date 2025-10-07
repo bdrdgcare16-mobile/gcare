@@ -99,41 +99,35 @@ flutter_launcher_icons:
   min_sdk_android: 21
 
   # Base image used by iOS and as a fallback
-  image_path: "assets/images/loginlogo.png"
+  image_path: "assets/images/splash_logo.png"
 
   # Adaptive icons (Android 8+)
-  adaptive_icon_foreground: "assets/images/loginlogo.png"
-  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/images/splash_logo.png"
+  adaptive_icon_background: "#00000000"
 
 # Splash screen configuration
 flutter_native_splash:
   # Basic settings
-  color: "#FFFFFF"  # White background
-  color_dark: "#FFFFFF"  # White background for dark mode
+  color: "#FFFFFF"            # BLACK background (changed)
+  color_dark: "#FFFFFF"       # BLACK in dark mode (changed)
   
-  # Image settings - using the same logo as login page
-  image: assets/images/loginlogo.png
-  image_dark: assets/images/loginlogo.png
-  
-  # Android settings
+  # Image settings
+  image: assets/images/splash_logo.png
   android: true
   android_gravity: center
-  
-  # iOS settings
-  ios: true
-  ios_content_mode: scaleAspectFit
+  fullscreen: false
   
   # Android 12+ specific settings
   android_12:
-    color: "#FFFFFF"
-    color_dark: "#FFFFFF"
-    image: assets/images/loginlogo.png
-    image_dark: assets/images/loginlogo.png
+    image: assets/images/splash_logo.png
+    icon_background_color: "#FFFFFF"   # BLACK behind icon (changed)
+    android_gravity: center
     
-  # Optional: Adjust the size of the splash screen logo
-  # web: false  # Disable web splash screen if not needed
-    
-  # Web settings (if needed)
+  # iOS settings
+  ios: true
+  ios_content_mode: center
+  
+  # Web settings (disable if not needed)
   web: false
 
 flutter:

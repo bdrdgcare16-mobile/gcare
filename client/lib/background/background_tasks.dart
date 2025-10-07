@@ -556,9 +556,9 @@ void _onStart(ServiceInstance service) async {
 
       if (service is AndroidServiceInstance) {
         await service.setForegroundNotificationInfo(
-          title: 'SERV App',
+          title: 'SERV',
           content:
-              'Tracking ${p.latitude.toStringAsFixed(5)}, ${p.longitude.toStringAsFixed(5)}',
+              "Location Service Activated ",
         );
       }
     } catch (e) {

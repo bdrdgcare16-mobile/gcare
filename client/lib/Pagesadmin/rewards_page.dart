@@ -205,16 +205,6 @@ class _RewardsPageState extends State<RewardsPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(height: 20),
-                  const Center(
-                    child: Text(
-                      'Rewards',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Color.fromARGB(255, 5, 3, 3),
-                      ),
-                    ),
-                  ),
                   const SizedBox(height: 20),
 
                   // 🔽 Form (UI unchanged)

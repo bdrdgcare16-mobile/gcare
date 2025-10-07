@@ -570,29 +570,34 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     final t = label.trim().toLowerCase();
     return t == 'other location' || t == 'other_location';
   }
-
   /// Map UI tab → API `type` query value (what your backend expects)
   String _apiTypeForTab(String ui) {
     final t = ui.trim().toLowerCase();
+    print('Getting API type for UI tab: $t');
+    
     if (t == 'other location' || t == 'other_location') {
-      // We won’t pass this to fetchApprovals(); other-location uses its own API.
+      // We won't pass this to fetchApprovals(); other-location uses its own API.
       return 'Other Location';
     }
+    
+    // Special case: If the tab is one of our special types, we'll do client-side filtering
+    if (t == 'permission' || t == 'over time' || t == 'half day leave' || t == 'comp off' || t == 'leave type') {
+      print('Using client-side filtering for tab: $t');
+      return 'Leave Type';  // This matches the 'type' in your database
+    }
+    
+    // For other cases, use the existing mapping
     switch (t) {
       case 'late check in':
         return 'attendance:late_check_in';
       case 'early check out':
         return 'attendance:early_check_out';
-      case 'permission':
-        return 'leave:permission';
-      case 'over time':
-        return 'leave:overtime';
-      case 'half day leave':
-        return 'leave:halfday';
-      case 'comp off':
-        return 'leave:compoff';
-      case 'leave type':
-        return 'leave:any';
+      case 'casual leave':
+        return 'Casual Leave';
+      case 'planned leave':
+        return 'Planned Leave';
+      case 'sick leave':
+        return 'Sick Leave';
       case 'all':
       default:
         return 'all';
@@ -684,42 +689,71 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
   }
 
   String _leaveTypeOf(Map<String, dynamic> it) {
-    return _stringOf(it, [
+    final leaveType = _stringOf(it, [
       'leave type', 'leaveType', 'leave_type',
       'leaveCategory', 'leave_category',
       'category', 'type'
     ]);
+    if (leaveType.isNotEmpty) {
+      print('Found leave type: "$leaveType" in item: ${it.toString()}');
+    } else {
+      print('No leave type found in item, available keys: ${it.keys.toList()}');
+    }
+    return leaveType;
   }
 
   bool _looksPermission(Map<String, dynamic> it) {
-    final lt = _leaveTypeOf(it).toLowerCase();
+    final lt = _leaveTypeOf(it);
+    final ltLower = lt.toLowerCase();
     final rsn = (it['reason'] ?? '').toString().toLowerCase();
-    return lt == 'permission time' || lt == 'permission' || rsn.contains('permission');
+    final isMatch = ltLower == 'permission time' || ltLower == 'permission' || 
+                   ltLower == 'permission_time' || rsn.contains('permission');
+    if (isMatch) {
+      print('Permission match - Type: "$lt", Reason: "$rsn"');
+    }
+    return isMatch;
   }
 
   bool _looksOvertime(Map<String, dynamic> it) {
-    final lt = _leaveTypeOf(it).toLowerCase();
+    final lt = _leaveTypeOf(it);
+    final ltLower = lt.toLowerCase();
     final rsn = (it['reason'] ?? '').toString().toLowerCase();
-    return lt == 'overtime' || lt == 'over time' || rsn.contains('overtime') || rsn.contains('over time');
+    final isMatch = ltLower == 'overtime' || ltLower == 'over time' || 
+                   ltLower == 'over_time' || rsn.contains('overtime') || 
+                   rsn.contains('over time');
+    if (isMatch) {
+      print('Overtime match - Type: "$lt", Reason: "$rsn"');
+    }
+    return isMatch;
   }
 
   bool _looksHalfday(Map<String, dynamic> it) {
-    final lt = _leaveTypeOf(it).toLowerCase();
+    final lt = _leaveTypeOf(it);
+    final ltLower = lt.toLowerCase();
     final rsn = (it['reason'] ?? '').toString().toLowerCase();
-    return lt == 'half-day' || lt == 'half day' || lt == 'halfday' ||
-        (rsn.contains('half') && rsn.contains('day'));
+    final isMatch = ltLower == 'half-day' || ltLower == 'half day' || 
+                   ltLower == 'halfday' || ltLower == 'half_day' || 
+                   (rsn.contains('half') && rsn.contains('day'));
+    if (isMatch) {
+      print('Half day match - Type: "$lt", Reason: "$rsn"');
+    }
+    return isMatch;
   }
 
   bool _looksCompoff(Map<String, dynamic> it) {
-    final lt = _leaveTypeOf(it).toLowerCase();
+    final lt = _leaveTypeOf(it);
+    final ltLower = lt.toLowerCase();
     final rsn = (it['reason'] ?? '').toString().toLowerCase();
-    return lt == 'comp off' || lt == 'compoff' || lt == 'comp-off' ||
-        rsn.contains('comp off') || rsn.contains('compoff');
+    final isMatch = ltLower == 'comp off' || ltLower == 'compoff' || 
+                   ltLower == 'comp-off' || ltLower == 'comp_off' || 
+                   rsn.contains('comp off') || rsn.contains('compoff');
+    if (isMatch) {
+      print('Comp off match - Type: "$lt", Reason: "$rsn"');
+    }
+    return isMatch;
   }
 
-  bool _isSpecificSubtype(Map<String, dynamic> it) {
-    return _looksPermission(it) || _looksOvertime(it) || _looksHalfday(it) || _looksCompoff(it);
-  }
+  // Removed _isSpecificSubtype as it's no longer needed
 
   /// NEW: map Firestore leaveType → **UI label used in dropdown/tabs**
   String _uiLabelForLeaveType(Map<String, dynamic> it) {
@@ -739,39 +773,127 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
   List<Map<String, dynamic>> _filterByTabSmart(
       List<Map<String, dynamic>> items, String tab) {
     final t = tab.trim().toLowerCase();
+    print('Filtering ${items.length} items for tab: $t');
 
-    if (t == 'permission') {
-      return items.where(_looksPermission).toList();
-    }
-    if (t == 'over time') {
-      return items.where(_looksOvertime).toList();
-    }
-    if (t == 'half day leave') {
-      return items.where(_looksHalfday).toList();
-    }
-    if (t == 'comp off') {
-      return items.where(_looksCompoff).toList();
+    // First, filter by the tab type if it's a specific leave type
+    if (t == 'permission' || t == 'over time' || t == 'half day leave' || t == 'comp off') {
+      // For these tabs, we need to check the reason field to determine the type
+      final result = items.where((item) {
+        final reason = (item['reason'] ?? '').toString().toLowerCase();
+        final type = (item['type'] ?? '').toString().toLowerCase();
+        
+        if (t == 'permission') {
+          // Check for permission in both type and reason fields
+          final isPermission = 
+              type.contains('permission') ||
+              reason.contains('permission') ||
+              reason == 'permission' ||
+              (reason.isNotEmpty && reason.length < 20);
+              
+          if (isPermission) {
+            print('Found permission leave - Type: $type, Reason: "$reason"');
+          }
+          return isPermission;
+        } else if (t == 'over time') {
+          final isOvertime = type.contains('overtime') || 
+                            type.contains('over time') ||
+                            reason.contains('overtime') || 
+                            reason.contains('over time');
+          if (isOvertime) {
+            print('Found overtime leave - Type: $type, Reason: "$reason"');
+          }
+          return isOvertime;
+        } else if (t == 'half day leave') {
+          // Check for various ways half-day leave might be represented
+          final isHalfDay = 
+              (type.contains('half') && type.contains('day')) ||
+              type.contains('half-day') ||
+              type.contains('halfday') ||
+              type.contains('half day') ||
+              (reason.contains('half') && reason.contains('day')) ||
+              reason.contains('half-day') ||
+              reason.contains('halfday') ||
+              reason.contains('half day');
+          
+          if (isHalfDay) {
+            print('Found half day leave - Type: $type, Reason: "$reason"');
+          }
+          return isHalfDay;
+        } else if (t == 'comp off') {
+          final isCompOff = type.contains('comp') || 
+                           type.contains('comp off') ||
+                           type.contains('compoff') ||
+                           reason.contains('comp off') || 
+                           reason.contains('compoff');
+          if (isCompOff) {
+            print('Found comp off leave - Type: $type, Reason: "$reason"');
+          }
+          return isCompOff;
+        }
+        return false;
+      }).toList();
+      
+      print('Found ${result.length} items matching tab: $t');
+      return result;
     }
 
+    // For 'leave type' tab, show items that don't match any specific subtype
     if (t == 'leave type') {
-      return items.where((it) => !_isSpecificSubtype(it)).toList();
+      final result = items.where((item) {
+        final reason = (item['reason'] ?? '').toString().toLowerCase();
+        final isSpecialType = 
+          reason.contains('permission') ||
+          reason.contains('overtime') ||
+          reason.contains('over time') ||
+          (reason.contains('half') && reason.contains('day')) ||
+          reason.contains('half-day') ||
+          reason.contains('halfday') ||
+          reason.contains('half day') ||
+          reason.contains('comp off') ||
+          reason.contains('compoff') ||
+          reason.contains('comp-off');
+          
+        print('Item with reason "$reason" is ${isSpecialType ? 'special' : 'generic'} leave type');
+        return !isSpecialType;
+      }).toList();
+      
+      print('Found ${result.length} generic leave type items');
+      return result;
     }
 
-    // All / other tabs unchanged.
+    // For other tabs, return all items
+    print('No specific filter for tab "$t", returning all ${items.length} items');
     return items;
   }
 
   /// Fetch rows for a given tab+status.
   Future<List<Map<String, dynamic>>> _fetchByTabAndStatus(
       String tab, String status) async {
+    print('Fetching data for tab: $tab, status: $status');
+    
     if (_isOtherLocationTab(tab)) {
       final data = await ApiService.fetchOtherLocation(status: status);
+      print('Fetched ${data.length} other location items');
       return _filterByTabSmart(data, tab);
     }
 
     final apiType = _apiTypeForTab(tab);
+    print('API type for tab "$tab": $apiType');
+    
     final data = await ApiService.fetchApprovals(type: apiType, status: status);
-    return _filterByTabSmart(data, tab);
+    print('Fetched ${data.length} items from API');
+    
+    // Log the first few items to see their structure
+    final itemsToLog = data.take(3).toList();
+    for (var i = 0; i < itemsToLog.length; i++) {
+      print('Item $i keys: ${itemsToLog[i].keys.toList()}');
+      print('Item $i values: ${itemsToLog[i].values.take(5).toList()}...');
+    }
+    
+    final filtered = _filterByTabSmart(data, tab);
+    print('After filtering, ${filtered.length} items match tab "$tab"');
+    
+    return filtered;
   }
 
   Future<void> _loadAll({bool adjustForType = false}) async {
