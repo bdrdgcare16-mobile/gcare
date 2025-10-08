@@ -93,7 +93,7 @@ BEGIN
             VALUE "FileDescription", "serv_app" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "serv_app" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2025 com.example. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2025 com.serv. All rights reserved." "\0"
             VALUE "OriginalFilename", "serv_app.exe" "\0"
             VALUE "ProductName", "serv_app" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
