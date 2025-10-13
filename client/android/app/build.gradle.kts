@@ -68,9 +68,32 @@ android {
             isMinifyEnabled = false
             isShrinkResources = false
             proguardFiles(
-                getDefaultProguardFile("proguard-android.txt"),
+                getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Keep the mapping file for crash reporting
+            applicationVariants.all {
+                val variant = this
+                variant.outputs
+                    .map { it as com.android.build.gradle.internal.api.BaseVariantOutputImpl }
+                    .forEach { output ->
+                        val outputFileName = "app-${variant.baseName}-${variant.versionName}.apk"
+                        output.outputFileName = outputFileName
+                    }
+                
+                if (project.tasks.findByName("minify${name.capitalize()}WithR8") != null) {
+                    project.tasks.named("minify${name.capitalize()}WithR8") {
+                        doLast {
+                            val mappingFile = outputs.files.files.find { it.name == "mapping.txt" }
+                            if (mappingFile != null && mappingFile.exists()) {
+                                val newMappingFile = File(mappingFile.parent, "mapping-${variant.baseName}.txt")
+                                mappingFile.copyTo(newMappingFile, overwrite = true)
+                                println("Mapping file saved to: ${newMappingFile.absolutePath}")
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
