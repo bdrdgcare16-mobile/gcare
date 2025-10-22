@@ -892,8 +892,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 // ⬇️ NEW: permission + biometric + intents + gps
 import 'package:permission_handler/permission_handler.dart';
-import 'package:local_auth/local_auth.dart';
-import 'package:android_intent_plus/android_intent.dart';
 import 'package:geolocator/geolocator.dart';
 
 // Web localStorage shim

@@ -311,7 +311,6 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
-import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
@@ -537,7 +536,7 @@ void _onStart(ServiceInstance service) async {
   service.on('stopService').listen((_) async => service.stopSelf());
 
   // Tick once immediately, then every ~20 minutes
-  Future<void> _tick() async {
+  Future<void> tick() async {
     try {
       final perm = await Geolocator.checkPermission();
       if (perm == LocationPermission.denied ||
@@ -566,8 +565,8 @@ void _onStart(ServiceInstance service) async {
     }
   }
 
-  await _tick();
-  Timer.periodic(const Duration(minutes: 20), (_) => _tick());
+  await tick();
+  Timer.periodic(const Duration(minutes: 20), (_) => tick());
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -580,15 +579,15 @@ Future<void> _pingServer(
   double? lng,
 }) async {
   // If lat/lng not provided (e.g., WorkManager call), try to get a quick fix
-  double? _lat = lat, _lng = lng;
+  double? lat0 = lat, lng0 = lng;
   try {
-    if (_lat == null || _lng == null) {
+    if (lat0 == null || lng0 == null) {
       final p = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.low,
         timeLimit: const Duration(seconds: 12),
       );
-      _lat = p.latitude;
-      _lng = p.longitude;
+      lat0 = p.latitude;
+      lng0 = p.longitude;
     }
   } catch (_) {
     // still send a heartbeat without coords if needed
@@ -603,8 +602,8 @@ Future<void> _pingServer(
   };
 
   final body = <String, dynamic>{
-    if (_lat != null && _lng != null) 'lat': _lat,
-    if (_lat != null && _lng != null) 'lng': _lng,
+    if (lat0 != null && lng0 != null) 'lat': lat0,
+    if (lat0 != null && lng0 != null) 'lng': lng0,
     'ts': DateTime.now().toIso8601String(),
     'source': 'fg/worker',
   };

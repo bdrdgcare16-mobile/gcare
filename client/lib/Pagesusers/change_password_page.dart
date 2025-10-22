@@ -37,10 +37,12 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
   String? validateStrongPassword(String? value) {
     if (value == null || value.isEmpty) return 'Enter new password';
     if (value.length < 8) return 'Minimum 8 characters required';
-    if (!RegExp(r'[a-z]').hasMatch(value))
+    if (!RegExp(r'[a-z]').hasMatch(value)) {
       return 'Include at least one lowercase letter';
-    if (!RegExp(r'[A-Z]').hasMatch(value))
+    }
+    if (!RegExp(r'[A-Z]').hasMatch(value)) {
       return 'Include at least one uppercase letter';
+    }
     if (!RegExp(r'[0-9]').hasMatch(value)) return 'Include at least one number';
     if (!RegExp(r'[!@#\$%^&*(),.?":{}|<>]').hasMatch(value)) {
       return 'Include at least one special character';

@@ -84,6 +84,7 @@ class _MyTrackPageState extends State<MyTrackPage> {
   @override
   void initState() {
     super.initState();
+    print('TOKEN: $_jwt EMPID: $_empId');
     _jwt = CompanyData.token;
     _empId = CompanyData.empid;
 
@@ -206,6 +207,7 @@ class _MyTrackPageState extends State<MyTrackPage> {
           if ((_empId ?? '').isNotEmpty) 'x-empid': _empId!,
         },
       );
+      print('TRACK RES: ${res.statusCode} ${res.body}');
       if (res.statusCode >= 400) {
         if (!mounted) return;
         ScaffoldMessenger.of(context)

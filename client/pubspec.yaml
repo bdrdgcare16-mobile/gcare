@@ -102,8 +102,8 @@ flutter_launcher_icons:
   image_path: "assets/images/splash_logo.png"
 
   # Adaptive icons (Android 8+)
-  adaptive_icon_foreground: "assets/images/splash_logo.png"
-  adaptive_icon_background: "#00000000"
+  adaptive_icon_foreground: "assets/images/splash2.jpg"
+  adaptive_icon_background: "#FFFFFF"
 
 # Splash screen configuration
 flutter_native_splash:
