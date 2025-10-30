@@ -1,5 +1,321 @@
+// import 'package:flutter/material.dart';
+// import 'package:permission_handler/permission_handler.dart';
+
+// // Theme Colors
+// const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
+// const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
+// const Color kAppBarColor = Color(0xFF8C6EAF);
+
+// class PermissionsPage extends StatefulWidget {
+//   const PermissionsPage({super.key});
+
+//   @override
+//   State<PermissionsPage> createState() => _PermissionsPageState();
+// }
+
+// class _PermissionsPageState extends State<PermissionsPage>
+//     with WidgetsBindingObserver {
+//   final Map<Permission, bool> _permissionsStatus = {
+//     Permission.location: false,
+//     Permission.locationAlways: false,
+//     Permission.camera: false,
+//     Permission.notification: false,
+//   };
+
+//   String _getPermissionDescription(Permission permission) {
+//     switch (permission) {
+//       case Permission.location:
+//         return 'Required for attendance check-in/out and live tracking';
+//       case Permission.locationAlways:
+//         return 'Required for accurate attendance tracking when app is in background';
+//       case Permission.camera:
+//         return 'For taking profile photos (admin only)';
+//       case Permission.notification:
+//         return 'For important alerts about your attendance and updates';
+//       default:
+//         return 'Required for app functionality';
+//     }
+//   }
+
+//   // Get priority for sorting (lower number = higher priority)
+//   int _getPermissionPriority(Permission permission) {
+//     switch (permission) {
+//       case Permission.location:
+//         return 1;
+//       case Permission.locationAlways:
+//         return 2;
+//       case Permission.notification:
+//         return 3;
+//       case Permission.camera:
+//         return 4;
+//       default:
+//         return 5;
+//     }
+//   }
+
+//   @override
+//   void initState() {
+//     super.initState();
+//     WidgetsBinding.instance.addObserver(this);
+//     _checkAllPermissions();
+//   }
+
+//   @override
+//   void dispose() {
+//     WidgetsBinding.instance.removeObserver(this);
+//     super.dispose();
+//   }
+
+//   @override
+//   void didChangeAppLifecycleState(AppLifecycleState state) {
+//     if (state == AppLifecycleState.resumed) {
+//       _checkAllPermissions();
+//     }
+//   }
+
+//   Future<void> _checkAllPermissions() async {
+//     for (var permission in _permissionsStatus.keys) {
+//       final status = await permission.status;
+//       setState(() {
+//         _permissionsStatus[permission] = status.isGranted;
+//       });
+//     }
+//   }
+
+//   Future<void> _requestPermission(Permission permission) async {
+//     if (await permission.isGranted) {
+//       // If already granted, toggle off
+//       setState(() {
+//         _permissionsStatus[permission] = false;
+//       });
+//       // For some permissions, we can't actually revoke them programmatically
+//       // So we'll just show a message to the user
+//       if (permission == Permission.notification) {
+//         if (!mounted) return;
+//         ScaffoldMessenger.of(context).showSnackBar(
+//           const SnackBar(
+//             content: Text(
+//                 "Please disable notifications in your device settings if needed."),
+//           ),
+//         );
+//       }
+//       return;
+//     }
+
+//     // If not granted, request permission
+//     final status = await permission.request();
+    
+//     setState(() {
+//       _permissionsStatus[permission] = status.isGranted;
+//     });
+
+//     if (status.isPermanentlyDenied) {
+//       if (!mounted) return;
+//       showDialog(
+//         context: context,
+//         builder: (context) => AlertDialog(
+//           title: const Text('Permission Required'),
+//           content: Text(
+//             '${_getPermissionTitle(permission)} permission is required for this feature. '
+//             'Please enable it in app settings.',
+//           ),
+//           actions: [
+//             TextButton(
+//               onPressed: () => Navigator.pop(context),
+//               child: const Text('Cancel'),
+//             ),
+//             TextButton(
+//               onPressed: () {
+//                 Navigator.pop(context);
+//                 openAppSettings();
+//               },
+//               child: const Text('Open Settings'),
+//             ),
+//           ],
+//         ),
+//       );
+//     } else if (status.isDenied) {
+//       if (!mounted) return;
+//       ScaffoldMessenger.of(context).showSnackBar(
+//         SnackBar(
+//           content: Text('${_getPermissionTitle(permission)} permission denied'),
+//           duration: const Duration(seconds: 2),
+//         ),
+//       );
+//     }
+//   }
+
+//   IconData _getIcon(Permission permission) {
+//     switch (permission) {
+//       case Permission.location:
+//       case Permission.locationAlways:
+//         return Icons.location_on;
+//       case Permission.camera:
+//         return Icons.camera_alt;
+//       case Permission.notification:
+//         return Icons.notifications_active;
+//       default:
+//         return Icons.security;
+//     }
+//   }
+
+//   Widget _buildPermissionTile(Permission permission, String label) {
+//     final granted = _permissionsStatus[permission] ?? false;
+//     return Card(
+//       margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+//       elevation: 1,
+//       shape: RoundedRectangleBorder(
+//         borderRadius: BorderRadius.circular(12),
+//         side: BorderSide(
+//           color: granted ? Colors.green.withOpacity(0.3) : Colors.grey.withOpacity(0.3),
+//           width: 1,
+//         ),
+//       ),
+//       child: InkWell(
+//         borderRadius: BorderRadius.circular(12),
+//         onTap: () => _requestPermission(permission),
+//         child: Padding(
+//           padding: const EdgeInsets.all(12),
+//           child: Row(
+//             children: [
+//               Container(
+//                 padding: const EdgeInsets.all(10),
+//                 decoration: BoxDecoration(
+//                   color: granted 
+//                       ? Colors.green.withOpacity(0.1) 
+//                       : Colors.blue.withOpacity(0.1),
+//                   shape: BoxShape.circle,
+//                 ),
+//                 child: Icon(
+//                   _getIcon(permission),
+//                   color: granted ? Colors.green : Colors.blue,
+//                   size: 24,
+//                 ),
+//               ),
+//               const SizedBox(width: 16),
+//               Expanded(
+//                 child: Column(
+//                   crossAxisAlignment: CrossAxisAlignment.start,
+//                   children: [
+//                     Text(
+//                       label,
+//                       style: const TextStyle(
+//                         fontWeight: FontWeight.w600,
+//                         fontSize: 15,
+//                       ),
+//                     ),
+//                     const SizedBox(height: 4),
+//                     Text(
+//                       _getPermissionDescription(permission),
+//                       style: TextStyle(
+//                         fontSize: 13,
+//                         color: Colors.grey[600],
+//                         height: 1.3,
+//                       ),
+//                     ),
+//                   ],
+//                 ),
+//               ),
+//               const SizedBox(width: 8),
+//               Icon(
+//                 granted ? Icons.check_circle : Icons.arrow_forward_ios,
+//                 color: granted ? Colors.green : Colors.grey,
+//                 size: 20,
+//               ),
+//             ],
+//           ),
+//         ),
+//       ),
+//     );
+//   }
+
+//   @override
+//   Widget build(BuildContext context) {
+//     return Scaffold(
+//       appBar: AppBar(
+//         title: const Text("App Permissions"),
+//         centerTitle: false,
+//         backgroundColor: kAppBarColor,
+//         elevation: 0,
+//       ),
+//       body: Container(
+//         width: double.infinity,
+//         height: double.infinity,
+//         decoration: const BoxDecoration(
+//           gradient: LinearGradient(
+//             colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
+//             begin: Alignment.topCenter,
+//             end: Alignment.bottomCenter,
+//           ),
+//         ),
+//         child: Column(
+//           children: [
+//             const Padding(
+//               padding: EdgeInsets.fromLTRB(24, 24, 24, 8),
+//               child: Text(
+//                 'To use all features of the app, please grant the following permissions:',
+//                 style: TextStyle(fontSize: 15, height: 1.4, color: Colors.black87),
+//                 textAlign: TextAlign.center,
+//               ),
+//             ),
+//             const SizedBox(height: 8),
+//             Expanded(
+//               child: ListView(
+//                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+//                 children: [
+//                   // Get sorted permissions and map to widgets
+//                   ..._getSortedPermissions().map((permission) => _buildPermissionTile(
+//                         permission,
+//                         _getPermissionTitle(permission),
+//                       )),
+//                   const SizedBox(height: 16),
+//                   if (_permissionsStatus.values.any((status) => !status))
+//                     Padding(
+//                       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+//                       child: Text(
+//                         'Some features may not work properly if permissions are denied.',
+//                         style: TextStyle(
+//                           color: Colors.orange[800],
+//                           fontSize: 13,
+//                           fontStyle: FontStyle.italic,
+//                         ),
+//                         textAlign: TextAlign.center,
+//                       ),
+//                     ),
+//                 ],
+//               ),
+//             ),
+//           ],
+//         ),
+//       ),
+//     );
+//   }
+
+//   // Get permissions sorted by priority
+//   List<Permission> _getSortedPermissions() {
+//     final permissions = _permissionsStatus.keys.toList();
+//     permissions.sort((a, b) => _getPermissionPriority(a).compareTo(_getPermissionPriority(b)));
+//     return permissions;
+//   }
+
+//   String _getPermissionTitle(Permission permission) {
+//     switch (permission) {
+//       case Permission.location:
+//         return 'Location Access';
+//       case Permission.locationAlways:
+//         return 'Background Location';
+//       case Permission.camera:
+//         return 'Camera Access';
+//       case Permission.notification:
+//         return 'Notifications';
+//       default:
+//         return permission.toString().split('.').last;
+//     }
+//   }
+// }
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'attendance_page.dart';
 
 // Theme Colors
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -15,18 +331,77 @@ class PermissionsPage extends StatefulWidget {
 
 class _PermissionsPageState extends State<PermissionsPage>
     with WidgetsBindingObserver {
+  // Track permission states
   final Map<Permission, bool> _permissionsStatus = {
-    Permission.location: false,
-    Permission.camera: false,
-    Permission.activityRecognition: false,
-    Permission.notification: false,
+    Permission.location: false,        // Foreground location
+    Permission.locationAlways: false,  // Background location (Android 10+)
+    Permission.notification: false,    // Android 13+ runtime
+    Permission.camera: false,          // Optional; hide if you removed CAMERA
   };
+  
+  // Get employeeDocId from route arguments
+  String? get _employeeDocId => ModalRoute.of(context)?.settings.arguments as String?;
+
+  bool get _fgGranted => _permissionsStatus[Permission.location] ?? false;
+  bool get _bgGranted => _permissionsStatus[Permission.locationAlways] ?? false;
+  bool get _notifGranted => _permissionsStatus[Permission.notification] ?? false;
+
+  // If you removed CAMERA from AndroidManifest, set this to false to hide the tile.
+  // (You can also auto-hide at runtime; left as a constant for clarity.)
+  static const bool _showCameraTile = true;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _checkAllPermissions();
+    _syncPermissions().then((_) {
+      // After syncing permissions, check if we need to request background location
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _checkBackgroundLocationPermission();
+      });
+    });
+  }
+
+  // Check if we need to request background location permission
+  Future<void> _checkBackgroundLocationPermission() async {
+    if (!mounted) return;
+    
+    final locationStatus = await Permission.location.status;
+    final bgLocationStatus = await Permission.locationAlways.status;
+    
+    // Show dialog if location is granted but background location is not
+    if (locationStatus.isGranted && !bgLocationStatus.isGranted) {
+      if (!mounted) return;
+      
+      // Show dialog explaining why we need background location
+      final shouldOpenSettings = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('Background Location Required'),
+          content: const Text(
+            'To track your attendance accurately, SERV needs access to your location even when the app is closed or not in use.\n\n'
+            'Please change the location permission to "Allow all the time" in the next screen.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Not Now'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Open Settings'),
+            ),
+          ],
+        ),
+      );
+      
+      if (shouldOpenSettings == true) {
+        await openAppSettings();
+        // Re-check permissions after returning from settings
+        await _syncPermissions();
+      }
+    }
   }
 
   @override
@@ -38,74 +413,406 @@ class _PermissionsPageState extends State<PermissionsPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _checkAllPermissions();
-    }
-  }
-
-  Future<void> _checkAllPermissions() async {
-    for (var permission in _permissionsStatus.keys) {
-      final status = await permission.status;
-      setState(() {
-        _permissionsStatus[permission] = status.isGranted;
+      _syncPermissions().then((_) {
+        if (mounted) {
+          _checkBackgroundLocationPermission();
+        }
       });
     }
   }
 
-  Future<void> _requestPermission(Permission permission) async {
-    final result = await permission.request();
+  Future<void> _syncPermissions() async {
+    // Refresh the map atomically
+    final entries = Map<Permission, bool>.fromEntries(
+      await Future.wait(_permissionsStatus.keys.map((p) async {
+        final s = await p.status;
+        return MapEntry(p, s.isGranted);
+      })),
+    );
+    if (!mounted) return;
     setState(() {
-      _permissionsStatus[permission] = result.isGranted;
+      _permissionsStatus
+        ..clear()
+        ..addAll(entries);
     });
-    if (result.isPermanentlyDenied) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text(
-              "Permission permanently denied. Please enable from settings."),
-          action: SnackBarAction(
-            label: "Open Settings",
-            onPressed: () => openAppSettings(),
-          ),
-        ),
+  }
+
+  // ======== SWITCH HANDLERS ========
+
+  Future<void> _onTogglePermission(Permission permission, bool wantOn) async {
+    if (wantOn) {
+      // Request (system dialog)
+      final res = await permission.request();
+
+      // Special upgrade path: Background requires Foreground first
+      if (permission == Permission.locationAlways && !_fgGranted) {
+        if (!mounted) return;
+        await _ensureForegroundThenBackground();
+      } else {
+        if (!mounted) return;
+        final isGranted = res.isGranted;
+        setState(() => _permissionsStatus[permission] = isGranted);
+        
+        // If location permission is granted, navigate to attendance page
+        if ((permission == Permission.location || permission == Permission.locationAlways) && isGranted) {
+          final employeeDocId = _employeeDocId;
+          if (mounted && employeeDocId != null) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => AttendanceScreen(employeeDocId: employeeDocId),
+              ),
+            );
+          } else if (mounted) {
+            // Handle case where employeeDocId is not available
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Error: Employee information not found')),
+            );
+          }
+        }
+        
+        if (res.isPermanentlyDenied) _showSettingsSnackBar();
+      }
+    } else {
+      // Turning OFF must go via Settings (apps cannot revoke programmatically)
+      final confirmed = await _confirmOpenSettings(
+        title: 'Change Permission',
+        message:
+            'To turn OFF ${_getPermissionTitle(permission)}, please use the system App Settings.',
       );
+      if (confirmed == true) {
+        await openAppSettings();
+        await _syncPermissions();
+      }
+    }
+  }
+
+  Future<void> _ensureForegroundThenBackground() async {
+    // 1) Foreground Location
+    var fg = await Permission.location.status;
+    if (!fg.isGranted) {
+      final askFg = await Permission.location.request();
+      if (!askFg.isGranted) {
+        if (!mounted) return;
+        setState(() => _permissionsStatus[Permission.location] = false);
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _permissionsStatus[Permission.location] = true);
+    }
+
+    // 2) Explain why background is needed, then request Background
+    final upgrade = await _confirmOpenSettings(
+      title: 'Enable Background Location',
+      message:
+          'Background Location keeps tracking active when SERV is not on screen. '
+          'A persistent notification will be shown while tracking.',
+      confirmText: 'Enable',
+      cancelText: 'Not now',
+      openSettingsInstead: false,
+    );
+
+    if (upgrade == true) {
+      final askBg = await Permission.locationAlways.request();
+      if (!mounted) return;
+      setState(() => _permissionsStatus[Permission.locationAlways] = askBg.isGranted);
+      if (askBg.isPermanentlyDenied) _showSettingsSnackBar();
+    }
+  }
+
+  Future<void> _ensureNotifications() async {
+    final s = await Permission.notification.status;
+    if (!s.isGranted) {
+      final r = await Permission.notification.request();
+      if (!mounted) return;
+      setState(() => _permissionsStatus[Permission.notification] = r.isGranted);
+      if (!r.isGranted) {
+        _showInlineBanner(
+          'Notifications are required to show that tracking is active. Please enable them.',
+        );
+      }
+    }
+  }
+
+  // ======== UI HELPERS ========
+
+  void _showSettingsSnackBar() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Permission blocked. Change it in App Settings.'),
+        action: SnackBarAction(
+          label: 'Open Settings',
+          onPressed: openAppSettings,
+        ),
+      ),
+    );
+  }
+
+  void _showInlineBanner(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg)),
+    );
+  }
+
+  Future<bool?> _confirmOpenSettings({
+    required String title,
+    required String message,
+    String confirmText = 'Open Settings',
+    String cancelText = 'Cancel',
+    bool openSettingsInstead = true,
+  }) {
+    return showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text(cancelText)),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(confirmText),
+          ),
+        ],
+      ),
+    ).then((ok) async {
+      if (ok == true && openSettingsInstead) {
+        await openAppSettings();
+      }
+      return ok;
+    });
+  }
+
+  String _getPermissionTitle(Permission permission) {
+    switch (permission) {
+      case Permission.location:
+        return 'Location (While using the app)';
+      case Permission.locationAlways:
+        return 'Background Location';
+      case Permission.notification:
+        return 'Notifications';
+      case Permission.camera:
+        return 'Camera';
+      default:
+        return permission.toString().split('.').last;
+    }
+  }
+
+  String _getPermissionDescription(Permission permission) {
+    switch (permission) {
+      case Permission.location:
+        return 'Needed for attendance check-in/out and live map.';
+      case Permission.locationAlways:
+        return 'Keeps tracking active when SERV is in background (shows a persistent notification).';
+      case Permission.notification:
+        return 'Required to show that tracking is active and to alert you about attendance.';
+      case Permission.camera:
+        return 'Optional: for profile capture (hide if not used).';
+      default:
+        return 'Required for app functionality.';
     }
   }
 
   IconData _getIcon(Permission permission) {
     switch (permission) {
       case Permission.location:
+      case Permission.locationAlways:
         return Icons.location_on;
-      case Permission.camera:
-        return Icons.camera_alt;
-      case Permission.activityRecognition:
-        return Icons.directions_run;
       case Permission.notification:
         return Icons.notifications_active;
+      case Permission.camera:
+        return Icons.camera_alt;
       default:
         return Icons.security;
     }
   }
 
-  Widget _buildPermissionTile(Permission permission, String label) {
-    final granted = _permissionsStatus[permission] ?? false;
-    return ListTile(
-      leading: Icon(_getIcon(permission),
-          color: granted ? Colors.green : Colors.grey),
-      title: Text(label),
-      trailing: Icon(
-        granted ? Icons.check_circle : Icons.cancel,
-        color: granted ? Colors.green : Colors.red,
+  int _getPermissionPriority(Permission permission) {
+    switch (permission) {
+      case Permission.location:
+        return 1;
+      case Permission.locationAlways:
+        return 2;
+      case Permission.notification:
+        return 3;
+      case Permission.camera:
+        return 4;
+      default:
+        return 5;
+    }
+  }
+
+  List<Permission> _getSortedPermissions() {
+    final keys = _permissionsStatus.keys.toList();
+    // Optionally hide camera tile entirely when not desired
+    if (!_showCameraTile) {
+      keys.remove(Permission.camera);
+    }
+    keys.sort((a, b) => _getPermissionPriority(a).compareTo(_getPermissionPriority(b)));
+    return keys;
+  }
+
+  // ======== WIDGETS ========
+
+  Widget _buildTopBanners() {
+    final List<Widget> banners = [];
+
+    // Critical: Notifications required for visible foreground service on Android 13+
+    if (!_notifGranted) {
+      banners.add(_banner(
+        text:
+            'Notifications are OFF. They are required to show that tracking is active.',
+        color: Colors.orange.shade700,
+        actionText: 'Enable',
+        onTap: _ensureNotifications,
+      ));
+    }
+
+    // Recommended: Background Location for reliable tracking off-screen
+    if (_fgGranted && !_bgGranted) {
+      banners.add(_banner(
+        text:
+            'Background Location is OFF. Enable it for reliable attendance tracking when the app is not on screen.',
+        color: Colors.orange.shade700,
+        actionText: 'Enable',
+        onTap: _ensureForegroundThenBackground,
+      ));
+    }
+
+    // Blocking: No Foreground Location → cannot track at all
+    if (!_fgGranted) {
+      banners.add(_banner(
+        text:
+            'Location is OFF. Attendance tracking cannot start without Location permission.',
+        color: Colors.red.shade700,
+        actionText: 'Allow',
+        onTap: () => _onTogglePermission(Permission.location, true),
+      ));
+    }
+
+    if (banners.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: Column(children: banners),
+    );
+  }
+
+  Widget _banner({
+    required String text,
+    required Color color,
+    required String actionText,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        border: Border.all(color: color.withOpacity(0.4)),
+        borderRadius: BorderRadius.circular(12),
       ),
-      onTap: () => _requestPermission(permission),
+      child: Row(
+        children: [
+          Icon(Icons.info, color: color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(color: color, fontSize: 13.5, height: 1.25),
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+            onPressed: onTap,
+            child: Text(actionText),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPermissionTile(Permission permission) {
+    final granted = _permissionsStatus[permission] ?? false;
+
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+      elevation: 1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: granted ? Colors.green.withOpacity(0.3) : Colors.grey.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: granted ? Colors.green.withOpacity(0.1) : Colors.blue.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                _getIcon(permission),
+                color: granted ? Colors.green : Colors.blue,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _getPermissionTitle(permission),
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _getPermissionDescription(permission),
+                    style: TextStyle(fontSize: 13, color: Colors.grey[700], height: 1.3),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Switch behaves like other apps: ON=request, OFF=open Settings
+            Switch.adaptive(
+              value: granted,
+              onChanged: (wantOn) async {
+                // Background Location must be requested only after foreground is granted
+                if (permission == Permission.locationAlways && !_fgGranted && wantOn) {
+                  await _ensureForegroundThenBackground();
+                  return;
+                }
+                await _onTogglePermission(permission, wantOn);
+              },
+            ),
+          ],
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final items = _getSortedPermissions();
+
+    // Optionally hide camera tile if you removed CAMERA from the manifest
+    final visibleItems = _showCameraTile
+        ? items
+        : items.where((p) => p != Permission.camera).toList();
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Permissions"),
+        title: const Text('App Permissions'),
         centerTitle: false,
         backgroundColor: kAppBarColor,
+        elevation: 0,
       ),
       body: Container(
         width: double.infinity,
@@ -117,22 +824,26 @@ class _PermissionsPageState extends State<PermissionsPage>
             end: Alignment.bottomCenter,
           ),
         ),
-        child: ListView(
+        child: Column(
           children: [
-            const SizedBox(height: 16),
-            _buildPermissionTile(Permission.location, "Location Permission"),
-            _buildPermissionTile(Permission.camera, "Camera Permission"),
-            _buildPermissionTile(
-                Permission.activityRecognition, "Activity Recognition"),
-            _buildPermissionTile(
-                Permission.notification, "Notification Permission"),
-            const SizedBox(height: 24),
-            //   Center(
-            //     child: ElevatedButton(
-            //       onPressed: _checkAllPermissions,
-            //       child: const Text("Check Again"),
-            //     ),
-            //   ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(24, 20, 24, 4),
+              child: Text(
+                'SERV needs these permissions to record attendance accurately and show when tracking is active. '
+                'You can change them anytime.',
+                style: TextStyle(fontSize: 14.5, height: 1.35, color: Colors.black87),
+                textAlign: TextAlign.center,
+              ),
+            ),
+            _buildTopBanners(),
+            const SizedBox(height: 8),
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                itemCount: visibleItems.length,
+                itemBuilder: (_, i) => _buildPermissionTile(visibleItems[i]),
+              ),
+            ),
           ],
         ),
       ),

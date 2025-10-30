@@ -2,19 +2,40 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="com.serv.serv_app">
 
-    <!-- Permissions -->
+    <!-- ========== NETWORK PERMISSIONS ========== -->
+    <!-- Required for all network operations -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
-    <uses-permission android:name="android.permission.USE_FINGERPRINT" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+
+    <!-- ========== LOCATION PERMISSIONS ========== -->
+    <!-- Required for attendance check-in/out and tracking -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Required for background location tracking -->
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
+    <!-- ========== FOREGROUND SERVICES ========== -->
+    <!-- Required for background location tracking and data sync -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!-- ========== CAMERA PERMISSION ========== -->
+    <!-- Required for admin profile picture uploads -->
     <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- ========== NOTIFICATIONS ========== -->
+    <!-- Required for showing notifications to users -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- ========== BIOMETRICS ========== -->
+    <!-- Required for secure authentication -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.USE_FINGERPRINT" />
+
+    <!-- ========== BATTERY OPTIMIZATION ========== -->
+    <!-- Required to prevent battery optimization from stopping background services -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
 
     <!-- Queries for URL launcher and other intents -->
     <queries>

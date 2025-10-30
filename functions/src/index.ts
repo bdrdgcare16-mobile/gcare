@@ -32,7 +32,8 @@ import trackingRoutes from './routes/tracking';
 import liveEmployeeDetailsRouter from './routes/liveEmployeeDetails';
 import * as authController from './controllers/authController';
 import reasonsRouter from './routes/reasons';
-
+import overtimeRoutes from "./routes/overtime";
+import adminRoutes from "./routes/admin";
 // -------------------- App setup --------------------
 const app = express();
 
@@ -104,7 +105,8 @@ app.use('/api/liveEmployeeDetails', liveEmployeeDetailsRouter);
 app.get('/api/me', authController.getMe);
 app.get('/api/profile', authController.getMe);
 app.use('/api/reasons', reasonsRouter);
-
+app.use("/api/overtime", overtimeRoutes);
+app.use("/api/admin", adminRoutes);
 // -------------------- 404 + error handlers --------------------
 app.use((req, res) => {
   res.status(404).json({

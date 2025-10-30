@@ -1,11 +1,8 @@
 // import 'dart:convert';
-// import 'dart:typed_data';
-
-// import 'package:flutter/foundation.dart' show kIsWeb;
-// import 'package:flutter/services.dart' show rootBundle;
 // import 'package:flutter/material.dart';
 // import 'package:intl/intl.dart';
 // import 'package:http/http.dart' as http;
+// import 'dart:math' as math;
 
 // import 'package:google_maps_flutter/google_maps_flutter.dart';
 
@@ -19,8 +16,42 @@
 // const Color kButtonColor = Color(0xFF655193);
 // const Color kTextColor = Colors.white;
 
-// // 👇 place your PNG in pubspec:  assets/person_purple.png
-// const String kPersonAsset = 'assets/person_purple.png';
+// /* ---------- Tracking helpers (match My Track) ---------- */
+
+// class _TrackPoint {
+//   final double lat;
+//   final double lng;
+//   final DateTime ts;
+//   const _TrackPoint(this.lat, this.lng, this.ts);
+//   LatLng get ll => LatLng(lat, lng);
+// }
+
+// // Haversine (meters)
+// double _distM(LatLng a, LatLng b) {
+//   const R = 6371000.0;
+//   final dLat = (b.latitude - a.latitude) * (math.pi / 180.0);
+//   final dLng = (b.longitude - a.longitude) * (math.pi / 180.0);
+//   final aa = math.sin(dLat / 2) * math.sin(dLat / 2) +
+//       math.cos(a.latitude * math.pi / 180.0) *
+//           math.cos(b.latitude * math.pi / 180.0) *
+//           math.sin(dLng / 2) *
+//           math.sin(dLng / 2);
+//   final c = 2.0 * math.atan2(math.sqrt(aa), math.sqrt(1 - aa));
+//   return R * c;
+// }
+
+// /// Keep first point, then only add if moved >= minMeters
+// List<_TrackPoint> _simplifyByDistance(List<_TrackPoint> points,
+//     {double minMeters = 10}) {
+//   if (points.length <= 1) return points;
+//   final kept = <_TrackPoint>[points.first];
+//   for (var i = 1; i < points.length; i++) {
+//     if (_distM(kept.last.ll, points[i].ll) >= minMeters) {
+//       kept.add(points[i]);
+//     }
+//   }
+//   return kept;
+// }
 
 // class EmployeeDetailPage extends StatefulWidget {
 //   final Map<String, dynamic> employee; // at least {'id': empid}, optional {'date': 'YYYY-MM-DD'}
@@ -59,8 +90,9 @@
 //   CameraPosition _initialCam =
 //       const CameraPosition(target: LatLng(13.0827, 80.2707), zoom: 16); // Chennai
 
-//   // Custom marker icon (person)
-//   BitmapDescriptor? _personIcon;
+//   // Tracking UI parity with My Track
+//   final DateFormat _timeFmt = DateFormat('hh:mm a');
+//   bool _sessionEnded = false; // red end pin only if true
 
 //   @override
 //   void initState() {
@@ -70,25 +102,7 @@
 //     dateIso = passedDate.isNotEmpty
 //         ? passedDate
 //         : DateFormat('yyyy-MM-dd').format(DateTime.now());
-//     _loadMarkerIcon().then((_) => _loadLiveDetails());
-//   }
-
-//   Future<void> _loadMarkerIcon() async {
-//     try {
-//       // Size for the marker icon (width, height)
-//       const Size iconSize = Size(72, 72);
-//       final ByteData bd = await rootBundle.load(kPersonAsset);
-//       final Uint8List bytes = bd.buffer.asUint8List();
-//       final BitmapDescriptor icon = BitmapDescriptor.fromBytes(
-//         bytes,
-//         // Size parameter expects a Size object, not an int
-//         size: iconSize,
-//       );
-//       _personIcon = icon;
-//     } catch (_) {
-//       // fallback to default if asset missing
-//       _personIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
-//     }
+//     _loadLiveDetails();
 //   }
 
 //   // ----------- Load live details (attendance for the given emp/date) -----------
@@ -119,7 +133,8 @@
 //       setState(() {
 //         name = (data['name'] ?? '-') as String;
 //         shift = (data['shift'] ?? '-') as String;
-//         branchName = (data['location'] ?? '-') as String; // server sends branchName as 'location'
+//         branchName =
+//             (data['location'] ?? '-') as String; // server sends branchName as 'location'
 //         status = (data['status'] ?? '-') as String;
 
 //         final ci = (data['checkIn'] as String?);
@@ -169,29 +184,30 @@
 //       ScaffoldMessenger.of(context).showSnackBar(
 //         const SnackBar(content: Text('No stored check-in location for this day.')),
 //       );
-//       return;
+//     } else {
+//       final pos = LatLng(checkInLat!, checkInLng!);
+
+//       _markers
+//         ..clear()
+//         ..add(
+//           Marker(
+//             markerId: const MarkerId('checkin'),
+//             position: pos,
+//             infoWindow: const InfoWindow(title: 'Check-in location'),
+//             icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+//           ),
+//         );
+//       _polylines.clear();
+
+//       _animate(pos, 18);
 //     }
-//     final pos = LatLng(checkInLat!, checkInLng!);
-
-//     _markers
-//       ..clear()
-//       ..add(
-//         Marker(
-//           markerId: const MarkerId('checkin'),
-//           position: pos,
-//           infoWindow: const InfoWindow(title: 'Check-in location'),
-//           icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
-//         ),
-//       );
-//     _polylines.clear();
-
-//     _animate(pos, 18);
 //     setState(() {});
 //   }
 
 //   /// 2) Geolocation — draw FULL path for the day from tracking collection.
 //   ///    Start: green default marker (index 0)
-//   ///    All other points (1..N): purple "person" icon. Tapping shows time.
+//   ///    Interior points (1..N-1): orange pins with local time
+//   ///    End: red pin only if the session ended (endedAt present)
 //   Future<void> _showLastTrackingPath() async {
 //     try {
 //       final headers = {
@@ -211,85 +227,107 @@
 //       final data = (json is Map && json['data'] is Map)
 //           ? Map<String, dynamic>.from(json['data'])
 //           : <String, dynamic>{};
+
+//       // endedAt controls whether we show a red final pin
+//       _sessionEnded = (data['endedAt'] != null && '${data['endedAt']}'.isNotEmpty);
+
 //       final raw = (data['pathMap'] is List) ? List.from(data['pathMap']) : [];
 
-//       // Normalize to LatLng + ts
-//       final points = <LatLng>[];
-//       final times = <String>[];
+//       // Normalize to TrackPoints
+//       final pts = <_TrackPoint>[];
 //       for (final e in raw) {
 //         final m = Map<String, dynamic>.from(e as Map);
 //         final lat = _toDoubleOrNull(m['lat']);
 //         final lng = _toDoubleOrNull(m['lng']);
-//         final ts = (m['ts'] ?? '').toString();
+//         final tsRaw = (m['ts'] ?? '').toString();
 //         if (lat == null || lng == null) continue;
-//         points.add(LatLng(lat, lng));
-//         times.add(ts);
+
+//         DateTime ts;
+//         final tryIso = DateTime.tryParse(tsRaw);
+//         if (tryIso != null) {
+//           ts = tryIso.toLocal();
+//         } else {
+//           // if server stored millis
+//           final millis = int.tryParse(tsRaw);
+//           ts = millis != null
+//               ? DateTime.fromMillisecondsSinceEpoch(millis).toLocal()
+//               : DateTime.now();
+//         }
+//         pts.add(_TrackPoint(lat, lng, ts));
 //       }
 
-//       if (points.isEmpty) {
+//       if (pts.isEmpty) {
 //         ScaffoldMessenger.of(context).showSnackBar(
 //           const SnackBar(content: Text('No tracking points for this day.')),
 //         );
 //         return;
 //       }
 
-//       // Build markers:
-//       final newMarkers = <Marker>{};
-//       // 0th — green start pin
-//       newMarkers.add(
+//       // Client-side clean-up (10 m)
+//       final points = _simplifyByDistance(pts, minMeters: 10);
+//       final latLngs = points.map((p) => p.ll).toList(growable: false);
+
+//       // Build markers (match My Track)
+//       final mk = <Marker>{};
+
+//       // Start (green)
+//       final start = points.first;
+//       mk.add(
 //         Marker(
 //           markerId: const MarkerId('start'),
-//           position: points.first,
-//           infoWindow: const InfoWindow(title: 'Start'),
+//           position: start.ll,
+//           infoWindow: InfoWindow(title: 'Start • ${_timeFmt.format(start.ts)}'),
 //           icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
 //         ),
 //       );
 
-//       // 1..N — person icons with time in the info window
-//       for (int i = 1; i < points.length; i++) {
-//         final ts = _prettyTime(times[i]);
-//         newMarkers.add(
+//       // Interior points (orange with time)
+//       for (var i = 1; i < points.length - 1; i++) {
+//         final p = points[i];
+//         mk.add(
 //           Marker(
-//             markerId: MarkerId('pt_$i'),
-//             position: points[i],
-//             infoWindow: InfoWindow(title: ts.isEmpty ? 'Point' : ts),
-//             icon: _personIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-//             anchor: const Offset(0.5, 1.0), // center bottom
+//             markerId: MarkerId('p$i'),
+//             position: p.ll,
+//             infoWindow: InfoWindow(title: _timeFmt.format(p.ts)),
+//             icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
 //           ),
 //         );
 //       }
 
-//       // Polyline for the path
+//       // End (red) only if session ended
+//       if (_sessionEnded && points.length > 1) {
+//         final end = points.last;
+//         mk.add(
+//           Marker(
+//             markerId: const MarkerId('end'),
+//             position: end.ll,
+//             infoWindow: InfoWindow(title: 'End • ${_timeFmt.format(end.ts)}'),
+//             icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+//           ),
+//         );
+//       }
+
+//       // Polyline
 //       final poly = Polyline(
 //         polylineId: const PolylineId('path'),
-//         points: points,
+//         points: latLngs,
 //         width: 6,
-//         color: const Color(0xFF7B5CD6), // matches brand vibe (not configurable on web style)
+//         color: const Color(0xFF7B5CD6),
 //       );
 
 //       setState(() {
 //         _markers
 //           ..clear()
-//           ..addAll(newMarkers);
+//           ..addAll(mk);
 //         _polylines
 //           ..clear()
 //           ..add(poly);
 //       });
 
-//       _fitCameraToAll(points, padding: 72.0);
+//       _fitCameraToAll(latLngs, padding: 72.0);
 //     } catch (e) {
 //       ScaffoldMessenger.of(context)
 //           .showSnackBar(SnackBar(content: Text('Geo load failed: $e')));
-//     }
-//   }
-
-//   String _prettyTime(String iso) {
-//     try {
-//       final dt = DateTime.tryParse(iso);
-//       if (dt == null) return '';
-//       return DateFormat('hh:mm a').format(dt.toLocal());
-//     } catch (_) {
-//       return '';
 //     }
 //   }
 
@@ -491,7 +529,6 @@
 //                             polylines: _polylines,
 //                             onMapCreated: (c) {
 //                               _mapController = c;
-//                               // If we have a check-in point, center there initially
 //                               if (checkInLat != null && checkInLng != null) {
 //                                 _mapController!.moveCamera(
 //                                   CameraUpdate.newLatLngZoom(
@@ -614,12 +651,15 @@
 //     );
 //   }
 // }
-// lib/Pagesadmin/employee_detail_page.dart
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:math' as math;
+
+// 👇 Added for gesture recognizers so the map can pan/zoom inside ListView
+import 'package:flutter/gestures.dart';
 
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
@@ -1139,9 +1179,21 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                           borderRadius: BorderRadius.circular(12),
                           child: GoogleMap(
                             initialCameraPosition: _initialCam,
+                            // ✨ Enable smooth interactivity
+                            zoomControlsEnabled: true,
+                            myLocationButtonEnabled: true,
+                            mapToolbarEnabled: true,
+                            zoomGesturesEnabled: true,
+                            scrollGesturesEnabled: true,
+                            rotateGesturesEnabled: true,
+                            tiltGesturesEnabled: true,
+
+                            // 👇 This is the key so gestures win over the ListView
+                            gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+                              Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer()),
+                            },
+
                             myLocationEnabled: false,
-                            myLocationButtonEnabled: false,
-                            zoomControlsEnabled: false,
                             markers: _markers,
                             polylines: _polylines,
                             onMapCreated: (c) {

@@ -36,7 +36,8 @@ Future<String> _readPersisted(String key) async {
 /// Normalize admin company profile shape the same way as in login_page.dart
 Map<String, dynamic> _normalizeProfile(dynamic body) {
   final m = (body is Map) ? body : <String, dynamic>{};
-  final exists = (m['exists'] == true) || (m['filled'] == true) || (m['hasProfile'] == true);
+  final exists =
+      (m['exists'] == true) || (m['filled'] == true) || (m['hasProfile'] == true);
   final data = (m['data'] is Map)
       ? (m['data'] as Map).cast<String, dynamic>()
       : <String, dynamic>{};
@@ -98,7 +99,7 @@ class _AuthGuardState extends State<AuthGuard> {
     try {
       // Read saved token/role
       final token = await _readPersisted('token');
-      final role  = await _readPersisted('role');
+      final role = await _readPersisted('role');
 
       // If no token or expired -> Login
       if (token.isEmpty || JwtDecoder.isExpired(token)) {
@@ -109,13 +110,24 @@ class _AuthGuardState extends State<AuthGuard> {
         return;
       }
 
-      // token OK -> fetch /auth/me to validate & get email/profile bits
-      final meRes = await http.get(
-        Uri.parse('$_apiBase/auth/me'),
-        headers: {'Authorization': 'Bearer $token'},
-      );
-      if (meRes.statusCode != 200) {
-        // Invalid on server -> Login
+      // Keep token globally
+      CompanyData.token = token;
+
+      // Try to validate on server, but DON'T auto-logout on network hiccups
+      http.Response? meRes;
+      try {
+        meRes = await http
+            .get(
+              Uri.parse('$_apiBase/auth/me'),
+              headers: {'Authorization': 'Bearer $token'},
+            )
+            .timeout(const Duration(seconds: 12));
+      } catch (_) {
+        meRes = null; // network/timeout/etc.
+      }
+
+      // If the server explicitly says unauthorized -> go to Login
+      if (meRes != null && (meRes.statusCode == 401 || meRes.statusCode == 403)) {
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const LoginPage()),
@@ -123,22 +135,28 @@ class _AuthGuardState extends State<AuthGuard> {
         return;
       }
 
-      CompanyData.token = token;
-
-      final me = jsonDecode(meRes.body) as Map<String, dynamic>;
-      final email = (me['email'] ??
-              me['user']?['email'] ??
-              me['admin']?['email'] ??
-              '')
-          .toString()
-          .trim()
-          .toLowerCase();
+      // We have either a valid response (200) or a network problem / other codes.
+      Map<String, dynamic> me = {};
+      String email = '';
+      if (meRes != null && meRes.statusCode == 200) {
+        me = jsonDecode(meRes.body) as Map<String, dynamic>;
+        email = (me['email'] ??
+                me['user']?['email'] ??
+                me['admin']?['email'] ??
+                '')
+            .toString()
+            .trim()
+            .toLowerCase();
+      } else {
+        // No response or non-200: continue offline using cached values.
+        email = (await _readPersisted('email')).trim().toLowerCase();
+      }
 
       if (role == 'employee') {
         // Display name: prefer stored 'name', else email prefix
         final storedName = await _readPersisted('name');
         final displayName =
-            (storedName.trim().isNotEmpty) ? storedName.trim() : email.split('@').first;
+            (storedName.trim().isNotEmpty) ? storedName.trim() : (email.isNotEmpty ? email.split('@').first : 'Employee');
 
         final docId = await _readPersisted('userDocId');
 
@@ -155,37 +173,53 @@ class _AuthGuardState extends State<AuthGuard> {
       }
 
       if (role == 'admin') {
-        // Ensure company profile exists before going to dashboard
-        try {
-          final result = await _checkCompanyProfile(token: token, adminEmail: email);
-          final exists = result['exists'] == true;
-          final companyData = (result['data'] as Map<String, dynamic>? ?? const {});
+        // If we got a 200 from /auth/me, try to fetch profile; otherwise, use a safe fallback profile.
+        if (meRes != null && meRes.statusCode == 200) {
+          try {
+            final result =
+                await _checkCompanyProfile(token: token, adminEmail: email);
+            final exists = result['exists'] == true;
+            final companyData =
+                (result['data'] as Map<String, dynamic>? ?? const {});
 
-          if (!mounted) return;
-          if (exists) {
-            // Build a non-null CompanyProfile for AdminDashboard
-            final profile = CompanyProfile(
-              name: (companyData['companyName'] ?? '').toString(),
-              adminName: (companyData['adminName'] ?? '').toString(),
-              logoUrl: companyData['logoUrl']?.toString(),
-            );
+            if (!mounted) return;
+            if (exists) {
+              final profile = CompanyProfile(
+                name: (companyData['companyName'] ?? '').toString(),
+                adminName: (companyData['adminName'] ?? '').toString(),
+                logoUrl: companyData['logoUrl']?.toString(),
+              );
 
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(
+                  builder: (_) => AdminDashboard(companyProfile: profile),
+                ),
+              );
+            } else {
+              Navigator.of(context).pushReplacement(
+                MaterialPageRoute(builder: (_) => const CompanyDetailsFormPage()),
+              );
+            }
+            return;
+          } catch (_) {
+            // If profile check fails for some reason, fall back to a minimal profile and keep admin signed in
+            if (!mounted) return;
+            final fallback = CompanyProfile(name: '', adminName: '', logoUrl: null);
             Navigator.of(context).pushReplacement(
               MaterialPageRoute(
-                builder: (_) => AdminDashboard(companyProfile: profile),
+                builder: (_) => AdminDashboard(companyProfile: fallback),
               ),
             );
-          } else {
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (_) => const CompanyDetailsFormPage()),
-            );
+            return;
           }
-          return;
-        } catch (_) {
-          // If profile check fails for some reason, fallback to login
+        } else {
+          // Offline/other server issue: still keep admin signed in with a minimal profile
           if (!mounted) return;
+          final fallback = CompanyProfile(name: '', adminName: '', logoUrl: null);
           Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const LoginPage()),
+            MaterialPageRoute(
+              builder: (_) => AdminDashboard(companyProfile: fallback),
+            ),
           );
           return;
         }
@@ -197,7 +231,34 @@ class _AuthGuardState extends State<AuthGuard> {
         MaterialPageRoute(builder: (_) => const LoginPage()),
       );
     } catch (_) {
-      // On any unexpected error, fail safe to Login
+      // On any unexpected error, fail safe but DO NOT force logout on transient issues.
+      // As a last resort, try cached role; if missing, go to Login.
+      final cachedRole = await _readPersisted('role');
+      if (cachedRole == 'employee') {
+        final name = await _readPersisted('name');
+        final docId = await _readPersisted('userDocId');
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => HomeScreen(
+              userName: name.isNotEmpty ? name : 'Employee',
+              employeeDocId: docId,
+            ),
+          ),
+        );
+        return;
+      }
+      if (cachedRole == 'admin') {
+        if (!mounted) return;
+        final fallback = CompanyProfile(name: '', adminName: '', logoUrl: null);
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => AdminDashboard(companyProfile: fallback),
+          ),
+        );
+        return;
+      }
+
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const LoginPage()),
