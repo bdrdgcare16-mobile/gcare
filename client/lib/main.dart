@@ -3,10 +3,9 @@
 // import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 
 // // Firebase
-// import 'package:firebase_core/firebase_core.dart';
 // import 'package:firebase_auth/firebase_auth.dart';
 // import 'package:flutter/services.dart' show SystemUiOverlayStyle;
-// import 'firebase_options.dart';
+// import 'package:serv_app/core/firebase_boot.dart'; // ⬅️ added
 
 // // ✅ Start app at AuthGuard (routes to login/admin/employee based on token/role)
 // import 'auth/auth_guard.dart';
@@ -48,23 +47,21 @@
 
 //   // Firebase init (+ anonymous auth in case your rules require an auth user)
 //   try {
-//     if (Firebase.apps.isEmpty) {
-//       await Firebase.initializeApp(
+//     // ✅ Single get-or-create (prevents [core/duplicate-app])
+//     final app = await ensureDefaultFirebaseApp();
+//     debugPrint(
+//         '[FB OK] projectId=${app.options.projectId} appId=${app.options.appId}');
 
-//         options: DefaultFirebaseOptions.currentPlatform,
-//       );
-//       final app = Firebase.app();
-// debugPrint('[FB OK] projectId=${app.options.projectId} bundleId=${app.options.appId}');
-//       try {
-//         if (FirebaseAuth.instance.currentUser == null) {
-//           await FirebaseAuth.instance.signInAnonymously();
-//           // ignore: avoid_print
-//           print('[FirebaseAuth] Anonymous sign-in OK');
-//         }
-//       } catch (e) {
+//     try {
+//       if (FirebaseAuth.instance.currentUser == null) {
+//         await FirebaseAuth.instance.signInAnonymously();
 //         // ignore: avoid_print
-//         print('Anonymous sign-in failed: $e');
+//         print('[FirebaseAuth] Anonymous sign-in OK');
+//         debugPrint('[AUTH] user=${FirebaseAuth.instance.currentUser?.uid}');
 //       }
+//     } catch (e) {
+//       // ignore: avoid_print
+//       print('Anonymous sign-in failed: $e');
 //     }
 //   } catch (e) {
 //     // ignore: avoid_print
@@ -151,7 +148,7 @@
 //         systemOverlayStyle: SystemUiOverlayStyle(
 //           statusBarColor: Color(0xFF8C6EAF),
 //           statusBarIconBrightness: Brightness.light, // Android
-//           statusBarBrightness: Brightness.dark,      // iOS
+//           statusBarBrightness: Brightness.dark, // iOS
 //         ),
 //       ),
 
@@ -176,9 +173,11 @@
 //       // Gentle clamp for system text scaling + wrap with global NetworkGate
 //       builder: (context, child) {
 //         final media = MediaQuery.of(context);
-//         final scaler = media.textScaler.clamp(minScaleFactor: 0.90, maxScaleFactor: 1.15);
+//         final scaler =
+//             media.textScaler.clamp(minScaleFactor: 0.90, maxScaleFactor: 1.15);
 //         final wrapped = NetworkGate(child: (child ?? const SizedBox.shrink()));
-//         return MediaQuery(data: media.copyWith(textScaler: scaler), child: wrapped);
+//         return MediaQuery(
+//             data: media.copyWith(textScaler: scaler), child: wrapped);
 //       },
 
 //       // ✅ IMPORTANT: Start at AuthGuard (from your second code)
@@ -247,8 +246,7 @@ import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, Tar
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart' show SystemUiOverlayStyle;
-import 'firebase_options.dart';
-import 'package:serv_app/core/firebase_boot.dart'; // ⬅️ added
+import 'firebase_options.dart'; // ⬅️ uses FlutterFire-generated options
 
 // ✅ Start app at AuthGuard (routes to login/admin/employee based on token/role)
 import 'auth/auth_guard.dart';
@@ -290,10 +288,12 @@ Future<void> main() async {
 
   // Firebase init (+ anonymous auth in case your rules require an auth user)
   try {
-    // ✅ Single get-or-create (prevents [core/duplicate-app])
-    final app = await ensureDefaultFirebaseApp();
-    debugPrint(
-        '[FB OK] projectId=${app.options.projectId} appId=${app.options.appId}');
+    // ✅ Initialize the default Firebase app with FlutterFire options
+    final app = await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+      print('✅ Firebase initialized for project: ${app.options.projectId}');
+      print('🔑 Using API key: ${app.options.apiKey}');
 
     try {
       if (FirebaseAuth.instance.currentUser == null) {
@@ -355,7 +355,7 @@ class MyApp extends StatelessWidget {
         bodyMedium: TextStyle(fontSize: 14, color: Colors.black),
       ),
 
-      // ✅ Normalized AppBar (from your first code) + status bar style
+      // ✅ Normalized AppBar + status bar style
       appBarTheme: const AppBarTheme(
         backgroundColor: Color(0xFF8C6EAF),
         titleTextStyle: TextStyle(
@@ -419,15 +419,10 @@ class MyApp extends StatelessWidget {
         final scaler =
             media.textScaler.clamp(minScaleFactor: 0.90, maxScaleFactor: 1.15);
         final wrapped = NetworkGate(child: (child ?? const SizedBox.shrink()));
-        return MediaQuery(
-            data: media.copyWith(textScaler: scaler), child: wrapped);
+        return MediaQuery(data: media.copyWith(textScaler: scaler), child: wrapped);
       },
 
-      // ✅ IMPORTANT: Start at AuthGuard (from your second code)
-      // It will send users to:
-      //  - LoginPage (no token)
-      //  - Admin dashboard (admin role)
-      //  - Employee home (employee role)
+      // ✅ Start at AuthGuard (routes to login/admin/employee based on token/role)
       home: const AuthGuard(),
 
       // Optional named routes (still available if used elsewhere)

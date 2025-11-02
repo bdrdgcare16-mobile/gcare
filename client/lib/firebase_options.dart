@@ -16,31 +16,35 @@ class DefaultFirebaseOptions {
     }
   }
 
-  // ---- Fill from Firebase Console Web config ----
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyCjXE72mzUKRA8XrhLFwbWMQRaOMACsE_o',
+    apiKey: 'AIzaSyCdlqOlxgqLHaeiT43_rWd2p2XWbPloBAI',
+    appId: '1:227341863889:web:3fcef372ec7a14af7e6ef0',
+    messagingSenderId: '227341863889',
+    projectId: 'servappbackend',
     authDomain: 'servappbackend.firebaseapp.com',
+    storageBucket: 'servappbackend.firebasestorage.app',
+    measurementId: 'G-GY3NN1JZQ5',
+  );
+
+  // ---- Fill from Firebase Console Web config ----
+
+  static const FirebaseOptions android = FirebaseOptions(
+    apiKey: 'AIzaSyBg_e9D6Kfp8_2uY0VY6Q-k6AxrR5YkMH4',
+    appId: '1:227341863889:android:be107e7361c79c947e6ef0',
+    messagingSenderId: '227341863889',
     projectId: 'servappbackend',
     storageBucket: 'servappbackend.firebasestorage.app',
-    messagingSenderId: '227341863889',
-    appId: '1:227341863889:web:a2048ffeed9d39307e6ef0',
   );
 
   // Optional (fill later if you build these platforms)
-  static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'YOUR_ANDROID_API_KEY',
-    appId: 'YOUR_ANDROID_APP_ID',
-    messagingSenderId: 'YOUR_SENDER_ID',
-    projectId: 'YOUR_PROJECT_ID',
-    storageBucket: 'YOUR_PROJECT_ID.appspot.com',
-  );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'YOUR_IOS_API_KEY',
-    appId: 'YOUR_IOS_APP_ID',
-    messagingSenderId: 'YOUR_SENDER_ID',
-    projectId: 'YOUR_PROJECT_ID',
-    storageBucket: 'YOUR_PROJECT_ID.appspot.com',
-    iosBundleId: 'com.serv.yourbundle', // replace if you have one
+    apiKey: 'AIzaSyASfCUwrzdazi3U59d7HYQ29F9lqyyI_ZI',
+    appId: '1:227341863889:ios:76c578092aef17337e6ef0',
+    messagingSenderId: '227341863889',
+    projectId: 'servappbackend',
+    storageBucket: 'servappbackend.firebasestorage.app',
+    iosBundleId: 'com.serv.servApp',
   );
+
 }

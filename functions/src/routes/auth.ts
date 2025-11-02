@@ -12,9 +12,8 @@ router.post('/login', authController.login);
 router.post('/forgot-password', authController.forgotPassword);
 
 // Modern OTP flow
-router.post('/forgot-password/request-otp', authController.requestOtp);
-router.post('/forgot-password/verify-otp',  authController.verifyOtp);
-router.post('/forgot-password/reset',       authController.resetPasswordWithOtp);
+// Public – request Firebase reset email link
+router.post('/forgot-password/request-link', authController.requestPasswordResetLink);
 
 /* ================= Protected ================= */
 router.use(authMiddleware);

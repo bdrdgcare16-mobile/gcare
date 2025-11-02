@@ -81,6 +81,7 @@ app.use((req, res, next) => {
 app.options('*', (_req, res) => res.sendStatus(204));
 
 // Health
+app.get('/', (_req, res) => res.send('api1 root ok'));
 app.get('/api/health', (_req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
@@ -162,5 +163,5 @@ export const api = onRequest(
     minInstances: 0,
     maxInstances: 10,
   },
-  app
+  exports.api = onRequest(app),
 );
