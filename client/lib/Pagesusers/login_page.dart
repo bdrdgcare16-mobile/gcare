@@ -827,8 +827,11 @@ class _LoginPageState extends State<LoginPage> {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() {
-      if (isAdmin) _isAdminLoading = true;
-      else _isEmpLoading = true;
+      if (isAdmin) {
+        _isAdminLoading = true;
+      } else {
+        _isEmpLoading = true;
+      }
     });
 
     try {
@@ -1204,7 +1207,7 @@ class _ArcLoader extends StatefulWidget {
   const _ArcLoader({
     required this.size,
     required this.color,
-    this.strokeWidth = 3,
+    this.strokeWidth = 4.0,
   });
 
   @override

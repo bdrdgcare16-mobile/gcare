@@ -24,6 +24,7 @@ const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 /// Small helper: read from SharedPreferences first, then (if empty) localStorage.
 Future<String> _readPersisted(String key) async {
   final sp = await SharedPreferences.getInstance();
+  print("USER TOKEN: ${sp.getString('token')}");
   var v = sp.getString(key) ?? '';
   if (v.isEmpty) {
     try {
