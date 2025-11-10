@@ -19,10 +19,10 @@ class TrackingService {
   bool _sending = false;  // serialize ticks so they don't overlap
 
   // Cadence & thresholds
-  static const Duration kInterval = Duration(minutes: 20);
+  static const Duration kInterval = Duration(minutes: 5);
   static const Duration kBurstTimeout = Duration(seconds: 120); // up to 2 min to hunt a great fix
   static const Duration kStreamMinSampleGap = Duration(seconds: 1); // throttle stream callbacks
-  static const double   kTargetAccuracyMeters = 5.0;
+  static const double   kTargetAccuracyMeters = 100.0;
 
   TrackingService({
     required this.apiBase,

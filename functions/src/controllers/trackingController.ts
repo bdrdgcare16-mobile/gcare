@@ -239,7 +239,7 @@ function pointFromBody(body: any): TrackPoint {
 function minutesBetween(aIso: string, bIso: string) {
   return Math.abs((new Date(aIso).getTime() - new Date(bIso).getTime()) / 60000);
 }
-const MIN_TRACK_INTERVAL_MIN = 20;
+const MIN_TRACK_INTERVAL_MIN = 5;
 // very small movement filter so we don't store duplicate same-spot updates
 function distanceMeters(a: {lat:number; lng:number}, b: {lat:number; lng:number}) {
   const R = 6371000; // m
@@ -250,7 +250,7 @@ function distanceMeters(a: {lat:number; lng:number}, b: {lat:number; lng:number}
   const aa = s1*s1 + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*s2*s2;
   return Math.round(R * (2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1-aa))));
 }
-const MIN_MOVE_METERS = 12;
+const MIN_MOVE_METERS = 0;
 
 /** POST /api/tracking/check-in */
 export async function trackingCheckIn(req: Request, res: Response) {
@@ -327,6 +327,20 @@ export async function trackingAppendPos(req: Request, res: Response) {
           allow = false;
         }
       }
+
+      // Debug log
+      const lastPoint = last || { lat: 0, lng: 0, ts: '' };
+      const distance = last 
+        ? distanceMeters({lat: lastPoint.lat, lng: lastPoint.lng}, {lat: pt.lat, lng: pt.lng})
+        : 0;
+      const timeSinceLast = last ? minutesBetween(pt.ts, lastPoint.ts) : 0;
+      
+      console.log(`Tracking update - Allowed: ${allow}, ` +
+        `Since last: ${timeSinceLast.toFixed(1)} min, ` +
+        `Distance: ${distance.toFixed(1)}m, ` +
+        `Accuracy: ${pt.accuracy || 'N/A'}m, ` +
+        `Last: ${last ? `(${last.lat}, ${last.lng})` : 'none'}, ` +
+        `New: (${pt.lat}, ${pt.lng})`);
 
       if (allow) {
         tx.update(ref, { pathMap: [...list, pt], lastUpdateAt: nowIso });
