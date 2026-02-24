@@ -24,6 +24,7 @@ class Payslip {
   final String employeeName;
   final String designation;
   final String employeeId;
+  final String department;
   final DateTime dateOfJoining;
 
   // Earnings
@@ -54,6 +55,7 @@ class Payslip {
     required this.employeeName,
     required this.designation,
     required this.employeeId,
+    required this.department,
     required this.dateOfJoining,
     required this.basic,
     required this.hra,
@@ -91,6 +93,7 @@ class PayslipDataSource {
         employeeName: "gffg",
         designation: "Software Engineer",
         employeeId: "GC8304",
+        department: "Development",
         dateOfJoining: DateTime(2026, 1, 5),
 
         basic: 123455,

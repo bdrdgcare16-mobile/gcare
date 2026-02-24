@@ -119,7 +119,7 @@ class MyServPage extends StatelessWidget {
         },
       ),
       _ServItemData(
-        imagePath: 'assets/images/payslip.png',
+        icon: Icons.receipt_long,
         label: "My Payslip",
         onTap: () {
           Navigator.push(
@@ -160,6 +160,7 @@ class MyServPage extends StatelessWidget {
               final item = items[index];
               return _ServItem(
                 imagePath: item.imagePath,
+                icon: item.icon,
                 label: item.label,
                 onTap: item.onTap,
               );
@@ -172,23 +173,26 @@ class MyServPage extends StatelessWidget {
 }
 
 class _ServItemData {
-  final String imagePath;
+  final String? imagePath;
+  final IconData? icon;
   final String label;
   final VoidCallback onTap;
 
   _ServItemData({
-    required this.imagePath,
+    this.imagePath,
+    this.icon,
     required this.label,
     required this.onTap,
   });
 }
 
 class _ServItem extends StatelessWidget {
-  final String imagePath;
+  final String? imagePath;
+  final IconData? icon;
   final String label;
   final VoidCallback? onTap;
 
-  const _ServItem({required this.imagePath, required this.label, this.onTap});
+  const _ServItem({this.imagePath, this.icon, required this.label, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -207,13 +211,15 @@ class _ServItem extends StatelessWidget {
               SizedBox(
                 height: 36,
                 width: 36,
-                child: ColorFiltered(
-                  colorFilter: const ColorFilter.mode(
-                    kIconColor, // Updated icon color here
-                    BlendMode.srcIn,
-                  ),
-                  child: Image.asset(imagePath, fit: BoxFit.contain),
-                ),
+                child: icon != null
+                    ? Icon(icon, size: 36, color: kIconColor)
+                    : ColorFiltered(
+                        colorFilter: const ColorFilter.mode(
+                          kIconColor, // Updated icon color here
+                          BlendMode.srcIn,
+                        ),
+                        child: Image.asset(imagePath!, fit: BoxFit.contain),
+                      ),
               ),
               const SizedBox(height: 4),
               Text(

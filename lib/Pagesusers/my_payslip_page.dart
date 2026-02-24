@@ -233,8 +233,10 @@ class _MyPayslipPageState extends State<MyPayslipPage> {
                           ),
                           pw.SizedBox(height: 10),
                           kv('Employee Name', p.employeeName),
+                           kv('Employee ID', p.employeeId),
+                           kv('Department', p.department),
                           kv('Designation', p.designation),
-                          kv('Employee ID', p.employeeId),
+                         
                           // kv('Date of Joining', _ymd(p.dateOfJoining)),
 
                         ],
@@ -449,23 +451,21 @@ class _MyPayslipPageState extends State<MyPayslipPage> {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
+        backgroundColor: Colors.white.withOpacity(0.05),
         title: Text('Payslip - ${p.monthName} ${p.year}'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Employee: ${p.employeeName} (${p.employeeId})'),
-            const SizedBox(height: 6),
-            Text('Gross: Rs. ${p.grossEarnings.toStringAsFixed(0)}'),
-            Text('Deductions: Rs. ${p.totalDeductions.toStringAsFixed(0)}'),
-            const SizedBox(height: 6),
-            Text('Total Days: ${_getTotalDaysInMonth(p.month, p.year)}'),
+            Text('Employee Name: ${p.employeeName}'),
             const SizedBox(height: 2),
+            Text('Employee ID: ${p.employeeId}'),
+            const SizedBox(height: 4),
+            Text('Department: ${p.department}'),
+            const SizedBox(height: 6),
             Text('Worked Days: ${p.paidDays} / ${_getTotalDaysInMonth(p.month, p.year)}'),
             const SizedBox(height: 2),
-            Text('Per Day Salary: Rs. ${(p.netPay / _getTotalDaysInMonth(p.month, p.year)).toStringAsFixed(0)}'),
-            const SizedBox(height: 2),
-            Text('LOP Days: ${p.lopDays}'),
+             Text('Deductions: Rs. ${p.totalDeductions.toStringAsFixed(0)}'),
             const SizedBox(height: 6),
             Text(
               'Net Pay: Rs. ${p.netPay.toStringAsFixed(0)}',
@@ -477,6 +477,32 @@ class _MyPayslipPageState extends State<MyPayslipPage> {
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Close'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              elevation: 4,
+            ),
+            onPressed: () async {
+              Navigator.pop(context);
+              await _downloadPayslip(p);
+            },
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.download, size: 18, color: Colors.white),
+                const SizedBox(width: 8),
+                Text(
+                  'Download',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: kButtonColor),
@@ -505,11 +531,11 @@ class _MyPayslipPageState extends State<MyPayslipPage> {
         iconTheme: const IconThemeData(color: kTextColor),
       ),
       body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
+        decoration: BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage('assets/images/payslipbg.png'),
+            fit: BoxFit.scaleDown, // Makes image smaller to fit within container
+            opacity: 0.3, // Makes background image less visible
           ),
         ),
         child: Padding(
@@ -520,7 +546,7 @@ class _MyPayslipPageState extends State<MyPayslipPage> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.88),
+                  color: Colors.white.withOpacity(0.02),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: LayoutBuilder(
@@ -584,25 +610,10 @@ class _MyPayslipPageState extends State<MyPayslipPage> {
                       ),
                     );
 
-                    final submitBtn = SizedBox(
-                      width: isSmall ? double.infinity : 110,
-                      height: 42,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: kButtonColor,
-                        ),
-                        onPressed: _applyFilter,
-                        child: const Text(
-                          "Submit",
-                          style: TextStyle(color: Colors.white),
-                        ),
-                      ),
-                    );
-
                     return Wrap(
                       spacing: 12,
                       runSpacing: 12,
-                      children: [monthDd, yearDd, submitBtn],
+                      children: [monthDd, yearDd],
                     );
                   },
                 ),
@@ -619,6 +630,7 @@ class _MyPayslipPageState extends State<MyPayslipPage> {
                           final p = _filtered[i];
                           return Card(
                             elevation: 2,
+                            color: Colors.white.withOpacity(0.3),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
@@ -631,7 +643,7 @@ class _MyPayslipPageState extends State<MyPayslipPage> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Payslip - ${p.monthName} ${p.year}',
+                                    'Payslip - ${PayslipDataSource.monthName(_selectedMonth)} $_selectedYear',
                                     style: const TextStyle(
                                       fontWeight: FontWeight.w800,
                                     ),

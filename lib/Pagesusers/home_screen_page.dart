@@ -552,7 +552,7 @@ class _HomeTile extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 44, color: kAppBarColor),
+              Icon(icon, size: 36, color: kAppBarColor),
               const SizedBox(height: 8),
               Text(
                 label,
