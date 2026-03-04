@@ -1765,10 +1765,7 @@ class _EmployeeOnboardingPageState extends State<EmployeeOnboardingPage> {
     final data = _filtered;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Employee Onboarding"),
-        backgroundColor: kAppBarColor,
-      ),
+     
       body: Container(
         width: double.infinity,
         height: double.infinity,

@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:serv_app/Pagesuperadmin/superadmin_dashboard.dart';
 
 // Web localStorage shim
 import 'package:serv_app/html_stub.dart'
@@ -282,8 +283,8 @@ class _LoginPageState extends State<LoginPage> {
         await _persist('role', role);
 
         // Role sanity vs button
-        if (isAdmin && role != 'admin') {
-          _showSnack("Not authorized as admin.");
+        if (isAdmin && role != 'admin' && role != 'super_admin') {
+          _showSnack("Not authorized as admin or superadmin.");
           return;
         }
         if (!isAdmin && role != 'employee') {
@@ -294,6 +295,15 @@ class _LoginPageState extends State<LoginPage> {
         if (isAdmin) {
           // ---------- ADMIN FLOW ----------
           try {
+            if (role == 'super_admin') {
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const SuperAdminDashboard()),
+      (route) => false,
+    );
+    return;
+  }
+
+
             final result =
                 await _checkCompanyProfile(token: tok, adminEmail: email);
             final exists = result['exists'] == true;

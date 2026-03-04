@@ -12,7 +12,7 @@ import 'package:serv_app/models/company_data.dart';
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
 const Color kTextColor = Colors.white;
-const Color kHighlightBoxColor = Color(0xFF655193);
+const Color kHighlightBoxColor = Color(0xFF8C6EAF);
 
 // ---- API ----
 const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';

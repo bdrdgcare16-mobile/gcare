@@ -72,6 +72,14 @@ class EmployeePayrollModel {
   double bonus;
   double overtime;
 
+  // New payroll fields
+  double pf;
+  double esi;
+  double tax;
+  double hra;
+  double allowances;
+  double grossSalary;
+
   bool isPaid;
   DateTime? paidDate;
 
@@ -88,6 +96,12 @@ class EmployeePayrollModel {
     this.lopDays = 0,
     this.bonus = 0,
     this.overtime = 0,
+    this.pf = 0,
+    this.esi = 0,
+    this.tax = 0,
+    this.hra = 0,
+    this.allowances = 0,
+    this.grossSalary = 0,
     this.isPaid = false,
     this.paidDate,
   });
@@ -95,10 +109,16 @@ class EmployeePayrollModel {
   double get perDaySalary => baseSalary / totalDays;
 
   double get netSalary =>
-      (workedDays * perDaySalary) + bonus + overtime;
+      (perDaySalary * workedDays) + bonus + overtime;
+
+  String get monthYear => "$month / $year";
+
+  String get paymentText => isPaid ? "PAID" : "UNPAID";
 
   String get formattedPaidDate {
     if (paidDate == null) return "-";
-    return "${paidDate!.day}-${paidDate!.month}-${paidDate!.year}";
+    return "${paidDate!.day.toString().padLeft(2, '0')}-"
+        "${paidDate!.month.toString().padLeft(2, '0')}-"
+        "${paidDate!.year}";
   }
 }

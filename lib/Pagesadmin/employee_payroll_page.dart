@@ -225,65 +225,269 @@ class _EmployeePayrollPageState extends State<EmployeePayrollPage> {
   }
 
   void _pickMonthYear() async {
-    final now = DateTime.now();
+    final months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    
+    int tempMonth = selectedMonth;
+    int tempYear = selectedYear;
 
-    final picked = await showDatePicker(
+    await showDialog(
       context: context,
-      initialDate: DateTime(selectedYear, selectedMonth),
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2035),
-      helpText: "Select Month & Year",
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text("Select Month & Year"),
+              content: SizedBox(
+                width: 300,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Year Selection
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        IconButton(
+                          onPressed: () {
+                            setState(() {
+                              tempYear--;
+                            });
+                          },
+                          icon: const Icon(Icons.remove),
+                        ),
+                        Text(
+                          tempYear.toString(),
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () {
+                            setState(() {
+                              tempYear++;
+                            });
+                          },
+                          icon: const Icon(Icons.add),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    // Month Selection
+                    SizedBox(
+                      height: 200,
+                      child: GridView.builder(
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3,
+                          childAspectRatio: 2,
+                          crossAxisSpacing: 8,
+                          mainAxisSpacing: 8,
+                        ),
+                        itemCount: 12,
+                        itemBuilder: (context, index) {
+                          final month = index + 1;
+                          final isSelected = month == tempMonth;
+                          return ElevatedButton(
+                            onPressed: () {
+                              setState(() {
+                                tempMonth = month;
+                              });
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: isSelected 
+                                  ? Theme.of(context).primaryColor 
+                                  : Colors.grey[200],
+                              foregroundColor: isSelected 
+                                  ? Colors.white 
+                                  : Colors.black,
+                            ),
+                            child: Text(
+                              months[index].substring(0, 3),
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("Cancel"),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      selectedMonth = tempMonth;
+                      selectedYear = tempYear;
+                    });
+                    Navigator.pop(context);
+                    _applyFilters();
+                  },
+                  child: const Text("OK"),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
-
-    if (picked != null) {
-      setState(() {
-        selectedMonth = picked.month;
-        selectedYear = picked.year;
-      });
-      _applyFilters();
-    }
   }
 
   // ================= VIEW =================
   void _viewPayroll(EmployeePayrollModel emp) {
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text("Payroll Full Details"),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text("Employee: ${emp.employeeName}",
-                   style: const TextStyle(fontWeight: FontWeight.bold)),
-              Text("ID: ${emp.employeeId}"),
-              Text("Department: ${emp.department}"),
-              Text("Designation: ${emp.designation}"),
-              const Divider(),
-              Text("Month/Year: ${emp.month}/${emp.year}"),
-              Text("Base Salary: ₹${emp.baseSalary.toStringAsFixed(0)}"),
-              Text("Total Days: ${emp.totalDays}"),
-              Text("Worked Days: ${emp.workedDays}"),
-              Text("LOP Days: ${emp.lopDays}"),
-              Text("Per Day Salary: ₹${emp.perDaySalary.toStringAsFixed(0)}"),
-              Text("Bonus: ₹${emp.bonus.toStringAsFixed(0)}"),
-              Text("Overtime: ₹${emp.overtime.toStringAsFixed(0)}"),
-              const Divider(),
-              Text("Net Salary: ₹${emp.netSalary.toStringAsFixed(0)}",
-                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              Text("Status: ${emp.isPaid ? 'Paid' : 'Unpaid'}",
-                   style: TextStyle(
-                     color: emp.isPaid ? Colors.green : Colors.orange,
-                     fontWeight: FontWeight.bold,
-                   )),
-              Text("Paid Date: ${emp.formattedPaidDate}"),
-            ],
+      builder: (_) => SizedBox(
+        width: 360,
+        child: AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: Color(0xFFE6E0F0), width: 1),
           ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+          title: const Center(
+            child: Text(
+              "Payroll Full Details",
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          content: SizedBox(
+            width: 320,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: 14),
+                  
+                  // Section A: Employee Info
+                  _buildInfoRow("Employee", emp.employeeName),
+                  _buildInfoRow("ID", emp.employeeId),
+                  _buildInfoRow("Department", emp.department),
+                  _buildInfoRow("Designation", emp.designation),
+                  
+                  const SizedBox(height: 12),
+                  const Divider(color: Color(0xFFE6E0F0)),
+                  const SizedBox(height: 12),
+                  
+                  // Section B: Payroll Info
+                  _buildInfoRow("Month/Year", "${emp.month}/${emp.year}"),
+                  _buildInfoRow("Base Salary", "₹${emp.baseSalary.toStringAsFixed(0)}"),
+                  _buildInfoRow("PF", "₹${emp.pf.toStringAsFixed(0)}"),
+                  _buildInfoRow("ESI", "₹${emp.esi.toStringAsFixed(0)}"),
+                  _buildInfoRow("Tax", "₹${emp.tax.toStringAsFixed(0)}"),
+                  _buildInfoRow("HRA", "₹${emp.hra.toStringAsFixed(0)}"),
+                  _buildInfoRow("Allowances", "₹${emp.allowances.toStringAsFixed(0)}"),
+                  _buildInfoRow("Gross Salary", "₹${emp.grossSalary.toStringAsFixed(0)}"),
+                  _buildInfoRow("Total Days", emp.totalDays.toString()),
+                  _buildInfoRow("Worked Days", emp.workedDays.toString()),
+                  _buildInfoRow("LOP Days", emp.lopDays.toString()),
+                  _buildInfoRow("Per Day Salary", "₹${emp.perDaySalary.toStringAsFixed(0)}"),
+                  _buildInfoRow("Bonus", "₹${emp.bonus.toStringAsFixed(0)}"),
+                  _buildInfoRow("Overtime", "₹${emp.overtime.toStringAsFixed(0)}"),
+                  
+                  const SizedBox(height: 12),
+                  const Divider(color: Color(0xFFE6E0F0)),
+                  const SizedBox(height: 12),
+                  
+                  // Section C: Summary
+                  _buildInfoRow(
+                    "Net Salary", 
+                    "₹${emp.netSalary.toStringAsFixed(0)}",
+                    isHighlighted: true,
+                    fontSize: 16,
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const SizedBox(
+                        width: 120,
+                        child: Text(
+                          "Status",
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: emp.isPaid ? Colors.green[100] : Colors.orange[100],
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          emp.isPaid ? 'PAID' : 'UNPAID',
+                          style: TextStyle(
+                            color: emp.isPaid ? Colors.green[700] : Colors.orange[700],
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _buildInfoRow("Paid Date", emp.formattedPaidDate),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            const SizedBox(height: 8),
+            Center(
+              child: TextButton(
+                onPressed: () => Navigator.pop(context),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                ),
+                child: const Text(
+                  "Close",
+                  style: TextStyle(fontSize: 14),
+                ),
+              ),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Close"))
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value, {bool isHighlighted = false, double? fontSize}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                color: Colors.grey[700],
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(
+                fontWeight: isHighlighted ? FontWeight.w700 : FontWeight.w400,
+                fontSize: fontSize ?? (isHighlighted ? 18 : 14),
+                color: isHighlighted ? Colors.black87 : Colors.black,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -301,6 +505,12 @@ class _EmployeePayrollPageState extends State<EmployeePayrollPage> {
     final lopCtrl = TextEditingController(text: emp.lopDays.toString());
     final bonusCtrl = TextEditingController(text: emp.bonus.toString());
     final otCtrl = TextEditingController(text: emp.overtime.toString());
+    final pfCtrl = TextEditingController(text: (emp.baseSalary * 0.12).toStringAsFixed(0));
+    final esiCtrl = TextEditingController(text: (emp.baseSalary * 0.0175).toStringAsFixed(0));
+    final taxCtrl = TextEditingController(text: (emp.baseSalary * 0.10).toStringAsFixed(0));
+    final hraCtrl = TextEditingController(text: (emp.baseSalary * 0.40).toStringAsFixed(0));
+    final allowancesCtrl = TextEditingController(text: (emp.baseSalary * 0.15).toStringAsFixed(0));
+    final grossCtrl = TextEditingController(text: (emp.baseSalary * 1.15).toStringAsFixed(0));
 
     showDialog(
       context: context,
@@ -311,6 +521,12 @@ class _EmployeePayrollPageState extends State<EmployeePayrollPage> {
             children: [
               _field("Worked Days", workedCtrl),
               _field("LOP Days", lopCtrl),
+              _field("PF", pfCtrl),
+              _field("ESI", esiCtrl),
+              _field("Tax", taxCtrl),
+              _field("HRA", hraCtrl),
+              _field("Allowances", allowancesCtrl),
+              _field("Gross Salary", grossCtrl),
               _field("Bonus", bonusCtrl),
               _field("Overtime", otCtrl),
             ],
@@ -327,6 +543,12 @@ class _EmployeePayrollPageState extends State<EmployeePayrollPage> {
                 emp.lopDays = int.parse(lopCtrl.text);
                 emp.bonus = double.parse(bonusCtrl.text);
                 emp.overtime = double.parse(otCtrl.text);
+                emp.pf = double.parse(pfCtrl.text);
+                emp.esi = double.parse(esiCtrl.text);
+                emp.tax = double.parse(taxCtrl.text);
+                emp.hra = double.parse(hraCtrl.text);
+                emp.allowances = double.parse(allowancesCtrl.text);
+                emp.grossSalary = double.parse(grossCtrl.text);
               });
               Navigator.pop(context);
             },
@@ -354,7 +576,7 @@ class _EmployeePayrollPageState extends State<EmployeePayrollPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Employee Payroll")),
+      
       body: Column(
         children: [
 

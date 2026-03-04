@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:serv_app/Pagesadmin/globals_page.dart';
 
+// Theme Colors
+const Color kAppBarColor = Color(0xFF8C6EAF);
+
 class WeekOffPage extends StatefulWidget {
   const WeekOffPage({super.key});
 
@@ -82,7 +85,7 @@ class _WeekOffPageState extends State<WeekOffPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Week Off"),
-        backgroundColor: Colors.purpleAccent[200],
+        backgroundColor: kAppBarColor,
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),

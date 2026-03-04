@@ -18,6 +18,11 @@ class SuperAdminEmployeeManagementPage extends StatefulWidget {
 }
 
 class _SuperAdminEmployeeManagementPageState extends State<SuperAdminEmployeeManagementPage> {
+  static const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
+  static const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
+  static const Color kAppBarColor = Color(0xFF8C6EAF);
+  static const Color kButtonColor = Color(0xFF655193);
+  static const Color kTextColor = Colors.white;
   static const Color kBorder = Color(0xFFE3E7EE);
 
   static const String kDeptOther = '__DEPT_OTHER__';
@@ -94,8 +99,9 @@ class _SuperAdminEmployeeManagementPageState extends State<SuperAdminEmployeeMan
     return Scaffold(
       appBar: AppBar(
         title: const Text("Employee Management"),
-        backgroundColor: Colors.blue[800],
-        foregroundColor: Colors.white,
+        backgroundColor: kAppBarColor,
+        foregroundColor: kTextColor,
+        elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
@@ -103,8 +109,20 @@ class _SuperAdminEmployeeManagementPageState extends State<SuperAdminEmployeeMan
           },
         ),
       ),
-      body: Column(
-        children: [
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              kPrimaryBackgroundTop,
+              kPrimaryBackgroundBottom,
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
           _filtersBar(context, deptItems: deptItems, roleItems: roleItems),
           const SizedBox(height: 6),
           Expanded(
@@ -197,6 +215,8 @@ class _SuperAdminEmployeeManagementPageState extends State<SuperAdminEmployeeMan
                   ),
           ),
         ],
+      ),
+        ),
       ),
     );
   }
@@ -430,6 +450,13 @@ class _SuperAdminEmployeeManagementPageState extends State<SuperAdminEmployeeMan
                 final v = ctrl.text.trim();
                 Navigator.pop(ctx, v.isEmpty ? null : v);
               },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: kButtonColor,
+                foregroundColor: kTextColor,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
               child: const Text("Add"),
             ),
           ],

@@ -450,72 +450,172 @@ class _MyPayslipPageState extends State<MyPayslipPage> {
   Future<void> _viewPayslip(Payslip p) async {
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: Colors.white.withOpacity(0.05),
-        title: Text('Payslip - ${p.monthName} ${p.year}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Employee Name: ${p.employeeName}'),
-            const SizedBox(height: 2),
-            Text('Employee ID: ${p.employeeId}'),
-            const SizedBox(height: 4),
-            Text('Department: ${p.department}'),
-            const SizedBox(height: 6),
-            Text('Worked Days: ${p.paidDays} / ${_getTotalDaysInMonth(p.month, p.year)}'),
-            const SizedBox(height: 2),
-             Text('Deductions: Rs. ${p.totalDeductions.toStringAsFixed(0)}'),
-            const SizedBox(height: 6),
-            Text(
-              'Net Pay: Rs. ${p.netPay.toStringAsFixed(0)}',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+      builder: (_) => SizedBox(
+        width: 350,
+        child: AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: Color(0xFFE6E6FA), width: 2),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              elevation: 4,
+          contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          title: const SizedBox(
+            width: double.infinity,
+            child: Text(
+              'Payslip Details',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: Colors.black87,
+              ),
             ),
-            onPressed: () async {
-              Navigator.pop(context);
-              await _downloadPayslip(p);
-            },
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Text(
+                    'Employee Name:',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(p.employeeName),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              
+              Row(
+                children: [
+                  const Text(
+                    'Employee ID:',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(p.employeeId),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              
+              Row(
+                children: [
+                  const Text(
+                    'Department:',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(p.department),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              
+              Row(
+                children: [
+                  const Text(
+                    'Worked Days:',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('${p.paidDays} / ${_getTotalDaysInMonth(p.month, p.year)}'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              
+              Row(
+                children: [
+                  const Text(
+                    'Deductions:',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('Rs. ${p.totalDeductions.toStringAsFixed(0)}'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              
+              Container(
+                width: double.infinity,
+                height: 1,
+                color: const Color(0xFFE6E6FA),
+                margin: const EdgeInsets.symmetric(vertical: 8),
+              ),
+              const SizedBox(height: 8),
+              
+              Row(
+                children: [
+                  const Text(
+                    'Net Pay:',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Rs. ${p.netPay.toStringAsFixed(0)}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 17,
+                        color: Colors.black,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Icon(Icons.download, size: 18, color: Colors.white),
-                const SizedBox(width: 8),
-                Text(
-                  'Download',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Close'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: kButtonColor),
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    await _openPreview(p);
+                  },
+                  child: const Text(
+                    'Preview PDF',
+                    style: TextStyle(color: Colors.white),
                   ),
                 ),
               ],
             ),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: kButtonColor),
-            onPressed: () async {
-              Navigator.pop(context);
-              await _openPreview(p);
-            },
-            child: const Text(
-              'Preview PDF',
-              style: TextStyle(color: Colors.white),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

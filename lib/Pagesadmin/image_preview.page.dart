@@ -1,6 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 
+// Theme Colors
+const Color kAppBarColor = Color(0xFF8C6EAF);
+
 class ImagePreviewPage extends StatelessWidget {
   final File imageFile;
 
@@ -9,7 +12,10 @@ class ImagePreviewPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Preview Image")),
+      appBar: AppBar(
+        title: const Text("Preview Image"),
+        backgroundColor: kAppBarColor,
+      ),
       body: Column(
         children: [
           Expanded(

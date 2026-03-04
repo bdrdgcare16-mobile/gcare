@@ -93,5 +93,7 @@ export const roleMiddleware = (roles: string[]) => {
 };
 
 export const verifyToken = authMiddleware;
-export const isAdmin = (req: Request, res: Response, next: NextFunction) =>
-  roleMiddleware(['admin'])(req, res, next);
+export const isAdminOrSuperAdmin = (req: Request, res: Response, next: NextFunction) =>
+  roleMiddleware(['admin' , 'super_admin'])(req, res, next);
+
+export const isAdmin = roleMiddleware(['admin', 'super_admin']);

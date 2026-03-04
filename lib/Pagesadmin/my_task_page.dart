@@ -350,7 +350,7 @@ class _MyTasksPageState extends State<MyTasksPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: const Color(0xFF8E71B7),
+        backgroundColor: const Color(0xFF8C6EAF),
         centerTitle: false,
         elevation: 0,
         leading: IconButton(

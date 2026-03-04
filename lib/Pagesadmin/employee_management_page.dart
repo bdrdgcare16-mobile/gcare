@@ -15,7 +15,7 @@
 // // ===== Theme =====
 // const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 // const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-// const Color kAppBarColor = Color(0xFF655193);
+// const Color kAppBarColor = Color(0xFF8C6EAF);
 // const Color kButtonColor = Color(0xFF655193);
 // const Color kTextColor = Colors.white;
 
@@ -823,7 +823,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl_phone_field/intl_phone_field.dart';
 import 'package:http/http.dart' as http;
-import 'report_scheduler_page.dart';
 
 // Use localStorage only when targeting Web
 // ignore: avoid_web_libraries_in_flutter
@@ -836,7 +835,7 @@ import 'package:serv_app/models/company_data.dart';
 // ===== Theme =====
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-const Color kAppBarColor = Color(0xFF655193);
+const Color kAppBarColor = Color(0xFF8C6EAF);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
@@ -1140,15 +1139,7 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        toolbarHeight: 50,
-        backgroundColor: kAppBarColor,
-        foregroundColor: Colors.white,
-        leading: IconButton(icon: const Icon(Icons.arrow_back, size: 0), onPressed: () {}),
-        titleSpacing: 0,
-        title: const Text("Employee Management",
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-      ),
+     
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -1206,21 +1197,21 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
                   child: const Text("Create Employee", style: TextStyle(fontSize: 12)),
                 ),
                 const SizedBox(height: 10),
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => ReportSchedulerPage()),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: kButtonColor,
-                    foregroundColor: kTextColor,
-                    minimumSize: const Size(120, 36),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                  ),
-                  child: const Text("Create Report Scheduler", style: TextStyle(fontSize: 12)),
-                ),
+                // ElevatedButton(
+                //   onPressed: () {
+                //     Navigator.push(
+                //       context,
+                //       MaterialPageRoute(builder: (_) => ReportSchedulerPage()),
+                //     );
+                //   },
+                //   style: ElevatedButton.styleFrom(
+                //     backgroundColor: kButtonColor,
+                //     foregroundColor: kTextColor,
+                //     minimumSize: const Size(120, 36),
+                //     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                //   ),
+                //   child: const Text("Create Report Scheduler", style: TextStyle(fontSize: 12)),
+                // ),
               ],
             ),
             Padding(

@@ -94,7 +94,7 @@ function makeTransport() {
 const mailer = makeTransport();
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-const okRoles = new Set(['employee', 'admin']);
+const okRoles = new Set(['employee', 'admin' , 'super_admin']);
 const normEmail = (e = '') => String(e).trim().toLowerCase();
 
 interface JwtPayload {

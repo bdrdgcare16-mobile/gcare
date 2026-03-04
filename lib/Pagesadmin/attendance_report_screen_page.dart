@@ -373,15 +373,6 @@ class _AttendanceReportState extends State<AttendanceReport> {
             padding: EdgeInsets.all(isWeb ? 16 : 12),
             child: Row(
               children: [
-                Icon(Icons.chevron_right, color: kButtonColor),
-                const SizedBox(width: 4),
-                Text(
-                  'Attendance Reports',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: kButtonColor,
-                  ),
-                ),
                 if (_selectedFilter.isNotEmpty) ...[
                   const SizedBox(width: 8),
                   Container(

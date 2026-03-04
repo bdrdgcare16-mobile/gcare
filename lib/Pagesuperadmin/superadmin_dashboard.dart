@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'employee_onboarding_models.dart';
 import 'employee_requests_page.dart';
 import 'superadmin_employee_management_page.dart';
+import '../Pagesusers/log_out_page.dart';
+
 
 /// Super Admin Dashboard (Home)
 /// - Dashboard cards open bottom sheet preview first
@@ -15,8 +17,11 @@ class SuperAdminDashboard extends StatefulWidget {
 }
 
 class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
-  static const Color kAppBarBlue = Color(0xFF2F6DB3);
-  static const Color kBg = Color(0xFFF2F4F7);
+  static const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
+  static const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
+  static const Color kAppBarColor = Color(0xFF8C6EAF);
+  static const Color kButtonColor = Color(0xFF655193);
+  static const Color kTextColor = Colors.white;
   static const Color kCardBorder = Color(0xFFE3E7EE);
 
   final List<EmployeeRequestVm> _all = [];
@@ -82,6 +87,14 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
           documents: {
             "resume": {"fileName": "Resume.pdf", "path": "uploads/resume.pdf"},
             "panCard": {"fileName": "PAN.pdf", "path": "uploads/pan.pdf"},
+            "10thMarkSheet": {"fileName": "10thMarkSheet.pdf", "path": "uploads/10thMarkSheet.pdf"},
+            "12thMarkSheet": {"fileName": "12thMarkSheet.pdf", "path": "uploads/12thMarkSheet.pdf"},
+            "graduationCertificate": {"fileName": "GraduationCertificate.pdf", "path": "uploads/graduationCertificate.pdf"},
+            "experienceLetter": {"fileName": "ExperienceLetter.pdf", "path": "uploads/experienceLetter.pdf"},
+            "offerLetter": {"fileName": "OfferLetter.pdf", "path": "uploads/offerLetter.pdf"},
+            "AadharCard": {"fileName": "AadharCard.pdf", "path": "uploads/aadharCard.pdf"},
+            "provisionalCertificate": {"fileName": "ProvisionalCertificate.pdf", "path": "uploads/provisionalCertificate.pdf"},
+            
           },
         ),
       ),
@@ -500,6 +513,13 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
                       const SnackBar(content: Text("Password updated successfully")),
                     );
                   },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kButtonColor,
+                    foregroundColor: kTextColor,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
                   child: const Text("Submit"),
                 ),
               ],
@@ -514,51 +534,82 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
     confirmCtrl.dispose();
   }
 
-  // ✅ NEW: Logout
-  Future<void> _logout() async {
-    Navigator.pop(context); // close drawer
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Logout", style: TextStyle(fontWeight: FontWeight.w900)),
-        content: const Text("Are you sure you want to logout?"),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Logout")),
-        ],
+Future<void> _logout() async {
+  Navigator.pop(context); // close drawer
+
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text(
+        "Logout",
+        style: TextStyle(fontWeight: FontWeight.w900),
+      ),
+      content: const Text("Are you sure you want to logout?"),
+      actions: [
+        ElevatedButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text("Cancel"),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: kButtonColor,
+            foregroundColor: kTextColor,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+          child: const Text("Logout"),
+        ),
+      ],
+    ),
+  );
+
+  if (ok == true) {
+    if (!mounted) return;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const LogOutPage(),
       ),
     );
-
-    if (ok == true) {
-      if (!mounted) return;
-      // TODO: If you use FirebaseAuth, call FirebaseAuth.instance.signOut();
-      // Navigate to your Login page. Replace with your real login widget.
-      Navigator.of(context).popUntil((route) => route.isFirst);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Logged out")),
-      );
-    }
   }
-
+}
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: kBg,
+      backgroundColor: Colors.transparent,
       drawer: _drawer(),
       appBar: AppBar(
-        backgroundColor: kAppBarBlue,
-        foregroundColor: Colors.white,
+        backgroundColor: kAppBarColor,
+        foregroundColor: kTextColor,
+        elevation: 0,
         title: const Text("Dashboard", style: TextStyle(fontWeight: FontWeight.w700)),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text("Overview", style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 12),
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              kPrimaryBackgroundTop,
+              kPrimaryBackgroundBottom,
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text("Overview", style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 12),
 
-            _overviewCard(
+                _overviewCard(
               title: "Total Requests",
               value: _totalRequests.toString(),
               icon: Icons.request_page,
@@ -735,6 +786,8 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
           ],
         ),
       ),
+        ),
+      ),
     );
   }
 
@@ -795,7 +848,7 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
-              color: kAppBarBlue,
+              color: kAppBarColor,
               child: const Text(
                 "Super Admin",
                 style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900),
@@ -838,6 +891,7 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
                 ],
               ),
             ),
+            const SizedBox(height: 20), // Extra space to ensure gradient extends to bottom
           ],
         ),
       ),

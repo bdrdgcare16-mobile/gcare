@@ -15,8 +15,11 @@ class EmployeeReviewPage extends StatefulWidget {
 }
 
 class _EmployeeReviewPageState extends State<EmployeeReviewPage> {
-  static const Color kAppBarBlue = Color(0xFF2F6DB3);
-  static const Color kBg = Color(0xFFF2F4F7);
+  static const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
+  static const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
+  static const Color kAppBarColor = Color(0xFF8C6EAF);
+  static const Color kButtonColor = Color(0xFF655193);
+  static const Color kTextColor = Colors.white;
   static const Color kCardBorder = Color(0xFFE3E7EE);
   static const Color kPendingBg = Color(0xFFF2D58A);
 
@@ -29,9 +32,9 @@ class _EmployeeReviewPageState extends State<EmployeeReviewPage> {
     final m = _req.details;
 
     return Scaffold(
-      backgroundColor: kBg,
       appBar: AppBar(
-        backgroundColor: kAppBarBlue,
+        backgroundColor: kAppBarColor,
+        foregroundColor: kTextColor,
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
@@ -51,102 +54,116 @@ class _EmployeeReviewPageState extends State<EmployeeReviewPage> {
           const SizedBox(width: 6),
         ],
       ),
-      body: Stack(
-        children: [
-          SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _breadcrumb(),
-                const SizedBox(height: 10),
-
-                _employeeHeaderCard(m),
-                const SizedBox(height: 12),
-
-                _sectionCard(
-                  title: "Basic Details",
-                  child: _kvTable([
-                    ("Full Name", m.fullName),
-                    ("Gender", m.gender),
-                    ("Date of Birth", _fmtDate(m.dob)),
-                    ("Blood Group", m.bloodGroup),
-                    ("Marital Status", m.maritalStatus),
-                    ("Address",
-                        "${m.permanentAddress},\n${m.city}, ${m.state}"),
-                    ("Pincode", m.pincode),
-                    ("Personal Email", m.personalEmail),
-                    ("Phone No", "${m.mobileCountryCode} ${m.mobileNumber}"),
-                  ]),
-                ),
-                const SizedBox(height: 12),
-
-                LayoutBuilder(
-                  builder: (context, c) {
-                    final isNarrow = c.maxWidth < 420;
-                    final left = _sectionCard(
-                      title: "Company Details",
-                      child: _kvTable([
-                        ("Company", m.companyName),
-                        ("Branch", m.branchLocation),
-                        ("Department", m.department),
-                        ("Designation", m.designation),
-                        ("Work Mode", m.workMode),
-                        ("Shift Timing", m.shiftTiming),
-                        ("Emp ID", m.employeeId),
-                        ("DOJ", _fmtDate(m.doj)),
-                      ]),
-                    );
-
-                    final right = _sectionCard(
-                      title: "Salary / Bank Details",
-                      child: _kvTable([
-                        ("Bank", m.bankName),
-                        ("Account No", _maskAccount(m.accountNumber)),
-                        ("Branch", m.bankBranch),
-                        ("IFSC Code", m.ifscCode),
-                        ("UPI ID", m.upiId),
-                        ("PAN No", m.panNumber),
-                        ("Gross Salary", "₹${m.grossSalary}"),
-                      ]),
-                    );
-
-                    if (isNarrow) {
-                      return Column(
-                        children: [
-                          left,
-                          const SizedBox(height: 12),
-                          right,
-                        ],
-                      );
-                    }
-
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(child: left),
-                        const SizedBox(width: 12),
-                        Expanded(child: right),
-                      ],
-                    );
-                  },
-                ),
-                const SizedBox(height: 12),
-
-                _sectionCard(
-                  title: "Documents",
-                  child: _documentsList(m.documents),
-                ),
-              ],
-            ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              kPrimaryBackgroundTop,
+              kPrimaryBackgroundBottom,
+            ],
           ),
+        ),
+        child: SafeArea(
+          child: Stack(
+            children: [
+              SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(14, 14, 14, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _breadcrumb(),
+                    const SizedBox(height: 10),
 
-          if (_busy)
-            Container(
-              color: Colors.black.withOpacity(0.06),
-              child: const Center(child: CircularProgressIndicator()),
-            ),
-        ],
+                    _employeeHeaderCard(m),
+                    const SizedBox(height: 12),
+
+                    _sectionCard(
+                      title: "Basic Details",
+                      child: _kvTable([
+                        ("Full Name", m.fullName),
+                        ("Gender", m.gender),
+                        ("Date of Birth", _fmtDate(m.dob)),
+                        ("Blood Group", m.bloodGroup),
+                        ("Marital Status", m.maritalStatus),
+                        ("Address",
+                            "${m.permanentAddress},\n${m.city}, ${m.state}"),
+                        ("Pincode", m.pincode),
+                        ("Personal Email", m.personalEmail),
+                        ("Phone No", "${m.mobileCountryCode} ${m.mobileNumber}"),
+                      ]),
+                    ),
+                    const SizedBox(height: 12),
+
+                    LayoutBuilder(
+                      builder: (context, c) {
+                        final isNarrow = c.maxWidth < 420;
+                        final left = _sectionCard(
+                          title: "Company Details",
+                          child: _kvTable([
+                            ("Company", m.companyName),
+                            ("Branch", m.branchLocation),
+                            ("Department", m.department),
+                            ("Designation", m.designation),
+                            ("Work Mode", m.workMode),
+                            ("Shift Timing", m.shiftTiming),
+                            ("Emp ID", m.employeeId),
+                            ("DOJ", _fmtDate(m.doj)),
+                          ]),
+                        );
+
+                        final right = _sectionCard(
+                          title: "Salary / Bank Details",
+                          child: _kvTable([
+                            ("Bank", m.bankName),
+                            ("Account No", _maskAccount(m.accountNumber)),
+                            ("Branch", m.bankBranch),
+                            ("IFSC Code", m.ifscCode),
+                            ("UPI ID", m.upiId),
+                            ("PAN No", m.panNumber),
+                            ("Gross Salary", "₹${m.grossSalary}"),
+                          ]),
+                        );
+
+                        if (isNarrow) {
+                          return Column(
+                            children: [
+                              left,
+                              const SizedBox(height: 12),
+                              right,
+                            ],
+                          );
+                        }
+
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: left),
+                            const SizedBox(width: 12),
+                            Expanded(child: right),
+                          ],
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+
+                    _sectionCard(
+                      title: "Documents",
+                      child: _documentsList(m.documents),
+                    ),
+                  ],
+                ),
+              ),
+
+              if (_busy)
+                Container(
+                  color: Colors.black.withOpacity(0.06),
+                  child: const Center(child: CircularProgressIndicator()),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -220,7 +237,6 @@ class _EmployeeReviewPageState extends State<EmployeeReviewPage> {
               Expanded(
                 child: _actionBtn(
                   text: "APPROVE",
-                  color: const Color(0xFF2FA84F),
                   onTap: _req.status == RequestStatus.pending
                       ? () => _applyDecision(RequestStatus.approved)
                       : null,
@@ -230,7 +246,6 @@ class _EmployeeReviewPageState extends State<EmployeeReviewPage> {
               Expanded(
                 child: _actionBtn(
                   text: "REJECT",
-                  color: const Color(0xFFE04B42),
                   onTap: _req.status == RequestStatus.pending
                       ? () => _applyDecision(RequestStatus.rejected)
                       : null,
@@ -407,7 +422,6 @@ class _EmployeeReviewPageState extends State<EmployeeReviewPage> {
 
   Widget _actionBtn({
     required String text,
-    required Color color,
     required VoidCallback? onTap,
   }) {
     return SizedBox(
@@ -415,7 +429,8 @@ class _EmployeeReviewPageState extends State<EmployeeReviewPage> {
       child: ElevatedButton(
         onPressed: onTap,
         style: ElevatedButton.styleFrom(
-          backgroundColor: onTap == null ? color.withOpacity(0.45) : color,
+          backgroundColor: onTap == null ? kButtonColor.withOpacity(0.45) : kButtonColor,
+          foregroundColor: kTextColor,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
         child: FittedBox(
@@ -497,6 +512,13 @@ class _EmployeeReviewPageState extends State<EmployeeReviewPage> {
               if (text.isEmpty) return;
               Navigator.pop(context, text);
             },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: kButtonColor,
+              foregroundColor: kTextColor,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
             child: const Text("Submit"),
           ),
         ],
@@ -554,6 +576,13 @@ class _EmployeeReviewPageState extends State<EmployeeReviewPage> {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kButtonColor,
+                    foregroundColor: kTextColor,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
                   child: const Text("OK"),
                 ),
               ),

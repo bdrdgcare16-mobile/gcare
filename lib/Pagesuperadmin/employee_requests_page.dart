@@ -23,12 +23,17 @@ class EmployeeRequestsPage extends StatefulWidget {
 }
 
 class _EmployeeRequestsPageState extends State<EmployeeRequestsPage> {
+  static const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
+  static const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
+  static const Color kAppBarColor = Color(0xFF8C6EAF);
+  static const Color kButtonColor = Color(0xFF655193);
+  static const Color kTextColor = Colors.white;
   static const Color kCardBorder = Color(0xFFE3E7EE);
 
   final TextEditingController _searchCtrl = TextEditingController();
   List<EmployeeRequestVm> _filtered = [];
 
-  DateTime? _selectedDate; // ✅ date filter
+  DateTime? _selectedDate; // date filter
 
   @override
   void initState() {
@@ -55,8 +60,8 @@ class _EmployeeRequestsPageState extends State<EmployeeRequestsPage> {
     final dateFiltered = _selectedDate == null
         ? base
         : base.where((e) {
-            // ✅ CHANGE THIS if your model uses a different field name
-            final DateTime? reqDate = e.requestedDate; // <-- adjust if needed
+            // date filter
+            final DateTime? reqDate = e.requestedDate; // adjust if needed
             if (reqDate == null) return false;
             return _isSameDay(reqDate, _selectedDate!);
           }).toList();
@@ -155,91 +160,104 @@ class _EmployeeRequestsPageState extends State<EmployeeRequestsPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(_title()),
-        backgroundColor: Colors.blue[800],
-        foregroundColor: Colors.white,
+        backgroundColor: kAppBarColor,
+        foregroundColor: kTextColor,
+        elevation: 0,
       ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-              child: Row(
-                children: [
-                  // ✅ Search
-                  Expanded(
-                    child: TextField(
-                      controller: _searchCtrl,
-                      decoration: InputDecoration(
-                        prefixIcon: const Icon(Icons.search),
-                        hintText: "Search by name / ID / department / email",
-                        filled: true,
-                        fillColor: Colors.white,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: kCardBorder),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: kCardBorder),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-
-                  // ✅ Date picker beside search bar
-                  InkWell(
-                    onTap: _pickDate,
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        border: Border.all(color: kCardBorder),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.calendar_month, size: 18),
-                          const SizedBox(width: 8),
-                          ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 110),
-                            child: Text(
-                              _dateLabel(),
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontWeight: FontWeight.w800),
-                            ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              kPrimaryBackgroundTop,
+              kPrimaryBackgroundBottom,
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                child: Row(
+                  children: [
+                    // Search
+                    Expanded(
+                      child: TextField(
+                        controller: _searchCtrl,
+                        decoration: InputDecoration(
+                          prefixIcon: const Icon(Icons.search),
+                          hintText: "Search by name / ID / department / email",
+                          filled: true,
+                          fillColor: Colors.white,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: kCardBorder),
                           ),
-                          if (_selectedDate != null) ...[
-                            const SizedBox(width: 6),
-                            GestureDetector(
-                              onTap: _clearDate,
-                              child: const Icon(Icons.close, size: 18),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: kCardBorder),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+
+                    // Date picker beside search bar
+                    InkWell(
+                      onTap: _pickDate,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          border: Border.all(color: kCardBorder),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.calendar_month, size: 18),
+                            const SizedBox(width: 8),
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 110),
+                              child: Text(
+                                _dateLabel(),
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontWeight: FontWeight.w800),
+                              ),
                             ),
+                            if (_selectedDate != null) ...[
+                              const SizedBox(width: 6),
+                              GestureDetector(
+                                onTap: _clearDate,
+                                child: const Icon(Icons.close, size: 18),
+                              ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            Expanded(
-              child: _filtered.isEmpty
-                  ? const Center(
-                      child: Text(
-                        "No records found",
-                        style: TextStyle(color: Colors.black54),
+              Expanded(
+                child: _filtered.isEmpty
+                    ? const Center(
+                        child: Text(
+                          "No records found",
+                          style: TextStyle(color: Colors.black54),
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(12),
+                        itemCount: _filtered.length,
+                        itemBuilder: (_, i) => _card(_filtered[i]),
                       ),
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(12),
-                      itemCount: _filtered.length,
-                      itemBuilder: (_, i) => _card(_filtered[i]),
-                    ),
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -320,14 +338,15 @@ class _EmployeeRequestsPageState extends State<EmployeeRequestsPage> {
                   onPressed: req.status == RequestStatus.pending ? () => _approve(req) : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: req.status == RequestStatus.pending
-                        ? const Color(0xFF2FA84F)
-                        : Colors.grey.shade300,
-                    foregroundColor: req.status == RequestStatus.pending
-                        ? Colors.white
-                        : Colors.grey.shade600,
-                    disabledBackgroundColor: Colors.grey.shade300,
-                    disabledForegroundColor: Colors.grey.shade600,
+                        ? kButtonColor
+                        : kButtonColor.withOpacity(0.45),
+                    foregroundColor: kTextColor,
+                    disabledBackgroundColor: kButtonColor.withOpacity(0.45),
+                    disabledForegroundColor: kTextColor,
                     padding: const EdgeInsets.symmetric(horizontal: 4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
@@ -335,8 +354,8 @@ class _EmployeeRequestsPageState extends State<EmployeeRequestsPage> {
                       "Approve",
                       style: TextStyle(
                         color: req.status == RequestStatus.pending
-                            ? Colors.white
-                            : Colors.grey.shade600,
+                            ? kTextColor
+                            : kTextColor,
                         fontWeight: FontWeight.w900,
                         fontSize: 12,
                       ),
@@ -350,14 +369,15 @@ class _EmployeeRequestsPageState extends State<EmployeeRequestsPage> {
                   onPressed: req.status == RequestStatus.pending ? () => _reject(req) : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: req.status == RequestStatus.pending
-                        ? const Color(0xFFE04B42)
-                        : Colors.grey.shade300,
-                    foregroundColor: req.status == RequestStatus.pending
-                        ? Colors.white
-                        : Colors.grey.shade600,
-                    disabledBackgroundColor: Colors.grey.shade300,
-                    disabledForegroundColor: Colors.grey.shade600,
+                        ? kButtonColor
+                        : kButtonColor.withOpacity(0.45),
+                    foregroundColor: kTextColor,
+                    disabledBackgroundColor: kButtonColor.withOpacity(0.45),
+                    disabledForegroundColor: kTextColor,
                     padding: const EdgeInsets.symmetric(horizontal: 4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
@@ -365,8 +385,8 @@ class _EmployeeRequestsPageState extends State<EmployeeRequestsPage> {
                       "Reject",
                       style: TextStyle(
                         color: req.status == RequestStatus.pending
-                            ? Colors.white
-                            : Colors.grey.shade600,
+                            ? kTextColor
+                            : kTextColor,
                         fontWeight: FontWeight.w900,
                         fontSize: 12,
                       ),
@@ -438,6 +458,13 @@ class _EmployeeRequestsPageState extends State<EmployeeRequestsPage> {
               if (t.isEmpty) return;
               Navigator.pop(context, t);
             },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: kButtonColor,
+              foregroundColor: kTextColor,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
             child: const Text("Submit"),
           ),
         ],
@@ -449,6 +476,12 @@ class _EmployeeRequestsPageState extends State<EmployeeRequestsPage> {
 class EmployeeDetailsPage extends StatelessWidget {
   final EmployeeRequestVm request;
   const EmployeeDetailsPage({super.key, required this.request});
+
+  // Theme constants
+  static const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
+  static const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
+  static const Color kAppBarColor = Color(0xFF8C6EAF);
+  static const Color kTextColor = Colors.white;
 
   static const List<String> _docOrder = [
     'resume',
@@ -480,70 +513,85 @@ class EmployeeDetailsPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Employee Details"),
-        backgroundColor: Colors.blue[800],
-        foregroundColor: Colors.white,
+        backgroundColor: kAppBarColor,
+        foregroundColor: kTextColor,
+        elevation: 0,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _section("Profile", [
-              _kv("Full Name", m.fullName),
-              _kv("Employee ID", m.employeeId),
-              _kv("Gender", m.gender),
-              _kv("DOB", _fmtDate(m.dob)),
-              _kv("Blood Group", m.bloodGroup),
-              _kv("Marital Status", m.maritalStatus),
-            ]),
-            _section("Contact", [
-              _kv("Official Email", m.officialEmail),
-              _kv("Personal Email", m.personalEmail),
-              _kv("Mobile", "${m.mobileCountryCode} ${m.mobileNumber}"),
-            ]),
-            _section("Address", [
-              _kv("Permanent Address", m.permanentAddress),
-              _kv("City", m.city),
-              _kv("State", m.state),
-              _kv("Pincode", m.pincode),
-            ]),
-            _section("Company", [
-              _kv("Company Name", m.companyName),
-              _kv("Branch Location", m.branchLocation),
-              _kv("Date of Joining", _fmtDate(m.doj)),
-              _kv("Department", m.department),
-              _kv("Designation", m.designation),
-              _kv("Work Mode", m.workMode),
-              _kv("Shift Timing", m.shiftTiming),
-              _kv("Work Days", m.workDays.join(", ")),
-            ]),
-            _section("Bank", [
-              _kv("Bank Name", m.bankName),
-              _kv("Account Holder", m.accountHolderName),
-              _kv("Account Number", m.accountNumber),
-              _kv("IFSC Code", m.ifscCode),
-              _kv("Bank Branch", m.bankBranch),
-              _kv("UPI ID", m.upiId),
-            ]),
-            _section("Identity", [
-              _kv("PAN Number", m.panNumber),
-              _kv("Aadhaar Number", m.aadhaarNumber),
-            ]),
-            _section("Salary", [
-              _kv("Basic Pay", m.basicPay.toString()),
-              _kv("HRA", m.hra.toString()),
-              _kv("Bonus", m.bonus.toString()),
-              _kv("Allowances Total", m.allowancesTotal.toString()),
-              _kv("Deductions Amount", m.deductionsAmount.toString()),
-              _kv("Professional Tax", m.professionalTax.toString()),
-              _kv("PF Number", m.pfNumber),
-              _kv("ESI Number", m.esiNumber),
-              _kv("Gross Salary", m.grossSalary.toString()),
-              _kv("Net Salary", m.netSalary.toString()),
-            ]),
-            _section("Documents", _docWidgets(m.documents)),
-            const SizedBox(height: 10),
-          ],
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              kPrimaryBackgroundTop,
+              kPrimaryBackgroundBottom,
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _section("Profile", [
+                  _kv("Full Name", m.fullName),
+                  _kv("Employee ID", m.employeeId),
+                  _kv("Gender", m.gender),
+                  _kv("DOB", _fmtDate(m.dob)),
+                  _kv("Blood Group", m.bloodGroup),
+                  _kv("Marital Status", m.maritalStatus),
+                ]),
+                _section("Contact", [
+                  _kv("Official Email", m.officialEmail),
+                  _kv("Personal Email", m.personalEmail),
+                  _kv("Mobile", "${m.mobileCountryCode} ${m.mobileNumber}"),
+                ]),
+                _section("Address", [
+                  _kv("Permanent Address", m.permanentAddress),
+                  _kv("City", m.city),
+                  _kv("State", m.state),
+                  _kv("Pincode", m.pincode),
+                ]),
+                _section("Company", [
+                  _kv("Company Name", m.companyName),
+                  _kv("Branch Location", m.branchLocation),
+                  _kv("Date of Joining", _fmtDate(m.doj)),
+                  _kv("Department", m.department),
+                  _kv("Designation", m.designation),
+                  _kv("Work Mode", m.workMode),
+                  _kv("Shift Timing", m.shiftTiming),
+                  _kv("Work Days", m.workDays.join(", ")),
+                ]),
+                _section("Bank", [
+                  _kv("Bank Name", m.bankName),
+                  _kv("Account Holder", m.accountHolderName),
+                  _kv("Account Number", m.accountNumber),
+                  _kv("IFSC Code", m.ifscCode),
+                  _kv("Bank Branch", m.bankBranch),
+                  _kv("UPI ID", m.upiId),
+                ]),
+                _section("Identity", [
+                  _kv("PAN Number", m.panNumber),
+                  _kv("Aadhaar Number", m.aadhaarNumber),
+                ]),
+                _section("Salary", [
+                  _kv("Basic Pay", m.basicPay.toString()),
+                  _kv("HRA", m.hra.toString()),
+                  _kv("Bonus", m.bonus.toString()),
+                  _kv("Allowances Total", m.allowancesTotal.toString()),
+                  _kv("Deductions Amount", m.deductionsAmount.toString()),
+                  _kv("Professional Tax", m.professionalTax.toString()),
+                  _kv("PF Number", m.pfNumber),
+                  _kv("ESI Number", m.esiNumber),
+                  _kv("Gross Salary", m.grossSalary.toString()),
+                  _kv("Net Salary", m.netSalary.toString()),
+                ]),
+                _section("Documents", _docWidgets(m.documents)),
+                const SizedBox(height: 10),
+              ],
+            ),
+          ),
         ),
       ),
     );

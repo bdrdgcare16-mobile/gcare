@@ -1,9 +1,13 @@
+# =================================================
 # Miscellaneous
+# =================================================
 *.class
 *.log
 *.pyc
 *.swp
+*.lock
 .DS_Store
+Thumbs.db
 .atom/
 .build/
 .buildlog/
@@ -12,34 +16,102 @@
 .swiftpm/
 migrate_working_dir/
 
-# IntelliJ related
+# =================================================
+# IDEs & Editors
+# =================================================
+
+# IntelliJ / Android Studio
 *.iml
 *.ipr
 *.iws
 .idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+# VS Code
+.vscode/
 
-# Flutter/Dart/Pub related
-**/doc/api/
-**/ios/Flutter/.last_build_id
+# =================================================
+# Flutter / Dart / Pub
+# =================================================
 .dart_tool/
+.flutter-plugins
 .flutter-plugins-dependencies
+.packages
 .pub-cache/
 .pub/
 /build/
 /coverage/
 
-# Symbolication related
-app.*.symbols
+# Flutter generated files
+**/doc/api/
+**/ios/Flutter/.last_build_id
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/App.framework
 
-# Obfuscation related
+# =================================================
+# Symbolication / Obfuscation
+# =================================================
+app.*.symbols
 app.*.map.json
 
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
+# =================================================
+# Android
+# =================================================
+
+# Gradle
+.gradle/
+android/.gradle/
+android/local.properties
+
+# Build outputs
+android/app/debug/
+android/app/profile/
+android/app/release/
+
+# Keystore (DO NOT COMMIT)
+*.jks
+*.keystore
+key.properties
+
+# =================================================
+# iOS
+# =================================================
+
+# CocoaPods
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.podspec
+
+# Xcode
+*.xcworkspace
+*.xcuserstate
+*.xcuserdata/
+DerivedData/
+ios/build/
+
+# =================================================
+# Web (Flutter Web)
+# =================================================
+build/web/
+
+# =================================================
+# Node / NPM
+# =================================================
+node_modules/
+functions/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =================================================
+# Firebase / Environment
+# =================================================
+.env
+.env.*
+google-services.json
+GoogleService-Info.plist
+
+# =================================================
+# Logs
+# =================================================
+*.log

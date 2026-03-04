@@ -564,16 +564,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: kAppBarColor,
-        title: const Text("Leave Approvals"),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Center(child: Text(today)),
-          ),
-        ],
-      ),
+     
       body: Container(
         padding: const EdgeInsets.all(10),
         decoration: const BoxDecoration(
