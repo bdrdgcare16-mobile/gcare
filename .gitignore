@@ -1,88 +1,48 @@
-############################################
-# GENERAL
-############################################
-.DS_Store
-Thumbs.db
-*.log
-*.tmp
-*.swp
-*.swo
-
-############################################
-# ENV FILES (IMPORTANT)
-############################################
-.env
-.env.*
-!.env.example
-
-############################################
-# IDE / EDITOR
-############################################
-.idea/
-.vscode/
-*.iml
-
-############################################
-# NODE / FIREBASE FUNCTIONS
-############################################
-functions/node_modules/
-functions/lib/
-functions/.env
-functions/.env.*
-functions/*.log
-
-############################################
-# FLUTTER / DART
-############################################
+# Flutter / Dart
 .dart_tool/
 .packages
 .pub/
-build/
-.flutter-plugins
-.flutter-plugins-dependencies
 .pub-cache/
+build/
 
-############################################
-# ANDROID
-############################################
+# Flutter generated
+**/generated_plugin_registrant.*
+**/generated_plugins.cmake
+**/flutter_export_environment.sh
+**/Flutter/ephemeral/
+**/Generated.xcconfig
+
+# Android
 android/.gradle/
 android/app/build/
-android/build/
+**/local.properties
+**/key.properties
 
-############################################
-# IOS
-############################################
+# iOS / macOS
 ios/Pods/
 ios/.symlinks/
-ios/Flutter/Flutter.framework
-ios/Flutter/Flutter.podspec
-
-############################################
-# WEB / DESKTOP GENERATED FILES
-############################################
-linux/flutter/ephemeral/
+ios/Flutter/ephemeral/
+macos/Pods/
 macos/Flutter/ephemeral/
-windows/flutter/ephemeral/
 
-############################################
-# TEST / COVERAGE
-############################################
-coverage/
-*.lcov
+# Windows / Linux generated
+windows/flutter/generated_plugin_registrant.cc
+windows/flutter/generated_plugin_registrant.h
+windows/flutter/generated_plugins.cmake
+linux/flutter/generated_plugin_registrant.cc
+linux/flutter/generated_plugin_registrant.h
+linux/flutter/generated_plugins.cmake
 
-############################################
-# FIREBASE
-############################################
+# macOS generated
+macos/Flutter/GeneratedPluginRegistrant.swift
+
+# Node / Firebase Functions
+functions/node_modules/
+functions/lib/
+functions/.firebase/
 .firebase/
-.firebaserc
 
-############################################
-# CACHE
-############################################
-.cache/
-
-############################################
-# OPTIONAL LARGE FILES (if any)
-############################################
-uploads/
-temp/
+# Logs / misc
+*.log
+.DS_Store
+Thumbs.db
