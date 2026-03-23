@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import * as bcrypt from 'bcryptjs';
 import * as jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
-import { rotatePassword } from './rotatePassword';
+import { rotatePassword } from '../services/passwordService';
 
 // ── Firebase Admin (explicit, single init) ───────────────────────────────────
 import {

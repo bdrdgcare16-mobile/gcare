@@ -1,45 +1,88 @@
-# Miscellaneous
-*.class
-*.log
-*.pyc
-*.swp
+############################################
+# GENERAL
+############################################
 .DS_Store
-.atom/
-.build/
-.buildlog/
-.history
-.svn/
-.swiftpm/
-migrate_working_dir/
+Thumbs.db
+*.log
+*.tmp
+*.swp
+*.swo
 
-# IntelliJ related
-*.iml
-*.ipr
-*.iws
+############################################
+# ENV FILES (IMPORTANT)
+############################################
+.env
+.env.*
+!.env.example
+
+############################################
+# IDE / EDITOR
+############################################
 .idea/
+.vscode/
+*.iml
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+############################################
+# NODE / FIREBASE FUNCTIONS
+############################################
+functions/node_modules/
+functions/lib/
+functions/.env
+functions/.env.*
+functions/*.log
 
-# Flutter/Dart/Pub related
-**/doc/api/
-**/ios/Flutter/.last_build_id
+############################################
+# FLUTTER / DART
+############################################
 .dart_tool/
+.packages
+.pub/
+build/
+.flutter-plugins
 .flutter-plugins-dependencies
 .pub-cache/
-.pub/
-/build/
-/coverage/
 
-# Symbolication related
-app.*.symbols
+############################################
+# ANDROID
+############################################
+android/.gradle/
+android/app/build/
+android/build/
 
-# Obfuscation related
-app.*.map.json
+############################################
+# IOS
+############################################
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
 
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
+############################################
+# WEB / DESKTOP GENERATED FILES
+############################################
+linux/flutter/ephemeral/
+macos/Flutter/ephemeral/
+windows/flutter/ephemeral/
+
+############################################
+# TEST / COVERAGE
+############################################
+coverage/
+*.lcov
+
+############################################
+# FIREBASE
+############################################
+.firebase/
+.firebaserc
+
+############################################
+# CACHE
+############################################
+.cache/
+
+############################################
+# OPTIONAL LARGE FILES (if any)
+############################################
+uploads/
+temp/

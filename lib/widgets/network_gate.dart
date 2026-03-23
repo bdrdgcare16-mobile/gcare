@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/connectivity_service.dart';
-import '../pages/no_network_page.dart';
+import 'package:serv_app/features/shared/no_network_page.dart';
 
 /// Wraps the whole app; shows NoNetworkPage when offline.
 class NetworkGate extends StatelessWidget {

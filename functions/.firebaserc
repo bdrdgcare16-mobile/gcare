@@ -1,6 +1,7 @@
 {
   "projects": {
-    "y": "servappbackend"
+    "dev": "serv-dev-f2557",
+    "prod": "servappbackend"
   },
   "targets": {},
   "etags": {}

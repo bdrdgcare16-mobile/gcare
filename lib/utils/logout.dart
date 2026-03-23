@@ -1,7 +1,7 @@
 // lib/utils/logout.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:serv_app/Pagesusers/login_page.dart';
+import 'package:serv_app/features/users/login_page.dart';
 import 'package:serv_app/html_stub.dart'
   if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
