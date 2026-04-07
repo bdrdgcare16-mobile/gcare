@@ -17,10 +17,13 @@ import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/features/users/login_page.dart';
 import 'package:serv_app/features/users/home_screen_page.dart';
 import 'package:serv_app/features/admin/admin_dashboard_page.dart';
+import 'package:serv_app/config/api_config.dart';
+import 'package:serv_app/services/api_service.dart';
+
 import 'package:serv_app/features/admin/company_details_page.dart';
 
 // Same base URL you use elsewhere
-const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+final String _apiBase = ApiConfig.baseUrl;
 
 /// Small helper: read from SharedPreferences first, then (if empty) localStorage.
 Future<String> _readPersisted(String key) async {
@@ -61,7 +64,7 @@ Future<Map<String, dynamic>> _checkCompanyProfile({
   Future<Map<String, dynamic>> treat404() async =>
       {'exists': false, 'data': <String, dynamic>{}, 'raw': <String, dynamic>{}};
 
-  final u1 = Uri.parse('$_apiBase/company/profile/check');
+  final u1 = Uri.parse('${ApiService.baseUrl}/company/profile/check');
   try {
     final r1 = await http.get(
       u1,
@@ -73,7 +76,7 @@ Future<Map<String, dynamic>> _checkCompanyProfile({
     // fall through to fallback
   }
 
-  final u2 = Uri.parse('$_apiBase/company/profile')
+  final u2 = Uri.parse('${ApiService.baseUrl}/company/profile')
       .replace(queryParameters: {'email': adminEmail.trim().toLowerCase()});
   final r2 = await http.get(
     u2,
@@ -127,7 +130,7 @@ class _AuthGuardState extends State<AuthGuard> {
       try {
         meRes = await http
             .get(
-              Uri.parse('$_apiBase/auth/me'),
+              Uri.parse('${ApiService.baseUrl}/auth/me'),
               headers: {'Authorization': 'Bearer $token'},
             )
             .timeout(const Duration(seconds: 12));

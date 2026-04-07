@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:serv_app/services/api_service.dart';
 
 // === Brand Colors (as per your purple/lavender theme) ===
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -9,21 +10,23 @@ const Color kAppBarColor = Color(0xFF8C6EAF); // Purple app bar
 const Color kButtonColor = Color(0xFF655193); // Darker purple for action bars
 const Color kTextOnDark = Colors.white;
 
-// Point to your backend
-const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+// Point to your backend (using centralized config)
+final String _apiBase = ApiService.baseUrl;
 
 class MyAttendanceDetailPage extends StatefulWidget {
   const MyAttendanceDetailPage({
     super.key,
     required this.empId,
-    required this.date, // date for which to show detail
-    this.baseUrl = _apiBase,
+    required this.date,
+    this.shiftGroup, // date for which to show detail
+    this.baseUrl, // date for which to show detail
     this.bearerToken, // optional: if you want to pass token explicitly
   });
 
   final String empId;
   final DateTime date;
-  final String baseUrl;
+  final String? shiftGroup;
+  final String? baseUrl;
   final String? bearerToken;
 
   @override
@@ -47,6 +50,7 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
 
   @override
   void initState() {
+    _shiftGroup = widget.shiftGroup ?? '-';
     super.initState();
     _displayDateText = _formatDateLong(widget.date);
     _load();
@@ -69,14 +73,17 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
 
     try {
       // 0) Fetch current user info -> shiftGroup (no admin required)
-      final meUri = Uri.parse('${widget.baseUrl}/attendance/me');
+      final meUri = Uri.parse("${widget.baseUrl}/users/me");
+
       final meRes = await http.get(
         meUri,
         headers: {
           'Content-Type': 'application/json',
-          if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+          if (token != null && token.isNotEmpty)
+            'Authorization': 'Bearer $token',
         },
       );
+
       if (meRes.statusCode == 200 && meRes.body.isNotEmpty) {
         final me = jsonDecode(meRes.body) as Map<String, dynamic>;
         _shiftGroup = (me['shiftGroup'] ?? '-').toString();
@@ -308,21 +315,35 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
         ),
         body: _loading
             ? const Center(child: CircularProgressIndicator())
-            : SafeArea(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                  child: _ShiftCard(
-                    title: _shiftName,
-                    checkInTime: _checkInTime,
-                    checkOutTime: _checkOutTime,
-                    permissionTime: _permissionTime,
-                    overTime: _overTime,
-                    statusText: _statusText,
-                    shiftGroup: _shiftGroup,
-                    totalHoursText: _totalHoursText,
+            : _error != null
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        _error!,
+                        style: const TextStyle(
+                          color: Colors.red,
+                          fontSize: 16,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  )
+                : SafeArea(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                      child: _ShiftCard(
+                        title: _shiftName,
+                        checkInTime: _checkInTime,
+                        checkOutTime: _checkOutTime,
+                        permissionTime: _permissionTime,
+                        overTime: _overTime,
+                        statusText: _statusText,
+                        shiftGroup: _shiftGroup,
+                        totalHoursText: _totalHoursText,
+                      ),
+                    ),
                   ),
-                ),
-              ),
         bottomNavigationBar: _BottomNavBarShadow(),
       ),
     );
@@ -376,7 +397,7 @@ class _ShiftCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withValues(alpha: 0.06),
             blurRadius: 16,
             offset: const Offset(0, 6),
           ),
@@ -524,7 +545,7 @@ class _BottomNavBarShadow extends StatelessWidget {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            Colors.black.withOpacity(0.06),
+            Colors.black.withValues(alpha: 0.06),
             Colors.transparent,
           ],
           begin: Alignment.topCenter,

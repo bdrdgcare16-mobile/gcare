@@ -7,10 +7,15 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get('/live', attendanceController.getLiveAttendance);
+router.get('/test-history', (_req, res) => {
+  res.json({ message: 'history test working' });
+});
+
 router.get('/approvals', attendanceController.listApprovals);
 router.post('/approvals/decision', attendanceController.decideApproval);
 router.get('/my-requests', attendanceController.listMyRequests);
 router.get('/employee/:empid', attendanceController.getEmployeeAttendance);
+router.get('/request-details', attendanceController.getRequestDetails);
 router.get('/monthly/:empid/:year/:month', attendanceController.getMonthlySummary);
 router.get('/roster', attendanceController.getDailyRoster);
 router.get('/range-summary', attendanceController.getRangeSummary);
@@ -22,5 +27,15 @@ router.post('/other-location/decision', attendanceController.decideOtherLocation
 router.get('/other-location/ping', (_req, res) => res.json({ ok: true }));
 router.get('/me', attendanceController.getCurrentUser);
 router.get('/summary/:empid/:year/:month', attendanceController.getMonthlySummary);
+
+
+
+router.get('/test-history', (_req, res) => {
+  res.json({ message: 'history test working' });
+});
+
+
+
+router.get('/history', attendanceController.getAllAttendance);
 
 export default router;

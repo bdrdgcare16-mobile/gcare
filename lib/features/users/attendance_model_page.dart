@@ -22,6 +22,4 @@ class AttendanceData {
     required this.presentDates,
     required this.absentDates,
   });
-
-  get leaveDates => null;
 }

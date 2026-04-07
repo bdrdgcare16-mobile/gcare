@@ -84,7 +84,7 @@
 //       final end = _ymd(_toDate);
 
 //       final uri =
-//           Uri.parse('$_apiBase/attendance/range-summary?start=$start&end=$end');
+//           Uri.parse('${ApiService.baseUrl}/attendance/range-summary?start=$start&end=$end');
 //       final res = await http.get(uri, headers: headers);
 
 //       if (res.statusCode != 200) {
@@ -917,13 +917,16 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import 'package:serv_app/config/api_config.dart';
+import 'package:serv_app/services/api_service.dart';
+
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
 const Color kAppBarColor = Color(0xFF8c6eaf);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
-const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+final String _apiBase = ApiConfig.baseUrl;
 
 class AttendanceReportScreen extends StatefulWidget {
   const AttendanceReportScreen({super.key, required String initialFilter});
@@ -990,7 +993,7 @@ class _AttendanceReportScreenState extends State<AttendanceReportScreen> {
       final end = _ymd(_toDate);
 
       final uri =
-          Uri.parse('$_apiBase/attendance/range-summary?start=$start&end=$end');
+          Uri.parse('${ApiService.baseUrl}/attendance/range-summary?start=$start&end=$end');
       final res = await http.get(uri, headers: headers);
 
       if (res.statusCode != 200) {

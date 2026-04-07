@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:serv_app/config/api_config.dart';
+import 'package:serv_app/services/api_service.dart';
 
 // ==== Colors ====
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -9,11 +11,10 @@ const Color kAppBarColor = Color(0xFF8C6EAF);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
-
-// ------- API base (must match your backend) -------
-const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+// ------- API base (using centralized config) -------
+final String apiBase = ApiConfig.baseUrl;
 // To resolve /uploads/... into a full URL
-final String _apiOrigin = apiBase.replaceFirst(RegExp(r'/api/?$'), '');
+final String _apiOrigin = ApiConfig.baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
 
 class UserEventUpdatesPage extends StatefulWidget {
   const UserEventUpdatesPage({super.key});
@@ -49,7 +50,7 @@ class _UserEventUpdatesPageState extends State<UserEventUpdatesPage> {
 
   Future<List<Map<String, String>>> fetchEventData() async {
     try {
-      final res = await http.get(Uri.parse('$apiBase/events'));
+      final res = await http.get(Uri.parse('${ApiService.baseUrl}/events'));
       if (res.statusCode != 200) {
         throw Exception('HTTP ${res.statusCode}');
       }

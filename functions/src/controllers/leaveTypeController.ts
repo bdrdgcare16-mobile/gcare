@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import * as admin from 'firebase-admin';
 import { db } from '../config/firebase';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 const COLL = 'leave_types';
 
@@ -47,12 +47,12 @@ export const createLeaveType = async (req: Request, res: Response): Promise<Resp
       id,
       type,
       // >>> SHIFT REMOVED: no shift field in payload
-      fromDate: admin.firestore.Timestamp.fromDate(s),
-      toDate: admin.firestore.Timestamp.fromDate(e),
+      fromDate: Timestamp.fromDate(s),
+      toDate: Timestamp.fromDate(e),
       allowedDays,
       active: true,
       createdBy: userId ?? null,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
     };
 
     await db.collection(COLL).doc(id).set(payload);
@@ -104,7 +104,7 @@ export const deleteLeaveType = async (req: Request, res: Response): Promise<Resp
     // Soft delete by setting active to false
     await db.collection(COLL).doc(id).update({
       active: false,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      updatedAt: FieldValue.serverTimestamp()
     });
 
     return res.status(200).json({

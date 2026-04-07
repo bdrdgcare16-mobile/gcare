@@ -9,6 +9,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html; // Web: localStorage/sessionStorage
 import 'package:serv_app/features/admin/globals_page.dart';
+import 'package:serv_app/config/api_config.dart';
+import 'package:serv_app/services/api_service.dart';
 
 // ✅ Colors
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -18,7 +20,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 // ✅ Backend base (already ends with /api)
-const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+final String apiBase = ApiConfig.baseUrl;
 
 // ---------- helpers ----------
 Future<String?> _getToken() async {
@@ -125,7 +127,7 @@ class _LeavePageState extends State<LeavePage> {
       }
 
       final res = await http
-          .get(Uri.parse('$apiBase/leave-types'), headers: _headers(token))
+          .get(Uri.parse('${ApiService.baseUrl}/leave-types'), headers: _headers(token))
           .timeout(const Duration(seconds: 15));
 
       if (res.statusCode == 200) {
@@ -295,6 +297,7 @@ class _LeavePageState extends State<LeavePage> {
     final shouldDelete = await _showDeleteConfirmation();
     if (!shouldDelete) return;
 
+    if (!mounted) return;
     final leaveToDelete = leaveList[index];
     final scaffoldMessenger = ScaffoldMessenger.of(context);
 
@@ -302,6 +305,7 @@ class _LeavePageState extends State<LeavePage> {
       setState(() => _loading = true);
 
       // Show loading indicator
+      if (!mounted) return;
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -331,7 +335,7 @@ class _LeavePageState extends State<LeavePage> {
       if (docId!.isEmpty) {
         final queryResponse = await http.get(
           Uri.parse(
-              '$apiBase/leave-types?type=${Uri.encodeComponent(leaveToDelete['type'] ?? '')}'
+              '${ApiService.baseUrl}/leave-types?type=${Uri.encodeComponent(leaveToDelete['type'] ?? '')}'
               '&shift=${Uri.encodeComponent(leaveToDelete['shift'] ?? '')}'
               '&fromDate=${Uri.encodeComponent(leaveToDelete['fromDate'] ?? '')}'
               '&toDate=${Uri.encodeComponent(leaveToDelete['toDate'] ?? '')}'),
@@ -353,7 +357,7 @@ class _LeavePageState extends State<LeavePage> {
       // Now delete using the document ID
       final response = await http
           .delete(
-            Uri.parse('$apiBase/leave-types/$docId'),
+            Uri.parse('${ApiService.baseUrl}/leave-types/$docId'),
             headers: _headers(token),
           )
           .timeout(const Duration(seconds: 15));
@@ -527,7 +531,7 @@ class _LeavePageState extends State<LeavePage> {
                                     borderRadius: BorderRadius.circular(12),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: Colors.purpleAccent.withOpacity(0.1),
+                                        color: Colors.purpleAccent.withValues(alpha: 0.1),
                                         spreadRadius: 1,
                                         blurRadius: 8,
                                         offset: const Offset(0, 2),
@@ -625,7 +629,7 @@ class _LeavePageState extends State<LeavePage> {
                                             borderRadius: BorderRadius.circular(15),
                                             boxShadow: [
                                               BoxShadow(
-                                                color: Colors.purpleAccent.withOpacity(0.2),
+                                                color: Colors.purpleAccent.withValues(alpha: 0.2),
                                                 spreadRadius: 2,
                                                 blurRadius: 5,
                                                 offset: const Offset(0, 3),

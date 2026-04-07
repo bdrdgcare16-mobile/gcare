@@ -14,8 +14,10 @@ import 'permissions_page.dart';
 import 'feedback_page.dart';
 import 'log_out_page.dart';
 
-/// ===== Service root (do NOT include trailing /api) =====
-const String _host = 'https://api-zmj7dqloiq-el.a.run.app';
+import 'package:serv_app/services/api_service.dart';
+
+/// ===== Service root (using centralized config) =====
+final String _host = ApiService.baseUrl.replaceFirst('/api', '');
 Uri _u(String path) => Uri.parse('$_host$path'); // use like /api/auth/me
 
 

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as dev;
 import 'dart:math' as math;
@@ -10,17 +9,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:serv_app/models/company_profile.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 // Web localStorage shim
 import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
 import 'package:serv_app/models/company_data.dart';
+import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/features/users/home_screen_page.dart';
 import 'package:serv_app/features/admin/admin_dashboard_page.dart';
 import 'package:serv_app/features/admin/company_details_page.dart';
-import 'package:serv_app/features/admin/company_setup_page.dart';
+import 'package:serv_app/services/api_service.dart';
 
 // 👉 Keep the new, dedicated page-based Forgot Password flow.
 import 'forgot_password_page.dart';
@@ -32,8 +31,6 @@ const Color kAppBarColor = Color(0xFF8C6EAF);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
-// ===== API BASE =====
-const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -49,6 +46,8 @@ class _LoginPageState extends State<LoginPage> {
   bool isPasswordVisible = false;
   bool _isEmpLoading = false;
   bool _isAdminLoading = false;
+
+  bool get _isAnyLoginLoading => _isEmpLoading || _isAdminLoading;
 
   @override
   void dispose() {
@@ -210,7 +209,7 @@ class _LoginPageState extends State<LoginPage> {
         };
 
     // 1) Try /company/profile/check
-    final u1 = Uri.parse('$_apiBase/company/profile/check');
+    final u1 = Uri.parse('${ApiService.baseUrl}/company/profile/check');
     try {
       final r1 = await http.get(u1, headers: {
         'Authorization': 'Bearer $token',
@@ -225,8 +224,8 @@ class _LoginPageState extends State<LoginPage> {
     }
 
     // 2) Fallback /company/profile?email=...
-    final u2 = Uri.parse('$_apiBase/company/profile')
-        .replace(queryParameters: {'email': adminEmail.trim().toLowerCase()});
+    final u2 = Uri.parse('${ApiService.baseUrl}/company/profile')
+    .replace(queryParameters: {'email': adminEmail.trim().toLowerCase()});
     final r2 = await http.get(u2, headers: {
       'Authorization': 'Bearer $token',
       'Accept': 'application/json'
@@ -259,11 +258,15 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final email = idController.text.trim().toLowerCase();
       final pwd = passwordController.text;
+      debugPrint('Current API Base URL: ${ApiConfig.baseUrl}');
 
-      final response = await http.post(
-        Uri.parse('$_apiBase/auth/login'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'email': email, 'password': pwd}),
+      final response = await ApiService.post(
+        '/auth/login',
+        body: jsonEncode({
+          'email': email,
+          'password': pwd,
+        }),
+        authRequired: false,
       ).timeout(const Duration(seconds: 15));
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -364,7 +367,7 @@ class _LoginPageState extends State<LoginPage> {
           // 3) Normalize profile via /auth/me
           try {
             final meRes = await http.get(
-              Uri.parse('$_apiBase/auth/me'),
+              Uri.parse('${ApiService.baseUrl}/auth/me'),
               headers: {'Authorization': 'Bearer $tok'},
             );
             if (meRes.statusCode == 200) {
@@ -571,9 +574,9 @@ class _LoginPageState extends State<LoginPage> {
                           width: double.infinity,
                           height: 44,
                           child: ElevatedButton(
-                            onPressed: _isEmpLoading
+                            onPressed: _isAnyLoginLoading
                                 ? null
-                                : () => _login(isAdmin: false),
+     : () => _login(isAdmin: false),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: kButtonColor,
                               shape: RoundedRectangleBorder(
@@ -593,7 +596,7 @@ class _LoginPageState extends State<LoginPage> {
                           width: double.infinity,
                           height: 44,
                           child: ElevatedButton(
-                            onPressed: _isAdminLoading
+                            onPressed: _isAnyLoginLoading
                                 ? null
                                 : () => _login(isAdmin: true),
                             style: ElevatedButton.styleFrom(

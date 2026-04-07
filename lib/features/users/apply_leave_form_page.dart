@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html; // for Flutter Web localStorage
 import 'package:serv_app/models/company_data.dart';
+import 'package:serv_app/services/api_service.dart';
 
 // 🎨 Your Color Constants
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -13,8 +14,8 @@ const Color kAppBarColor = Color(0xFF8C6EAF);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
-/// Match your Node server port
-const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+/// Match your Node server port (using centralized config)
+final String apiBase = ApiService.baseUrl;
 
 class ApplyHalfDayForm extends StatefulWidget {
   const ApplyHalfDayForm({super.key});
@@ -72,7 +73,7 @@ class _ApplyHalfDayFormState extends State<ApplyHalfDayForm> {
 
     try {
       final res = await http.get(
-        Uri.parse('$apiBase/auth/me'),
+        Uri.parse('${ApiService.baseUrl}/auth/me'),
         headers: {'Authorization': 'Bearer $token'},
       );
       if (res.statusCode != 200) return;
@@ -136,7 +137,7 @@ class _ApplyHalfDayFormState extends State<ApplyHalfDayForm> {
     }
 
     // NOTE: Endpoint left unchanged per your request – only shift auto-fill added.
-    final url = Uri.parse('$apiBase/leaves');
+    final url = Uri.parse('${ApiService.baseUrl}/leaves');
 
     final body = {
       'type': 'Comp Off',

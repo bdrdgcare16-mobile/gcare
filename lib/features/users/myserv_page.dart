@@ -21,38 +21,16 @@ class MyServPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = [
+    final List<_ServItemData> items = [
       _ServItemData(
         imagePath: 'assets/images/attendance.png',
         label: "Attendance",
         onTap: () {
+          if (!context.mounted) return;
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => MyAttendancePage(
-                data: AttendanceData(
-                  totalDays: 13,
-                  presentCount: 11,
-                  absentCount: 2,
-                  leaveCount: 0,
-                  lateCheckIn: 0,
-                  earlyCheckOut: 2,
-                  permissionCount: 0,
-                  presentDates: [
-                    DateTime(2025, 7, 1),
-                    DateTime(2025, 7, 2),
-                    DateTime(2025, 7, 3),
-                    DateTime(2025, 7, 4),
-                    DateTime(2025, 7, 5),
-                    DateTime(2025, 7, 6),
-                    DateTime(2025, 7, 7),
-                    DateTime(2025, 7, 8),
-                    DateTime(2025, 7, 10),
-                    DateTime(2025, 7, 11),
-                  ],
-                  absentDates: [DateTime(2025, 7, 9), DateTime(2025, 7, 13)],
-                ),
-              ),
+              builder: (context) => const MyAttendancePage(),
             ),
           );
         },
@@ -61,6 +39,7 @@ class MyServPage extends StatelessWidget {
         imagePath: 'assets/images/my-track.png',
         label: "My Track",
         onTap: () {
+          if (!context.mounted) return;
           Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const MyTrackPage()),
@@ -71,6 +50,7 @@ class MyServPage extends StatelessWidget {
         imagePath: 'assets/images/myrequest.png',
         label: "My Request",
         onTap: () {
+          if (!context.mounted) return;
           Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const MyRequestPage()),
@@ -81,6 +61,7 @@ class MyServPage extends StatelessWidget {
         imagePath: 'assets/images/type_of_request3.png',
         label: "Type of Request",
         onTap: () {
+          if (!context.mounted) return;
           Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const TypeOfRequestPage()),
@@ -91,6 +72,7 @@ class MyServPage extends StatelessWidget {
         imagePath: 'assets/images/task5.png',
         label: "My Task",
         onTap: () {
+          if (!context.mounted) return;
           Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const MyTasksPage()),
@@ -101,6 +83,7 @@ class MyServPage extends StatelessWidget {
         imagePath: 'assets/images/event_icon.png',
         label: "Events Update",
         onTap: () {
+          if (!context.mounted) return;
           Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const UserEventUpdatesPage()),
@@ -111,6 +94,7 @@ class MyServPage extends StatelessWidget {
         imagePath: 'assets/images/rewards1.png',
         label: "Rewards",
         onTap: () {
+          if (!context.mounted) return;
           Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const UserRewardsPage()),

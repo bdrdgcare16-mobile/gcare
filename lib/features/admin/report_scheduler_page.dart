@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'package:serv_app/config/api_config.dart';
+import 'package:serv_app/services/api_service.dart';
+
 // ADDED: http + json + localStorage for API calls
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -15,7 +18,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 // ==== API base (same as the rest of your app) ====
-const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+final String apiBase = ApiConfig.baseUrl;
 
 // ==== Small helpers (token + headers) ====
 String? _readToken() {
@@ -168,7 +171,7 @@ class _ReportSchedulerPageState extends State<ReportSchedulerPage> {
     try {
       // FIX: no double /api
       final res =
-          await http.get(Uri.parse('$apiBase/reports'), headers: _headers());
+          await http.get(Uri.parse('${ApiService.baseUrl}/reports'), headers: _headers());
       if (res.statusCode == 200) {
         final body = jsonDecode(res.body);
         final List list = body is List
@@ -202,7 +205,7 @@ class _ReportSchedulerPageState extends State<ReportSchedulerPage> {
         ),
       );
       // FIX: no double /api
-      final res = await http.post(Uri.parse('$apiBase/reports'),
+      final res = await http.post(Uri.parse('${ApiService.baseUrl}/reports'),
           headers: _headers(), body: body);
       return res.statusCode == 201;
     } catch (_) {
@@ -213,7 +216,7 @@ class _ReportSchedulerPageState extends State<ReportSchedulerPage> {
   Future<bool> _deleteOnServer(String id) async {
     try {
       // FIX: no double /api
-      final res = await http.delete(Uri.parse('$apiBase/reports/$id'),
+      final res = await http.delete(Uri.parse('${ApiService.baseUrl}/reports/$id'),
           headers: _headers());
       return res.statusCode == 200;
     } catch (_) {
@@ -428,7 +431,7 @@ class _CreateScheduledReportModalState
         ),
       );
       // FIX: no double /api
-      final res = await http.post(Uri.parse('$apiBase/reports'),
+      final res = await http.post(Uri.parse('${ApiService.baseUrl}/reports'),
           headers: _headers(), body: body);
       return res.statusCode == 201;
     } catch (_) {

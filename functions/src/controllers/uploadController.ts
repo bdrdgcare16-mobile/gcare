@@ -1,3 +1,4 @@
+// Reserved for future file upload features (SERV 2.0)
 import { Request, Response } from 'express';
 import { uploadFile, deleteFile, UploadedFile } from '../utils/storage';
 

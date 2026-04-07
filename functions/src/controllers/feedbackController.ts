@@ -1,11 +1,11 @@
 import { Request, Response } from 'express';
-import * as admin from 'firebase-admin';
+import { Timestamp } from 'firebase-admin/firestore'  
 
 type FeedbackDoc = {
   empid: string;
   name: string;
   message: string;
-  date: admin.firestore.Timestamp | Date;
+  date: Timestamp | Date;
   response: string;
   visibility: string[];
 };
@@ -71,7 +71,7 @@ export const createFeedback = async (req: Request, res: Response) => {
       empid,
       name,
       message,
-      date: admin.firestore.Timestamp.now(),
+      date:Timestamp.now(),
       response: '',
       visibility: ['admin'],
     };
@@ -100,7 +100,7 @@ export const getAllFeedback = async (req: Request, res: Response) => {
       let iso = '';
       const dt = x?.date;
       if (dt && typeof (dt as any).toDate === 'function') {
-        iso = (dt as admin.firestore.Timestamp).toDate().toISOString();
+        iso = (dt as Timestamp).toDate().toISOString();
       } else if (dt instanceof Date) {
         iso = dt.toISOString();
       }

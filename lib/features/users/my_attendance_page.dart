@@ -11,6 +11,7 @@ import 'package:table_calendar/table_calendar.dart';
 
 // >>> NEW: navigate to detail page
 import 'package:serv_app/features/users/my_attendance_detail_page.dart';
+import 'package:serv_app/services/api_service.dart';
 
 // ================= THEME =================
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -26,8 +27,8 @@ const Color kHolidayColor = Colors.blue;
 const Color kWeekOffColor = Colors.purple;
 const Color kHalfDayColor = Color.fromARGB(169, 220, 233, 30);
 
-// ============== API BASE =================
-const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+// ============== API BASE (using centralized config) =================
+final String apiBase = ApiService.baseUrl;
 
 // ====== helpers (top-level so they’re easy to reuse) ======
 bool _looksLikeJwt(String v) =>
@@ -35,9 +36,9 @@ bool _looksLikeJwt(String v) =>
 
 // ============== PAGE =====================
 class MyAttendancePage extends StatefulWidget {
-  final AttendanceData data; // kept for compatibility with your routes
+  final dynamic data; // kept for compatibility with your routes
 
-  const MyAttendancePage({super.key, required this.data});
+  const MyAttendancePage({super.key, this.data});
 
   @override
   State<MyAttendancePage> createState() => _MyAttendancePageState();
@@ -49,20 +50,25 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
 
   // ---- state filled from API ----
   String? _empid;
+  String? _token;
   Map<String, String> _dayStatusByDate = {}; // 'YYYY-MM-DD' -> status
   int _present = 0,
       _absent = 0,
-      _leave = 0,
-      // _holiday = 0,  // Unused variable
-      _halfDay = 0;
+      _leave = 0;
+  // _holiday = 0,  // Unused variable
+  // _halfDay = 0;  // Unused variable
   int _late = 0, _early = 0, _permission = 0;
 
   @override
-  void initState() {
-    super.initState();
-    _persistTokenIfPresent(); // ensure JWT is available in localStorage
-    _bootstrap().then((_) => _loadMonth(_focusedDay));
-  }
+ void initState() {
+  super.initState();
+
+  _token = _getToken();   // ADD THIS LINE
+
+  _persistTokenIfPresent();
+  _bootstrap().then((_) => _loadMonth(_focusedDay));
+}
+  
 
   /// Copy token from in-memory CompanyData (if any) to localStorage.
   void _persistTokenIfPresent() {
@@ -82,7 +88,7 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
         await _fetchEmpIdFromAuthMe();
 
     // Temporary hard fallback (remove once verified end-to-end)
-    _empid ??= 'emp014';
+    // _empid ??= 'emp014';
   }
 
   String? _tryEmpIdFromModel(AttendanceData d) {
@@ -119,10 +125,10 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
   }
 
   Future<String?> _fetchEmpIdFromAuthMe() async {
-    final token = _getToken();
+    final token = _token;
     if (token == null) return null;
     try {
-      final uri = Uri.parse('$apiBase/auth/me');
+      final uri = Uri.parse('${ApiService.baseUrl}/auth/me');
       final resp = await http.get(
         uri,
         headers: {
@@ -183,8 +189,8 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
 
     final y = anchor.year;
     final m = anchor.month.toString().padLeft(2, '0');
-    final token = _getToken();
-    final uri = Uri.parse('$apiBase/attendance/month-view/$_empid/$y/$m');
+    final token = _token;
+    final uri = Uri.parse('${ApiService.baseUrl}/attendance/month-view/$_empid/$y/$m');
 
     try {
       final resp = await http.get(
@@ -208,15 +214,16 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
 
         // --------- MERGE WITH RAW ATTENDANCE (force Present if checkIn exists) ----------
         try {
-          final detUri = Uri.parse('$apiBase/attendance/employee/$_empid');
-          final detResp = await http.get(
-            detUri,
-            headers: {
-              'Content-Type': 'application/json',
-              if (token != null) 'Authorization': 'Bearer $token',
-            },
-          );
-          if (detResp.statusCode == 200) {
+          final detUri = Uri.parse('${ApiService.baseUrl}/attendance/employee/$_empid');
+          if (ds.isNotEmpty) {
+            final detResp = await http.get(
+              detUri,
+              headers: {
+                'Content-Type': 'application/json',
+                if (token != null) 'Authorization': 'Bearer $token',
+              },
+            );
+            if (detResp.statusCode == 200) {
             final list = jsonDecode(detResp.body);
             if (list is List) {
               // for the same year-month, if checkIn is non-empty and not '-' and not Holiday/WeekOff, mark Present
@@ -236,6 +243,7 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
               }
             }
           }
+          }
         } catch (_) {}
         // -------------------------------------------------------------------------------
 
@@ -245,7 +253,6 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
           _absent = totals['absent'] ?? 0;
           _leave = totals['leave'] ?? 0;
           // _holiday = totals['holiday'] ?? 0;  // Unused variable
-          _halfDay = totals['halfDay'] ?? 0;
           _late = extras['lateCheckin'] ?? 0;
           _early = extras['earlyCheckout'] ?? 0;
           _permission = extras['permissionCount'] ?? 0;
@@ -481,7 +488,7 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
             width: dia,
             height: dia,
             decoration: BoxDecoration(
-              color: bg.withOpacity(hasBg ? 0.90 : 0.0),
+              color: bg.withValues(alpha: hasBg ? 0.90 : 0.0),
               shape: BoxShape.circle,
             ),
             alignment: Alignment.center,
@@ -561,7 +568,7 @@ class LegendCircle extends StatelessWidget {
           width: 14,
           height: 14,
           decoration: BoxDecoration(
-            color: color.withOpacity(0.8),
+            color: color.withValues(alpha: 0.8),
             shape: BoxShape.circle,
           ),
         ),
@@ -632,7 +639,7 @@ class StatusCard extends StatelessWidget {
       width: 90,
       padding: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.2),
+        color: color.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -668,7 +675,7 @@ class BottomStatBox extends StatelessWidget {
       decoration: BoxDecoration(
         color: kPrimaryBackgroundBottom,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: kAppBarColor.withOpacity(0.3)),
+        border: Border.all(color: kAppBarColor.withValues(alpha: 0.3)),
       ),
       child: Column(
         children: [

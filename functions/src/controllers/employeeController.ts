@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
-import * as admin from 'firebase-admin';
+import { db } from '../config/firebase';
 import * as bcrypt from 'bcryptjs';
+import { Timestamp } from 'firebase-admin/firestore';
 
-const db = admin.firestore();
 const EMPLOYEES = 'employees';
 
 interface Employee {
@@ -23,8 +23,8 @@ interface Employee {
   emailLower?: string;
   searchKeywords?: string[];
 
-  createdAt: admin.firestore.Timestamp;
-  updatedAt: admin.firestore.Timestamp;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
   createdBy?: string;
   updatedBy?: string;
 }
@@ -97,7 +97,7 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const now = admin.firestore.Timestamp.now();
+    const now =Timestamp.now();
     const employeeData: Employee = {
       empid,
       name,
@@ -131,46 +131,63 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
   }
 };
 
-// Get all employees (Admin; supports filters & pagination)
+/// Get all employees (Admin; supports filters & pagination)
 export const getEmployees = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { status, search, page = '1', limit = '10000' } = req.query;
-    const pageNum = Math.max(parseInt(page as string, 10) || 1, 1);
-    const limitNum = Math.min(Math.max(parseInt(limit as string, 10) || 10, 1), 100);
-    const offset = (pageNum - 1) * limitNum;
+    const { status, search, limit = '20', lastDocId } = req.query;
 
-    let q: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = db.collection(EMPLOYEES);
+    const limitNum = Math.min(
+      Math.max(parseInt(limit as string, 10) || 10, 1),
+      100
+    );
+
+    let q: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> =
+      db.collection(EMPLOYEES);
 
     if (status === 'active' || status === 'inactive') {
       q = q.where('status', '==', status);
     }
 
     if (search && String(search).trim()) {
-      q = q.where('searchKeywords', 'array-contains', String(search).toLowerCase().trim());
+      q = q.where(
+        'searchKeywords',
+        'array-contains',
+        String(search).toLowerCase().trim()
+      );
     }
 
-    // total count (inefficient but simple; for large sets, switch to cursors)
-    const totalSnap = await q.get();
-    const total = totalSnap.size;
+    q = q.orderBy('createdAt', 'desc');
 
-    const listSnap = await q.orderBy('createdAt', 'desc').offset(offset).limit(limitNum).get();
-    const data = listSnap.docs.map(d => ({ id: d.id, ...(stripPassword(d.data())) }));
+    // Cursor Pagination
+    if (lastDocId) {
+      const lastDoc = await db.collection(EMPLOYEES).doc(lastDocId as string).get();
+      if (lastDoc.exists) {
+        q = q.startAfter(lastDoc);
+      }
+    }
+
+    const listSnap = await q.limit(limitNum).get();
+
+    const data = listSnap.docs.map(d => ({
+      id: d.id,
+      ...(stripPassword(d.data()))
+    }));
+
+    const lastVisible =
+      listSnap.docs.length > 0
+        ? listSnap.docs[listSnap.docs.length - 1].id
+        : null;
 
     return res.status(200).json({
       data,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total,
-        pages: Math.ceil(total / limitNum),
-      },
+      lastDocId: lastVisible
     });
+
   } catch (error) {
     console.error('Error fetching employees:', error);
     return res.status(500).json({ error: 'Failed to fetch employees' });
   }
 };
-
 // Get employee by document ID
 export const getEmployeeById = async (req: Request, res: Response): Promise<Response> => {
   try {
@@ -231,7 +248,7 @@ export const updateEmployee = async (req: Request, res: Response): Promise<Respo
             }),
           }
         : {}),
-      updatedAt: admin.firestore.Timestamp.now(),
+      updatedAt:Timestamp.now(),
       updatedBy: currentUserId,
     };
 

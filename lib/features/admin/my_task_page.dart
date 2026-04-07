@@ -3,6 +3,8 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 
 // Auth token you already use elsewhere (e.g., LiveAttendancePage)
+import 'package:serv_app/config/api_config.dart';
+import 'package:serv_app/services/api_service.dart';
 import 'package:serv_app/models/company_data.dart';
 
 class MyTasksPage extends StatefulWidget {
@@ -14,7 +16,7 @@ class MyTasksPage extends StatefulWidget {
 
 class _MyTasksPageState extends State<MyTasksPage> {
   // API base
-  static const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+  static final String _apiBase = ApiConfig.baseUrl;
 
   // Daily updates (from API)
   List<Map<String, dynamic>> dailyUpdates = [];
@@ -55,7 +57,7 @@ class _MyTasksPageState extends State<MyTasksPage> {
   Future<void> fetchDailyUpdates() async {
     setState(() => isLoadingUpdates = true);
     try {
-      final uri = Uri.parse('$_apiBase/tasks?audience=all');
+      final uri = Uri.parse('${ApiService.baseUrl}/tasks?audience=all');
       final headers = <String, String>{'Content-Type': 'application/json'};
       final token = CompanyData.token;
       if (token != null && token.isNotEmpty) {
@@ -123,7 +125,7 @@ class _MyTasksPageState extends State<MyTasksPage> {
       return;
     }
 
-    final uri = Uri.parse('$_apiBase/tasks/broadcast');
+    final uri = Uri.parse('${ApiService.baseUrl}/tasks/broadcast');
     final headers = <String, String>{'Content-Type': 'application/json'};
     final token = CompanyData.token;
     if (token != null && token.isNotEmpty) {
@@ -219,8 +221,8 @@ class _MyTasksPageState extends State<MyTasksPage> {
       // ✅ Always call /tasks/employee; include empid if available
       final empid = (CompanyData.empid ?? '').trim();
       final uri = Uri.parse(empid.isNotEmpty
-          ? '$_apiBase/tasks/employee?empid=${Uri.encodeQueryComponent(empid)}'
-          : '$_apiBase/tasks/employee');
+          ? '${ApiService.baseUrl}/tasks/employee?empid=${Uri.encodeQueryComponent(empid)}'
+          : '${ApiService.baseUrl}/tasks/employee');
 
       final headers = <String, String>{'Content-Type': 'application/json'};
       final token = CompanyData.token;

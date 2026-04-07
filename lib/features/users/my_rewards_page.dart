@@ -5,11 +5,12 @@ import 'package:serv_app/html_stub.dart'
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
-// ✅ Use the same model you use in the rest of the app
+// Use the same model you use in the rest of the app
 import 'package:serv_app/models/company_data.dart';
+import 'package:serv_app/services/api_service.dart';
 
-// Match your Node server base
-const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+// Match your Node server base (using centralized config)
+final String apiBase = ApiService.baseUrl;
 
 class UserRewardsPage extends StatefulWidget {
   const UserRewardsPage({super.key});
@@ -149,7 +150,7 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
     final token = await _getJwt();
     if (token != null && token.isNotEmpty) {
       try {
-        final uri = Uri.parse('$apiBase/auth/me');
+        final uri = Uri.parse('${ApiService.baseUrl}/auth/me');
         final resp = await http.get(
           uri,
           headers: {
@@ -200,7 +201,7 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
     }
 
     final uri = Uri.parse(
-      '$apiBase/rewards',
+      '${ApiService.baseUrl}/rewards',
     ).replace(queryParameters: {'empid': empId});
     debugPrint('[Rewards] GET $uri');
 

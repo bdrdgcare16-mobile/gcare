@@ -1,0 +1,1 @@
+export const okRoles = new Set(["employee", "admin"]);

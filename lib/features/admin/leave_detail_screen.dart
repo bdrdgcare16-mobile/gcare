@@ -11,10 +11,10 @@ import 'package:http/http.dart' as http;
 import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
+import 'package:serv_app/config/api_config.dart';
+import 'package:serv_app/services/api_service.dart';
 
-const String _defaultApiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
-const String apiBase =
-    String.fromEnvironment('API_BASE', defaultValue: _defaultApiBase);
+final String apiBase = ApiService.baseUrl;
 
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
@@ -346,10 +346,13 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
         if (id.isEmpty && empid.isNotEmpty) 'empid': empid,
         if (id.isEmpty && date.isNotEmpty) 'date': date,
       };
-      final uri = Uri.parse('$apiBase/attendance/request-details')
+      final uri = Uri.parse('${ApiService.baseUrl}/attendance/request-details')
           .replace(queryParameters: qp);
 
-      final res = await http.get(uri, headers: await _authHeaders());
+      final res = await ApiService.get(
+        '/attendance/request-details',
+        query: qp,
+      );
       if (res.statusCode != 200) {
         throw Exception('HTTP ${res.statusCode}: ${res.body}');
       }

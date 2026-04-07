@@ -10,14 +10,16 @@ import 'company_setup_page.dart';
 // ✅ Use a single, unambiguous import that exposes the class symbol:
 import 'employee_detail_page.dart' show EmployeeDetailPage;
 
+import 'package:serv_app/config/api_config.dart';
+import 'package:serv_app/services/api_service.dart';
+
 import 'package:serv_app/models/company_data.dart';
 
 import 'package:serv_app/models/company_profile.dart';
 
 // 🔹 use the same API helper as approvals screen
-import 'package:serv_app/services/api_service.dart';
 
-const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+final String _apiBase = ApiConfig.baseUrl;
 
 /// Record returned by /api/attendance/live
 class AttendanceRecord {
@@ -104,6 +106,8 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
   bool _isLoading = true;
   String? _error;
   List<AttendanceRecord> _records = [];
+  bool _shiftsLoaded = false;
+  bool _employeesLoaded = false;
 
   // pending approvals count shown in "Waiting for Approvals"
   int _pendingApprovalsCount = 0;
@@ -121,26 +125,35 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
   }
 
   Future<void> _fetchAll() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
-    try {
-      await Future.wait([
-        _loadShiftsFromFirestore(), // ← get shift start times
-        _fetchEmployeesMeta(),      // ← get empid → shiftGroup
-      ]);
-      await Future.wait([
-        _fetchLiveAttendance(),
-        _fetchPendingApprovalsCount(), // ← same source as approvals screen
-      ]);
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+  setState(() {
+    _isLoading = true;
+    _error = null;
+  });
+
+  try {
+
+    if (!_shiftsLoaded) {
+      await _loadShiftsFromFirestore();
+      _shiftsLoaded = true;
     }
+
+    if (!_employeesLoaded) {
+      await _fetchEmployeesMeta();
+      _employeesLoaded = true;
+    }
+
+    await Future.wait([
+      _fetchLiveAttendance(),
+      _fetchPendingApprovalsCount(),
+    ]);
+
+  } finally {
+    if (mounted) setState(() => _isLoading = false);
   }
+}
 
   Future<void> _fetchLiveAttendance() async {
-    final url = Uri.parse('$_apiBase/attendance/live');
+    final url = Uri.parse('${ApiService.baseUrl}/attendance/live');
     try {
       final resp = await http.get(
         url,
@@ -181,7 +194,7 @@ class _LiveAttendancePageState extends State<LiveAttendancePage> {
   // 🔹 Load employees once to know each empid's shiftGroup (and dept for popup)
   Future<void> _fetchEmployeesMeta() async {
     try {
-      final uri = Uri.parse('$_apiBase/employees');
+      final uri = Uri.parse('${ApiService.baseUrl}/employees');
       final resp = await http.get(
         uri,
         headers: {

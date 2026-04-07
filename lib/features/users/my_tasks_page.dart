@@ -3,8 +3,16 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:serv_app/models/company_data.dart';
+import 'package:flutter/foundation.dart';
+import 'package:serv_app/services/api_service.dart';
 
-const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+void _log(Object msg){
+  if(kDebugMode){
+    print(msg);
+  }
+}
+
+final String _apiBase = ApiService.baseUrl;
 
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
@@ -26,7 +34,8 @@ class _TaskItem {
   final String? dueDate;     // ISO or yyyy-MM-dd
   final String? createdAt;   // ISO string
   final String? createdBy;   // uid/userId
-  final String? kind;        // "Task" | "DailyUpdate" | etc.
+  final String? kind;   
+       // "Task" | "DailyUpdate" | etc.
 
   _TaskItem({
     required this.id,
@@ -62,7 +71,9 @@ class MyTasksPage extends StatefulWidget {
 class _MyTasksPageState extends State<MyTasksPage> {
   bool _loading = false;
   String? _error;
+  bool _isFetching = false;
   List<_TaskItem> _tasks = [];
+  bool _posting = false;
 
   @override
   void initState() {
@@ -71,14 +82,15 @@ class _MyTasksPageState extends State<MyTasksPage> {
   }
 
   Future<void> _fetchTasks() async {
-    if (_loading) return;
+   if (_isFetching) return;
+ _isFetching = true;
     setState(() {
       _loading = true;
       _error = null;
     });
 
     // merged view (broadcast + personal)
-    final uri = Uri.parse('$_apiBase/tasks/user');
+    final uri = Uri.parse('${ApiService.baseUrl}/tasks/user?limit=50');
 
     try {
       final resp = await http.get(
@@ -88,7 +100,7 @@ class _MyTasksPageState extends State<MyTasksPage> {
           if ((CompanyData.token ?? '').isNotEmpty)
             'Authorization': 'Bearer ${CompanyData.token}',
         },
-      );
+      ).timeout(const Duration(seconds: 15));
 
       if (resp.statusCode == 200) {
         final List<dynamic> list = jsonDecode(resp.body);
@@ -104,14 +116,18 @@ class _MyTasksPageState extends State<MyTasksPage> {
           return bd.compareTo(ad);
         });
 
+        if(!mounted) return;
         setState(() => _tasks = out);
       } else {
+        if(!mounted) return;
         setState(() => _error = 'Error ${resp.statusCode}: ${resp.body}');
       }
     } catch (e) {
-      setState(() => _error = 'Failed to fetch tasks: $e');
+      _log(e);
+      setState(() => _error = 'Failed to fetch tasks');
     } finally {
       if (mounted) setState(() => _loading = false);
+      _isFetching = false;
     }
   }
 
@@ -169,8 +185,10 @@ class _MyTasksPageState extends State<MyTasksPage> {
   // ---- Upload (DailyUpdate) flow ----
 
   Future<void> _postDailyUpdate(String description) async {
+    if(_posting) return;
+    _posting = true;
     // server derives empid from JWT; no client empid needed
-    final uri = Uri.parse('$_apiBase/tasks/daily-update');
+    final uri = Uri.parse('${ApiService.baseUrl}/tasks?audience=all');
     final body = jsonEncode({
       'title': 'Daily Update',
       'description': description,
@@ -205,6 +223,9 @@ class _MyTasksPageState extends State<MyTasksPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Post error: $e')),
       );
+    }
+    finally{
+      _posting = false;
     }
   }
 
@@ -418,8 +439,11 @@ class _MyTasksPageState extends State<MyTasksPage> {
                 : _tasks.isEmpty
                     ? const Center(child: Text('No tasks available'))
                     : ListView.separated(
-                        padding: const EdgeInsets.all(16),
-                        itemBuilder: (_, i) {
+                      addAutomaticKeepAlives: false,
+                      addRepaintBoundaries: true,
+                      cacheExtent: 800,
+                      padding: const EdgeInsets.all(16),
+                      itemBuilder: (_, i) {
                           final t = _tasks[i];
                           return ListTile(
                             leading: Icon(

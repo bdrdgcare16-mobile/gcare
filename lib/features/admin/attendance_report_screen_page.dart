@@ -11,13 +11,16 @@ import 'package:serv_app/html_stub.dart'
 import 'package:excel/excel.dart' as xls;
 import 'package:file_saver/file_saver.dart';
 
+import 'package:serv_app/config/api_config.dart';
+import 'package:serv_app/services/api_service.dart';
+
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF); // Light lavender
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9); // Deeper lavender
 const Color kAppBarColor = Color(0xFF8c6eaf);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
-const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+final String _apiBase = ApiConfig.baseUrl;
 
 class AttendanceReport extends StatefulWidget {
   const AttendanceReport({super.key});
@@ -81,7 +84,7 @@ class _AttendanceReportState extends State<AttendanceReport> {
       final end = _ymd(_toDate);
 
       final uri =
-          Uri.parse('$_apiBase/attendance/range-summary?start=$start&end=$end');
+          Uri.parse('${ApiService.baseUrl}/attendance/range-summary?start=$start&end=$end');
       final res = await http.get(uri, headers: headers);
 
       if (res.statusCode != 200) {

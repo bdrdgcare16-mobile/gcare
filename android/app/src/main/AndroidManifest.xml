@@ -55,6 +55,7 @@
     </queries>
 
     <application
+     
         android:name="${applicationName}"
         android:label="SERV"
         android:icon="@mipmap/ic_launcher"

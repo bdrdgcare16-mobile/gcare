@@ -1,14 +1,13 @@
 // functions/src/controllers/reasonMasterController.ts
 import { Request, Response } from "express";
-import * as admin from "firebase-admin";
-
-const db = admin.firestore();
+import { FieldValue } from "firebase-admin/firestore";
+import { db } from "../config/firebase";
 const TYPES_COL   = "reason_types";
 const REASONS_COL = "reasons";
 
 /* --------------------------- helpers --------------------------- */
 const safe = (v: any) => String(v ?? "").trim();
-const now  = () => admin.firestore.FieldValue.serverTimestamp();
+const now  = () => FieldValue.serverTimestamp();
 
 function ok(res: Response, data: any, code = 200) {
   return res.status(code).json(data);

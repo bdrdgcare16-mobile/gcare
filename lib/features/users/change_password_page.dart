@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// ===== Service root (no trailing /api here) =====
-const String _host = 'https://api-zmj7dqloiq-el.a.run.app';
+import 'package:serv_app/services/api_service.dart';
+
+/// ===== Service root (using centralized config) =====
+final String _host = ApiService.baseUrl.replaceFirst('/api', '');
 Uri _u(String path) =>
     Uri.parse('$_host$path'); // pass paths like '/api/auth/me'
 

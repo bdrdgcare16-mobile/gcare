@@ -245,6 +245,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 // Web-only localStorage (safe to import; it’s ignored on mobile/desktop)
 import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
+import 'package:serv_app/config/api_config.dart';
+import 'package:serv_app/services/api_service.dart';
 
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
@@ -252,7 +254,7 @@ const Color kAppBarColor = Color(0xFF8C6EAF);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
-const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+final String _apiBase = ApiConfig.baseUrl;
 
 class FeedbackPage extends StatefulWidget {
   const FeedbackPage(
@@ -297,7 +299,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
       if (token != null) headers['Authorization'] = 'Bearer $token';
 
       final res =
-          await http.get(Uri.parse('$_apiBase/feedback'), headers: headers);
+          await http.get(Uri.parse('${ApiService.baseUrl}/feedback'), headers: headers);
 
       if (res.statusCode == 200) {
         final decoded = jsonDecode(res.body);

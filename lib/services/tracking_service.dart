@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
+import 'package:serv_app/services/api_service.dart';
 
 /// Foreground-only tracker that guarantees one save every 20 minutes,
 /// trying hard to get ≤ 5 m accuracy before posting.
@@ -20,7 +21,7 @@ class TrackingService {
   StreamSubscription<Position>? _positionStream; // For continuous tracking
 
   // Cadence & thresholds
-  static const Duration kInterval = Duration(minutes: 5);
+  static const Duration kInterval = Duration(minutes: 20);
   static const Duration kBurstTimeout =
       Duration(seconds: 120); // up to 2 min to hunt a great fix
   static const Duration kStreamMinSampleGap =
@@ -40,14 +41,13 @@ class TrackingService {
     // (Optional) make sure a tracking doc/session exists server-side
     try {
       await http.post(
-        Uri.parse('$apiBase/tracking/check-in'),
+        Uri.parse('${ApiService.baseUrl}/tracking/check-in'),
         headers: _headers(),
         body: jsonEncode({'empid': empId}),
       );
     } catch (_) {}
 
-    // Start continuous high-accuracy tracking
-    _startContinuousTracking();
+
 
     // Also keep the periodic capture for redundancy
     _periodic?.cancel();
@@ -184,7 +184,7 @@ class TrackingService {
   Future<void> _postPos(Position p, {required String tag}) async {
     try {
       await http.post(
-        Uri.parse('$apiBase/tracking/pos'),
+        Uri.parse('${ApiService.baseUrl}/tracking/pos'),
         headers: _headers(),
         body: jsonEncode({
           'empid': empId,

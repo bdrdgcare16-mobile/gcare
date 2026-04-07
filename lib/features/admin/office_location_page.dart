@@ -10,6 +10,9 @@ import 'package:url_launcher/url_launcher.dart';
 // ADD THIS: token source used elsewhere in your app
 import 'package:serv_app/models/company_data.dart';
 
+import 'package:serv_app/config/api_config.dart';
+import 'package:serv_app/services/api_service.dart';
+
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
 const Color kAppBarColor = Color(0xFF8c6eaf);
@@ -17,7 +20,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 // ===== Backend base =====
-const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+final String apiBase = ApiConfig.baseUrl;
 
 class LocationModel {
   final String docId; // Firestore doc id
@@ -74,7 +77,7 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
     setState(() => _loading = true);
     try {
       final res = await http.get(
-        Uri.parse('$_apiBase/office/locations'),
+        Uri.parse('${ApiService.baseUrl}/office/locations'),
         headers: _authHeaders(),
       );
       
@@ -132,52 +135,99 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
     }
   }
 
-  Future<bool> _postLocation({
-    required String branchName,
-    required String address,
-    required double radius,
-    required double latitude,
-    required double longitude,
-  }) async {
-    try {
-      final requestBody = {
-        'branchName': branchName.trim(),
-        'name': branchName.trim(), // For backward compatibility
-        'address': address.trim(),
-        'radius': radius,
-        'latitude': latitude,
-        'longitude': longitude,
-      };
-      
-      debugPrint('[Office] Sending request: ${jsonEncode(requestBody)}');
-      
-      final res = await http.post(
-        Uri.parse('$_apiBase/office/add'),
-        headers: _authHeaders(),
-        body: jsonEncode(requestBody),
-      );
-      
-      debugPrint('[Office] POST /office/add -> ${res.statusCode} ${res.body}');
-      
-      if (res.statusCode == 201) {
-        _toast('Location saved successfully');
-        return true;
-      } else {
-        final errorMsg = jsonDecode(res.body)['message'] ?? 'Unknown error';
-        _toast('Failed to save: $errorMsg');
-        return false;
-      }
-    } catch (e) {
-      debugPrint('Error in _postLocation: $e');
-      _toast('Error: ${e.toString()}');
+Future<bool> _postLocation({
+  required String branchName,
+  required String address,
+  required double radius,
+  required double latitude,
+  required double longitude,
+}) async {
+  try {
+    final requestBody = {
+      'branchName': branchName.trim(),
+      'name': branchName.trim(),
+      'address': address.trim(),
+      'radius': radius,
+      'latitude': latitude,
+      'longitude': longitude,
+    };
+
+    debugPrint('[Office] Sending request: ${jsonEncode(requestBody)}');
+
+    final res = await http.post(
+      Uri.parse('${ApiService.baseUrl}/office/add'),
+      headers: _authHeaders(),
+      body: jsonEncode(requestBody),
+    );
+
+    debugPrint('[Office] POST /office/add -> ${res.statusCode} ${res.body}');
+
+    if (res.statusCode == 201) {
+      _toast('Location saved successfully');
+      return true;
+    } else {
+      final body = jsonDecode(res.body);
+      final errorMsg =
+          (body['error'] ?? body['message'] ?? 'Unknown error').toString();
+      _toast('Failed to save: $errorMsg');
       return false;
     }
+  } catch (e) {
+    debugPrint('Error in _postLocation: $e');
+    _toast('Error: ${e.toString()}');
+    return false;
   }
+}
+
+  Future<bool> _updateLocation({
+  required String docId,
+  required String branchName,
+  required String address,
+  required double radius,
+  required double latitude,
+  required double longitude,
+}) async {
+  try {
+    final requestBody = {
+      'branchName': branchName.trim(),
+      'name': branchName.trim(),
+      'address': address.trim(),
+      'radius': radius,
+      'latitude': latitude,
+      'longitude': longitude,
+    };
+
+    debugPrint('[Office] Sending update request: ${jsonEncode(requestBody)}');
+
+    final res = await http.put(
+      Uri.parse('${ApiService.baseUrl}/office/update/$docId'),
+      headers: _authHeaders(),
+      body: jsonEncode(requestBody),
+    );
+
+    debugPrint('[Office] PUT /office/update/$docId -> ${res.statusCode} ${res.body}');
+
+    if (res.statusCode == 200) {
+      _toast('Location updated successfully');
+      return true;
+    } else {
+      final body = jsonDecode(res.body);
+      final errorMsg =
+          (body['error'] ?? body['message'] ?? 'Unknown error').toString();
+      _toast('Failed to update: $errorMsg');
+      return false;
+    }
+  } catch (e) {
+    debugPrint('Error in _updateLocation: $e');
+    _toast('Error: ${e.toString()}');
+    return false;
+  }
+}
 
   Future<bool> _deleteRemote(String docId) async {
     try {
       final res = await http.delete(
-        Uri.parse('$_apiBase/office/delete/$docId'),
+        Uri.parse('${ApiService.baseUrl}/office/delete/$docId'),
         headers: _authHeaders(),
       );
       debugPrint(
@@ -317,13 +367,22 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
                 return;
               }
 
-              final ok = await _postLocation(
-                branchName: branch,
-                address: address,
-                radius: radius,
-                latitude: coords.latitude,
-                longitude: coords.longitude,
-              );
+              final ok = isEdit
+                    ? await _updateLocation(
+                         docId: _locations[indexToEdit].docId,
+                         branchName: branch,
+                         address: address,
+                         radius: radius,
+                         latitude: coords.latitude,
+                         longitude: coords.longitude,
+                     )
+                    : await _postLocation(
+                         branchName: branch,
+                         address: address,
+                         radius: radius,
+                         latitude: coords.latitude,
+                         longitude: coords.longitude,
+                      );
               if (ok) {
                 if (mounted) Navigator.pop(context);
                 await _loadLocations();

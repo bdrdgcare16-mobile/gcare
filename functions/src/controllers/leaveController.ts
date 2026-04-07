@@ -1,8 +1,8 @@
 
 import { Request, Response } from 'express';
-import * as admin from 'firebase-admin';
+import { db } from '../config/firebase';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
-const db = admin.firestore();
 
 /* ============================== Types ============================== */
 
@@ -34,9 +34,9 @@ interface LeaveRequest {
   imageUrl?: string;
   selectShift?: string | null;
   workedDate?: string;             // YYYY-MM-DD (reference day actually worked for Comp Off)
-  createdAt: admin.firestore.Timestamp;
-  updatedAt: admin.firestore.Timestamp;
-  requestedAt?: admin.firestore.Timestamp;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  requestedAt?: Timestamp;
   approverId?: string;
   approverNotes?: string;
 }
@@ -108,7 +108,7 @@ function normalizeCreatePayload(
   if (!leaveType || !VALID_TYPES.includes(leaveType)) return { error: 'Invalid or missing leaveType' };
   if (!reason) return { error: 'Missing reason' };
 
-  const nowTs = admin.firestore.Timestamp.now();
+  const nowTs = Timestamp.now();
   const base: Omit<LeaveRequest, 'id'> = {
     userId: currentUser.userId,
     empid: currentUser.empid,
@@ -247,8 +247,9 @@ export const createLeaveRequest = async (req: Request, res: Response): Promise<R
     // ---- Index-free overlap check (query by userId only; filter in memory) ----
     if (payload.leaveType !== 'Overtime' && payload.leaveType !== 'Permission Time') {
       const existing = await db.collection('leaves')
-        .where('userId', '==', currentUser.userId)
-        .get();
+       .where('userId', '==', currentUser.userId)
+       .where('status', 'in', ['Pending', 'Approved'])
+       .get();
 
       const overlaps = existing.docs.some((d) => {
         const v = d.data() as any;
@@ -305,23 +306,20 @@ export const getAllLeaveRequests = async (req: Request, res: Response): Promise<
     }
 
     // Get total count for pagination
-    const all = await q.get();
-    const total = all.size;
+   const pageNum = Math.max(parseInt(String(page), 10) || 1, 1);
+   const limitNum = Math.min(Math.max(parseInt(String(limit), 10) || 10, 1), 100);
 
-    // Apply pagination
-    const pageNum = Math.max(parseInt(String(page), 10) || 1, 1);
-    const limitNum = Math.min(Math.max(parseInt(String(limit), 10) || 10, 1), 100);
-    const offset = Math.max(0, (pageNum - 1) * limitNum);
-
-    const pageSnap = await q.offset(offset).limit(limitNum).get();
+   const pageSnap = await q
+    .orderBy('createdAt','desc')
+    .limit(limitNum)
+    .get();
 
     return res.status(200).json({
       data: pageSnap.docs.map(d => ({ id: d.id, ...d.data() })),
       pagination: {
         page: pageNum,
         limit: limitNum,
-        total,
-        pages: Math.ceil(total / limitNum)
+        hasMore: pageSnap.size === limitNum
       }
     });
   } catch (error) {
@@ -341,7 +339,10 @@ export const getPendingLeaves = async (req: Request, res: Response): Promise<Res
       q = q.where('leaveType', '==', t);
     }
 
-    const snapshot = await q.orderBy('startDate', 'asc').get();
+    const snapshot = await q
+      .orderBy('createdAt','desc')
+      .limit(100)
+      .get(); 
     const pendingLeaves = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
@@ -415,8 +416,8 @@ export const addLeaveType = async (req: Request, res: Response): Promise<Respons
       description,
       defaultDays: Number(defaultDays) || 0,
       isActive: true,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      createdAt:FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
     });
 
     return res.status(201).json({
@@ -486,7 +487,7 @@ export const updateLeaveStatus = async (req: Request, res: Response): Promise<Re
     const updates: any = {
       status,
       approverId: currentUser.uid,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt:FieldValue.serverTimestamp(),
       ...(notes && { approverNotes: notes })
     };
 
@@ -528,10 +529,10 @@ export const cancelLeaveRequest = async (req: Request, res: Response): Promise<R
 
     await leaveRef.update({
       status: 'Cancelled',
-      cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
+      cancelledAt: FieldValue.serverTimestamp(),
       cancelledBy: currentUser.uid,
       cancelReason: reason,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      updatedAt: FieldValue.serverTimestamp()
     });
 
     return res.status(200).json({ success: true });

@@ -27,11 +27,16 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  bool _permissionChecked = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _showLocationPermissionDialog();
+      if (!_permissionChecked) {
+        _permissionChecked = true;
+        _showLocationPermissionDialog();
+      }
     });
   }
 
@@ -134,14 +139,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _requestPermissions() async {
-    // Request location permission
-    var status = await Permission.location.request();
-    if (status.isGranted) {
-      // Request camera permission
-      await Permission.camera.request();
-      // Request storage permission
-      await Permission.storage.request();
-    }
+    await [
+      Permission.location,
+      Permission.camera,
+      Permission.storage,
+    ].request();
   }
 
   Widget _buildPermissionItem({
@@ -162,7 +164,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
             child: Icon(icon, color: color, size: 20),
@@ -231,7 +233,7 @@ class _HomeScreenState extends State<HomeScreen> {
               left: -60,
               child: _BlobCircle(
                 diameter: 220,
-                color: kAppBarColor.withOpacity(0.10),
+                color: kAppBarColor.withValues(alpha: 0.10),
               ),
             ),
             Positioned(
@@ -239,7 +241,7 @@ class _HomeScreenState extends State<HomeScreen> {
               right: -70,
               child: _BlobCircle(
                 diameter: 180,
-                color: kButtonColor.withOpacity(0.08),
+                color: kButtonColor.withValues(alpha: 0.08),
               ),
             ),
             Positioned(
@@ -247,7 +249,7 @@ class _HomeScreenState extends State<HomeScreen> {
               left: -40,
               child: _BlobCircle(
                 diameter: 160,
-                color: kAppBarColor.withOpacity(0.07),
+                color: kAppBarColor.withValues(alpha: 0.07),
               ),
             ),
             // ======= Page Content =======
@@ -348,6 +350,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   icon: Icons.calendar_month,
                                   label: 'Attendance',
                                   onTap: () {
+                                    if (!mounted) return;
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
@@ -362,6 +365,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   icon: Icons.handshake,
                                   label: 'My Serv',
                                   onTap: () {
+                                    if (!mounted) return;
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
@@ -436,7 +440,7 @@ class _BlobCircle extends StatelessWidget {
         color: color,
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.35),
+            color: color.withValues(alpha: 0.35),
             blurRadius: 40,
             spreadRadius: 6,
           ),
@@ -525,8 +529,8 @@ class _HomeTile extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(20),
-        splashColor: kAppBarColor.withOpacity(0.15),
-        highlightColor: kButtonColor.withOpacity(0.10),
+        splashColor: kAppBarColor.withValues(alpha: 0.15),
+        highlightColor: kButtonColor.withValues(alpha: 0.10),
         child: Ink(
           width: tileW,
           height: tileH,
@@ -535,8 +539,8 @@ class _HomeTile extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                kPrimaryBackgroundBottom.withOpacity(0.95),
-                kPrimaryBackgroundBottom.withOpacity(0.80),
+                kPrimaryBackgroundBottom.withValues(alpha: 0.95),
+                kPrimaryBackgroundBottom.withValues(alpha: 0.80),
               ],
             ),
             borderRadius: BorderRadius.circular(20),
@@ -547,7 +551,7 @@ class _HomeTile extends StatelessWidget {
                 offset: Offset(0, 6),
               ),
             ],
-            border: Border.all(color: Colors.white.withOpacity(0.6), width: 1),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.6), width: 1),
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,

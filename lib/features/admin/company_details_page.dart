@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:serv_app/features/admin/admin_dashboard_page.dart';
 import 'package:serv_app/features/admin/company_setup_page.dart';
 import 'package:serv_app/models/company_data.dart';
+import 'package:serv_app/services/api_service.dart';
 import 'package:serv_app/models/company_profile.dart';
 
 // Theme colors
@@ -137,7 +138,7 @@ class _CompanyDetailsFormPageState extends State<CompanyDetailsFormPage> {
 
       // Send the request
       final response = await http.post(
-        Uri.parse('https://api-zmj7dqloiq-el.a.run.app/api/company/profile'),
+        Uri.parse('${ApiService.baseUrl}/company/profile'),
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json',

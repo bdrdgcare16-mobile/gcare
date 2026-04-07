@@ -2,14 +2,16 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:serv_app/config/api_config.dart';
+import 'package:serv_app/services/api_service.dart';
 
 // Theme Colors
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
 const Color kAppBarColor = Color(0xFF8C6EAF);
 
-// 👉 Adjust if your backend origin/port is different
-const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+// 👉 Adjust if your backend origin/port is different (using centralized config)
+final String _apiBase = ApiConfig.baseUrl;
 
 class FeedbackPage extends StatefulWidget {
   const FeedbackPage({super.key});
@@ -66,7 +68,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
         (_jwt != null && _jwt!.isNotEmpty)) {
       try {
         final meRes = await http.get(
-          Uri.parse('$_apiBase/auth/me'),
+          Uri.parse('${ApiService.baseUrl}/auth/me'),
           headers: {'Authorization': 'Bearer $_jwt'},
         );
         if (meRes.statusCode == 200) {
@@ -146,7 +148,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
 
     try {
       final res = await http.post(
-        Uri.parse('$_apiBase/feedback'),
+        Uri.parse('${ApiService.baseUrl}/feedback'),
         headers: headers,
         body: jsonEncode(payload),
       );

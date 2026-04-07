@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
-import * as admin from 'firebase-admin';
+import { db } from '../config/firebase';
 
-const db = admin.firestore();
 
 /* ------------------------- small utils ------------------------- */
 const toFloat = (v: any): number | undefined => {
@@ -16,7 +15,7 @@ const pickStr = (o: any, keys: string[], fallback = ''): string => {
     if (v !== undefined && v !== null) {
       const s = String(v).trim();
       if (s) return s;
-    }
+    } 
   }
   return fallback;
 };

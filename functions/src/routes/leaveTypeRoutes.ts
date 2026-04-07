@@ -16,4 +16,6 @@ router.get('/', verifyToken, isUserOrAdmin, ctrl.listLeaveTypes);
 // Delete leave type (admin only)
 router.delete('/:id', verifyToken, isAdmin, ctrl.deleteLeaveType);
 
+
+
 export default router;

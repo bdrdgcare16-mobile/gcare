@@ -8,11 +8,13 @@ import 'package:serv_app/html_stub.dart'
 
 import 'event_model_page.dart';
 import 'add_event_page.dart';
+import 'package:serv_app/config/api_config.dart';
+import 'package:serv_app/services/api_service.dart';
 
 // ====== CONFIG ======
-const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+final String apiBase = ApiConfig.baseUrl;
 // Derive the origin (no /api) so we can resolve /uploads/...
-final String _apiOrigin = apiBase.replaceFirst(RegExp(r'/api/?$'), '');
+final String _apiOrigin = ApiConfig.baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
 
 // ====== THEME ======
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -41,7 +43,7 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final r = await http.get(Uri.parse('$apiBase/events'));
+      final r = await http.get(Uri.parse('${ApiService.baseUrl}/events'));
       if (r.statusCode == 200) {
         final List data = jsonDecode(r.body);
         eventsList = data.map((e) => EventModel.fromJson(e)).toList();
@@ -58,7 +60,7 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
 
   Future<void> _delete(String id) async {
     try {
-      final r = await http.delete(Uri.parse('$apiBase/events/$id'));
+      final r = await http.delete(Uri.parse('${ApiService.baseUrl}/events/$id'));
       if (r.statusCode == 200) {
         _toast('Deleted');
         await _load();

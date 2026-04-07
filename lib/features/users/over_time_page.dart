@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 import 'package:serv_app/models/company_data.dart';
+import 'package:serv_app/services/api_service.dart';
 
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
@@ -13,8 +14,8 @@ const Color kAppBarColor = Color(0xFF8C6EAF);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
-/// Backend base
-const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+/// Backend base (using centralized config)
+final String apiBase = ApiService.baseUrl;
 
 class OverTimePage extends StatefulWidget {
   final bool isPopup;
@@ -87,7 +88,7 @@ class _OverTimePageState extends State<OverTimePage> {
 
     try {
       final res = await http.get(
-        Uri.parse('$apiBase/auth/me'),
+        Uri.parse('${ApiService.baseUrl}/auth/me'),
         headers: {'Authorization': 'Bearer $token'},
       );
       if (res.statusCode != 200) return;
@@ -223,7 +224,7 @@ class _OverTimePageState extends State<OverTimePage> {
       return;
     }
 
-    final url = Uri.parse('$apiBase/leaves');
+    final url = Uri.parse('${ApiService.baseUrl}/leaves');
 
     final body = {
       "type": "Overtime",

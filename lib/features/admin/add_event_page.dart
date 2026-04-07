@@ -3,9 +3,11 @@ import 'dart:math'; // for UUID generator
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:serv_app/config/api_config.dart';
+import 'package:serv_app/services/api_service.dart';
 
-// ⬇️ Adjust base URL if needed
-const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+// ⬇️ Using centralized API config
+final String apiBase = ApiConfig.baseUrl;
 
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
@@ -93,7 +95,7 @@ class _EventUploadPageState extends State<EventUploadPage> {
       };
 
       final resp = await http.post(
-        Uri.parse('$apiBase/events'),
+        Uri.parse('${ApiService.baseUrl}/events'),
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',

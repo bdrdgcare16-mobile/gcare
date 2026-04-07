@@ -238,10 +238,11 @@ export async function createDailyUpdateForSelf(req: Request, res: Response) {
 export async function listTasks(_req: Request, res: Response) {
   try {
     const snap = await db
-      .collection('tasks')
-      .where('audience', '==', 'all')
-      .orderBy('createdAt', 'desc')
-      .get();
+     .collection('tasks')
+     .where('audience', '==', 'all')
+     .orderBy('createdAt', 'desc')
+     .limit(50)
+     .get();
 
     return res.json(snap.docs.map((d) => d.data()));
   } catch (e: any) {
@@ -264,7 +265,8 @@ export async function listTasksForUser(req: Request, res: Response) {
       .collection('tasks')
       .where('audience', '==', 'all')
       .orderBy('createdAt', 'desc')
-      .get();
+      .limit(50)
+    .get();
 
     // Personal query
     let personalQuery = db
@@ -276,7 +278,10 @@ export async function listTasksForUser(req: Request, res: Response) {
       personalQuery = personalQuery.where('assignedTo', '==', qEmp);
     }
 
-    const qPersonal = personalQuery.orderBy('createdAt', 'desc').get();
+    const qPersonal = personalQuery
+      .orderBy('createdAt', 'desc')
+      .limit(50)
+      .get();
 
     const [broadSnap, personalSnap] = await Promise.all([qBroadcast, qPersonal]);
 
@@ -314,7 +319,10 @@ export async function listEmployeeTasks(req: Request, res: Response) {
       query = query.where('assignedTo', '==', qEmp);
     }
 
-    const snap = await query.orderBy('createdAt', 'desc').get();
+    const snap = await query
+      .orderBy('createdAt', 'desc')
+      .limit(50)
+      .get();
     const items = snap.docs.map((d) => d.data());
 
     items.sort((a: any, b: any) => {

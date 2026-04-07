@@ -6,6 +6,7 @@ import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart'
     as html; // for Flutter Web localStorage
 import 'package:serv_app/models/company_data.dart';
+import 'package:serv_app/services/api_service.dart';
 
 // Colors (unchanged)
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -14,8 +15,8 @@ const Color kAppBarColor = Color(0xFF8c6eaf);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
-/// Match your Node server port
-const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+/// Match your Node server port (using centralized config)
+final String apiBase = ApiService.baseUrl;
 
 class HalfDayTimePage extends StatefulWidget {
   final bool isPopup;
@@ -147,7 +148,7 @@ class _HalfDayTimePageState extends State<HalfDayTimePage> {
       return;
     }
 
-    final uri = Uri.parse('$apiBase/leaves');
+    final uri = Uri.parse('${ApiService.baseUrl}/leaves');
 
     // Backend Half-Day branch expects: type, selectDate, (optional) selectShift, reason.
     final payload = {

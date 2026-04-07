@@ -1,10 +1,10 @@
 import { Request, Response } from 'express';
-import * as admin from 'firebase-admin';
+import { db } from '../config/firebase';
+import { Timestamp } from 'firebase-admin/firestore';
 
-const db = admin.firestore();
 const REWARDS = 'rewards';
 
-type TS = admin.firestore.Timestamp;
+type TS = Timestamp;
 
 interface Reward {
   id?: string;
@@ -88,7 +88,7 @@ export const createReward = async (req: Request, res: Response): Promise<Respons
       return res.status(400).json({ error: `Missing fields: ${missing.join(', ')}` });
     }
 
-    const now = admin.firestore.Timestamp.now();
+    const now = Timestamp.now();
     const reward: Reward = {
       empid,
       name,

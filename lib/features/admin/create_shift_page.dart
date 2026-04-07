@@ -95,7 +95,7 @@
 //       };
 
 //       final res = await http.post(
-//         Uri.parse('$_apiBase/shifts'),
+//         Uri.parse('${ApiService.baseUrl}/shifts'),
 //         headers: headers,
 //         body: jsonEncode(body),
 //       );
@@ -353,6 +353,9 @@ import 'package:serv_app/html_stub.dart'
 
 import 'package:serv_app/features/admin/add_group_name_dialog.dart';
 
+import 'package:serv_app/config/api_config.dart';
+import 'package:serv_app/services/api_service.dart';
+
 // App-wide theme colors
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF); // White
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9); // Light purple
@@ -361,7 +364,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 // ==== API ====
-const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+final String _apiBase = ApiConfig.baseUrl;
 
 class CreateShiftPage extends StatefulWidget {
   const CreateShiftPage({super.key});
@@ -440,7 +443,7 @@ class _CreateShiftPageState extends State<CreateShiftPage> {
       };
 
       final res = await http.post(
-        Uri.parse('$_apiBase/shifts'),
+        Uri.parse('${ApiService.baseUrl}/shifts'),
         headers: headers,
         body: jsonEncode(body),
       );

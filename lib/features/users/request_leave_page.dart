@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:serv_app/models/company_data.dart';
+import 'package:serv_app/services/api_service.dart';
 
 // Theme Colors
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -13,8 +14,8 @@ const Color kAppBarColor = Color(0xFF8C6EAF);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
-// Backend base
-const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+// Backend base (using centralized config)
+final String apiBase = ApiService.baseUrl;
 
 bool _looksLikeJwt(String v) =>
     RegExp(r'^[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+$').hasMatch(v);
@@ -154,7 +155,7 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
 
     // cache-bust so we never hit 304 + empty body
     final ts = DateTime.now().millisecondsSinceEpoch;
-    final uri = Uri.parse('$apiBase/leave-types?_ts=$ts');
+    final uri = Uri.parse('${ApiService.baseUrl}/leave-types?_ts=$ts');
 
     try {
       final resp = await http.get(
@@ -208,7 +209,7 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
 
     try {
       final res = await http.get(
-        Uri.parse('$apiBase/auth/me'),
+        Uri.parse('${ApiService.baseUrl}/auth/me'),
         headers: {'Authorization': 'Bearer $token'},
       );
       if (res.statusCode != 200) return;
@@ -457,7 +458,7 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
       'days': days,
     };
 
-    final uri = Uri.parse('$apiBase/leaves');
+    final uri = Uri.parse('${ApiService.baseUrl}/leaves');
     try {
       final resp = await http.post(
         uri,

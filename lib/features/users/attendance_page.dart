@@ -11,17 +11,19 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:android_intent_plus/android_intent.dart';
 
 import 'package:serv_app/models/company_data.dart';
-
-// Background scheduler (WorkManager wrapper)
 import 'package:serv_app/features/users/background_tasks.dart';
 import 'package:serv_app/main.dart' show startFgTracking, stopFgTracking;
-// Foreground timer (legacy – extra backup)
 import 'package:serv_app/services/tracking_service.dart';
-
-// 🔹 Firestore for dynamic shift times
 import 'package:cloud_firestore/cloud_firestore.dart';
-
 import 'package:serv_app/main_common.dart';
+import 'package:flutter/foundation.dart';
+import 'package:serv_app/services/api_service.dart';
+
+void _log(String message) {
+  if (kDebugMode) {
+    debugPrint(message);
+  }
+}
 
 // ==== Colors ====
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -31,7 +33,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 // ---- API base ----
-const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+final String _apiBase = ApiService.baseUrl;
 
 // ---- Local persistence keys ----
 const String _kCheckedInKeyBase = 'att_checked_in_';
@@ -67,13 +69,21 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   bool isCheckedIn = false;
   bool isTimerRunning = false;
   bool _locationPermissionGranted = false;
+  bool _isLoadingUserInfo = false;
+  List<Map<String, String>>? _cachedReasons;
+  bool _reasonsLoading = false;
+
 
   // ✅ FIX: prevent multiple checkout taps / duplicate API calls
   bool _checkoutInProgress = false;
+  _Branch? _cachedBranch;
+
+  DateTime? _lastStatusFetch;
 
   // Track check-in and check-out times (for UI labels only)
   DateTime? _checkInTime;
   DateTime? _checkOutTime;
+  // DateTime? _lastStatusFetch;
 
   // Format time for display (HH:MM AM/PM)
   String _formatTime(DateTime? time) {
@@ -101,6 +111,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   final LocalAuthentication _localAuth = LocalAuthentication();
   bool _authInProgress = false;
+  
 
   // remember the source of today's check-in ('biometric' | 'manual')
   String _checkInSource = '';
@@ -220,9 +231,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     });
   }
 
-  Future<void> _loadUserInfo() async {
+ Future<void> _loadUserInfo() async {
+  // Prevent duplicate parallel calls without blocking future retries
+  if (_isLoadingUserInfo) return;
+  _isLoadingUserInfo = true;
+
+  try {
     final token = CompanyData.token;
-    final url = Uri.parse('$_apiBase/auth/me');
+    final url = Uri.parse('${ApiService.baseUrl}/auth/me');
 
     try {
       final res =
@@ -248,7 +264,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         });
 
         await _loadShiftTimes();
-
         await _restoreCheckInFromPrefs();
         await _loadTodayStatus();
       } else {
@@ -269,47 +284,51 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       });
       await _restoreCheckInFromPrefs();
     }
+  } finally {
+    _isLoadingUserInfo = false;
+  }
+}
+Future<void> _loadTodayStatus() async {
+
+   if (_lastStatusFetch != null &&
+      DateTime.now().difference(_lastStatusFetch!) < const Duration(minutes: 2)) {
+    return;
   }
 
-  Future<void> _loadTodayStatus() async {
-    final token = CompanyData.token;
-    if (userId.isEmpty || token.isEmpty) return;
+  // // Prevent repeated API calls (safe protection)
+  // if (_lastStatusFetch != null &&
+  //     DateTime.now().difference(_lastStatusFetch!) < const Duration(minutes: 2)) {
+  //   return;
+  // }
 
-    final url = Uri.parse('$_apiBase/attendance/live');
+  final token = CompanyData.token;
+  if (userId.isEmpty || token.isEmpty) return;
 
-    try {
-      final res =
-          await http.get(url, headers: {'Authorization': 'Bearer $token'});
-      if (res.statusCode != 200) return;
+  final url = Uri.parse('${ApiService.baseUrl}/attendance/live');
 
-      final list = List<Map<String, dynamic>>.from(jsonDecode(res.body));
-      final me = list.firstWhere(
-        (e) => (e['empid']?.toString() ?? '') == userId,
-        orElse: () => const {},
-      );
+  try {
+    final res =
+        await http.get(url, headers: {'Authorization': 'Bearer $token'});
 
-      final checkIn = (me['checkIn']) as String?;
-      final checkOut = (me['checkOut']) as String?;
-      _checkInSource =
-          (me['checkInSource'] ?? me['source'] ?? '').toString().toLowerCase();
+    if (res.statusCode != 200) return;
 
-      if (checkOut != null && checkOut.isNotEmpty) {
-        _resetTimerAndState();
-        await _clearCheckInFromPrefs();
-        if (!mounted) return;
-        setState(() {
-          isCheckedIn = false;
-          _checkInSource = '';
-        });
-        return;
-      }
+    _lastStatusFetch = DateTime.now();
 
-      if (checkIn != null && checkIn.isNotEmpty) {
-        _applyCheckedInFromServer(checkIn);
-        await _saveCheckInToPrefs();
-        return;
-      }
+    // Save fetch time
+    // _lastStatusFetch = DateTime.now();
 
+    final list = List<Map<String, dynamic>>.from(jsonDecode(res.body));
+    final me = list.firstWhere(
+      (e) => (e['empid']?.toString() ?? '') == userId,
+      orElse: () => const {},
+    );
+
+    final checkIn = (me['checkIn']) as String?;
+    final checkOut = (me['checkOut']) as String?;
+    _checkInSource =
+        (me['checkInSource'] ?? me['source'] ?? '').toString().toLowerCase();
+
+    if (checkOut != null && checkOut.isNotEmpty) {
       _resetTimerAndState();
       await _clearCheckInFromPrefs();
       if (!mounted) return;
@@ -317,9 +336,24 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         isCheckedIn = false;
         _checkInSource = '';
       });
-    } catch (_) {}
-  }
+      return;
+    }
 
+    if (checkIn != null && checkIn.isNotEmpty) {
+      _applyCheckedInFromServer(checkIn);
+      await _saveCheckInToPrefs();
+      return;
+    }
+
+    _resetTimerAndState();
+    await _clearCheckInFromPrefs();
+    if (!mounted) return;
+    setState(() {
+      isCheckedIn = false;
+      _checkInSource = '';
+    });
+  } catch (_) {}
+}
   void _applyCheckedInFromServer(String hhmmss) {
     try {
       final now = DateTime.now();
@@ -483,7 +517,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
     // Optional: debug print (does not affect UI flow)
     // ignore: avoid_print
-    print('Location fetch failed: $lastReadableError | error=$lastErrorObj');
+    _log('Location fetch failed: $lastReadableError | error=$lastErrorObj');
 
     return null;
   }
@@ -717,33 +751,48 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Future<_Branch?> _fetchMyBranch() async {
-    try {
-      final res = await http.get(
-        Uri.parse('$_apiBase/office/locations'),
-        headers: _authHeaders(),
-      );
-      if (res.statusCode != 200) return null;
-      final list = (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
-      final match = list.firstWhere(
-        (m) =>
-            (m['branchName'] ?? m['name'] ?? '')
-                .toString()
-                .trim()
-                .toLowerCase() ==
-            location.trim().toLowerCase(),
-        orElse: () => const {},
-      );
-      if (match.isEmpty) return null;
-      final lat = (match['latitude'] as num).toDouble();
-      final lng = (match['longitude'] as num).toDouble();
-      final rad = (match['radius'] as num).toDouble();
-      final nm = (match['branchName'] ?? match['name'] ?? '').toString();
-      return _Branch(nm, lat, lng, rad);
-    } catch (_) {
-      return null;
-    }
-  }
+  // ✅ Use cached branch if already loaded
+  if (_cachedBranch != null) return _cachedBranch;
 
+  try {
+    final res = await http.get(
+      Uri.parse('${ApiService.baseUrl}/office/locations'),
+      headers: _authHeaders(),
+    );
+
+    if (res.statusCode != 200) return null;
+
+    final list = (jsonDecode(res.body) as List)
+        .cast<Map<String, dynamic>>();
+
+    final match = list.firstWhere(
+      (m) =>
+          (m['branchName'] ?? m['name'] ?? '')
+              .toString()
+              .trim()
+              .toLowerCase() ==
+          location.trim().toLowerCase(),
+      orElse: () => const {},
+    );
+
+    if (match.isEmpty) return null;
+
+    final branch = _Branch(
+      (match['branchName'] ?? match['name'] ?? '').toString(),
+      (match['latitude'] as num).toDouble(),
+      (match['longitude'] as num).toDouble(),
+      (match['radius'] as num).toDouble(),
+    );
+
+    // ✅ Save in cache
+    _cachedBranch = branch;
+
+    return branch;
+
+  } catch (_) {
+    return null;
+  }
+}
   double _distanceMeters({
     required double lat1,
     required double lng1,
@@ -812,30 +861,40 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Future<List<Map<String, String>>> _fetchAllReasons() async {
-    try {
-      final res = await http.get(Uri.parse('$_apiBase/reasons?limit=200'));
-      if (res.statusCode != 200) return <Map<String, String>>[];
+  if (_cachedReasons != null) return _cachedReasons!;
+  if (_reasonsLoading) return <Map<String, String>>[];
+  _reasonsLoading = true;
 
-      final body = jsonDecode(res.body);
-      final List items =
-          (body is List) ? body : (body['items'] as List? ?? <dynamic>[]);
+  try {
+    final res = await http.get(Uri.parse('${ApiService.baseUrl}/reasons?limit=200'));
+    if (res.statusCode != 200) return <Map<String, String>>[];
 
-      return items
-          .map<Map<String, String>>((raw) {
-            final m = (raw as Map).cast<String, dynamic>();
-            return {
-              'id': (m['id'] ?? m['_id'] ?? '').toString(),
-              'reason': (m['reason'] ?? '').toString(),
-              'typeId': (m['typeId'] ?? '').toString(),
-              'typeName': (m['typeName'] ?? '').toString(),
-            };
-          })
-          .where((e) => (e['reason'] ?? '').toString().isNotEmpty)
-          .toList();
-    } catch (_) {
-      return <Map<String, String>>[];
-    }
+   final body = jsonDecode(res.body);
+   final List items =
+    (body is List) ? body : (body['items'] as List? ?? <dynamic>[]);
+
+   final result = items
+    .map<Map<String, String>>((raw) {
+      final m = (raw as Map).cast<String, dynamic>();
+      return {
+        'id': (m['id'] ?? m['_id'] ?? '').toString(),
+        'reason': (m['reason'] ?? '').toString(),
+        'typeId': (m['typeId'] ?? '').toString(),
+        'typeName': (m['typeName'] ?? '').toString(),
+      };
+    })
+    .where((e) => (e['reason'] ?? '').trim().isNotEmpty)
+    .toList();
+
+_cachedReasons = result;
+return result;
+
+  } catch (_) {
+    return <Map<String, String>>[];
+  } finally {
+    _reasonsLoading = false;
   }
+}
 
   Future<Map<String, String>?> _pickReason(String title,
       {String? prefer}) async {
@@ -1056,7 +1115,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
 
     final token = CompanyData.token;
-    final url = Uri.parse('$_apiBase/attendance/check-in');
+    final url = Uri.parse('${ApiService.baseUrl}/attendance/check-in');
 
     final bodyMap = {
       'empid': userId,
@@ -1254,7 +1313,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       }
 
       final token = CompanyData.token;
-      final url = Uri.parse('$_apiBase/attendance/check-out');
+      final url = Uri.parse('${ApiService.baseUrl}/attendance/check-out');
 
       final bodyMap = {
         'empid': userId,
@@ -1302,7 +1361,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           _checkOutTime = DateTime.now();
           _checkInSource = '';
         });
-        if (!silent) _showSuccessDialog('Checked out successfully!');
         await _trackingCheckOut();
       } else {
         final msg =
@@ -1324,7 +1382,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final token = CompanyData.token;
     if (token.isEmpty || userId.isEmpty) return;
     try {
-      final base = 'https://api-zmj7dqloiq-el.a.run.app/api/tracking';
+      final base = '${ApiService.baseUrl}/tracking';
 
       await http.post(
         Uri.parse('$base/check-in'),
@@ -1352,7 +1410,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final token = CompanyData.token;
     if (token.isEmpty || userId.isEmpty) return;
     try {
-      final base = 'https://api-zmj7dqloiq-el.a.run.app/api/tracking';
+      final base = '${ApiService.baseUrl}/tracking';
       await http.post(
         Uri.parse('$base/check-out'),
         headers: {

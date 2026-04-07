@@ -1,12 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'package:flutter/foundation.dart';
 
+void _log(Object msg){
+  if(kDebugMode){
+    print(msg);
+  }
+}
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
 const Color kAppBarColor = Color(0xFF8C6EAF);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
+
+
 
 class MyRequestPage extends StatefulWidget {
   const MyRequestPage({super.key});
@@ -16,6 +24,9 @@ class MyRequestPage extends StatefulWidget {
 }
 
 class _MyRequestPageState extends State<MyRequestPage> {
+  DateTime? _lastLoadedDate;
+  String? _lastLoadedStatus;
+  bool _isFetching = false;
   DateTime selectedDate = DateTime.now();
 
   // Status filter
@@ -33,6 +44,12 @@ class _MyRequestPageState extends State<MyRequestPage> {
   }
 
   Future<void> _load() async {
+    if (_lastLoadedDate == selectedDate &&
+    _lastLoadedStatus == selectedStatus) {
+  return;
+ }
+  if (_isFetching) return;
+  _isFetching = true;
     setState(() {
       _loading = true;
       _error = null;
@@ -45,17 +62,23 @@ class _MyRequestPageState extends State<MyRequestPage> {
       final data = await ApiService.fetchMyRequests(
         from: day,
         to: day,
-        status: selectedStatus, // "All" → API will omit status param
+        status: selectedStatus,
+        limit: 50,
       );
 
       if (!mounted) return;
-      setState(() => _items = data);
+      setState(() {
+        _items = data;
+        _lastLoadedDate = selectedDate;
+        _lastLoadedStatus = selectedStatus;
+      });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = 'Failed to load: $e');
+      _log(e);
+      setState(() => _error = 'Failed to load');
     } finally {
-      if (!mounted) return;
       setState(() => _loading = false);
+      _isFetching = false;
     }
   }
 
@@ -105,7 +128,7 @@ class _MyRequestPageState extends State<MyRequestPage> {
                     ElevatedButton(
                       onPressed: _selectDate,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: kButtonColor.withOpacity(0.9),
+                        backgroundColor: kButtonColor.withValues(alpha: 0.9),
                         foregroundColor: kTextColor,
                         elevation: 0,
                       ),
@@ -168,6 +191,10 @@ class _MyRequestPageState extends State<MyRequestPage> {
                 else
                   Expanded(
                     child: ListView.builder(
+                      cacheExtent: 500,
+                      addAutomaticKeepAlives: false,
+                      addRepaintBoundaries: true,
+                      physics: const BouncingScrollPhysics(),
                       itemCount: _items.length,
                       itemBuilder: (_, i) => _RequestCard(item: _items[i]),
                     ),
@@ -222,7 +249,7 @@ class _RequestCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
-                    color: _statusColor(status).withOpacity(0.1),
+                    color: _statusColor(status).withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: _statusColor(status)),
                   ),

@@ -11,6 +11,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
+import 'package:serv_app/services/api_service.dart';
 
 const _kChannelId = 'serv_tracking';
 const _kChannelName = 'SERV Tracking';
@@ -265,7 +266,6 @@ void _onStart(ServiceInstance service) async {
   }
 
   await tick();
-  Timer.periodic(const Duration(minutes: 20), (_) => tick());
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -292,7 +292,7 @@ Future<void> _pingServer(
     // still send a heartbeat without coords if needed
   }
 
-  final uri = Uri.parse('https://api-zmj7dqloiq-el.a.run.app/api/tracking/pos');
+  final uri = Uri.parse('${ApiService.baseUrl}/tracking/pos');
 
   final headers = <String, String>{
     'Content-Type': 'application/json',

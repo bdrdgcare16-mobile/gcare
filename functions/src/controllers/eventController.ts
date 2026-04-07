@@ -107,7 +107,10 @@ export const createEvent = async (req: Request, res: Response) => {
 export const getAllEvents = async (req: Request, res: Response) => {
   try {
     const db = (req.app.locals as any).db as FirebaseFirestore.Firestore;
-    const snap = await db.collection('events').orderBy('fromDate', 'desc').get();
+    const snap = await db.collection('events')
+      .orderBy('fromDate', 'desc')
+      .limit(50)
+      .get();
     const data = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) }));
     return res.json(data);
   } catch (err: any) {

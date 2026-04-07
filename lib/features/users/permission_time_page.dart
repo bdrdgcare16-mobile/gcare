@@ -6,6 +6,7 @@ import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart'
     as html; // for Flutter Web localStorage
 import 'package:serv_app/models/company_data.dart'; // <-- moved to top with other imports
+import 'package:serv_app/services/api_service.dart';
 
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
@@ -13,8 +14,8 @@ const Color kAppBarColor = Color(0xFF8C6EAF);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
-/// Match your Node server port
-const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+/// Match your Node server port (using centralized config)
+final String apiBase = ApiService.baseUrl;
 
 class PermissionTimePage extends StatefulWidget {
   const PermissionTimePage({super.key, required this.isPopup});
@@ -93,7 +94,7 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
 
     try {
       final res = await http.get(
-        Uri.parse('$apiBase/auth/me'),
+        Uri.parse('${ApiService.baseUrl}/auth/me'),
         headers: {'Authorization': 'Bearer $token'},
       );
       if (res.statusCode != 200) return;
@@ -249,7 +250,7 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
       'reason': selectedReason,
     };
 
-    final uri = Uri.parse('$apiBase/leaves');
+    final uri = Uri.parse('${ApiService.baseUrl}/leaves');
     debugPrint('[PermissionTime] POST $uri');
     debugPrint('[PermissionTime] payload: $payload');
 

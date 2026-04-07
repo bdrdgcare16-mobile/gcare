@@ -4,10 +4,5 @@ import { getRequestDetails } from '../controllers/employeeDetailsController';
 
 const router = Router();
 
-/**
- * GET /api/attendance/request-details
- * Query: id&src=attendance|other_location  OR  empid&date=YYYY-MM-DD
- */
-router.get('/request-details', authMiddleware, getRequestDetails);
-
+router.get("/request-details", authMiddleware, getRequestDetails);
 export default router;

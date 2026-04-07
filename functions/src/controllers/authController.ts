@@ -1,8 +1,13 @@
 import { Request, Response } from 'express';
 import * as bcrypt from 'bcryptjs';
-import * as jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { rotatePassword } from '../services/passwordService';
+import { successResponse, errorResponse } from "../common/response";
+import { issueToken, getJwtExpires } from "../common/auth.utils";
+import { okRoles } from "../common/constants";
+import { normEmail } from "../common/utils";
+import { isBcryptHash } from "../common/password.utils";
+import { pickEmpId } from "../common/user.utils";
 
 // ── Firebase Admin (explicit, single init) ───────────────────────────────────
 import {
@@ -20,7 +25,7 @@ import {
 
 // Choose credential: prefer service account JSON via env, else ADC.
 const SERVICE_ACCOUNT_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '';
-const PROJECT_ID = process.env.APP_FIREBASE_PROJECT_ID || 'servappbackend';
+const PROJECT_ID = process.env.APP_FIREBASE_PROJECT_ID || 'serv-dev-f2557';
 
 const APP_NAME = 'serv-core';
 const existingApp = getApps().find((a) => a.name === APP_NAME);
@@ -48,8 +53,7 @@ const db = getFirestore(adminApp);
 console.log('[ADMIN PROJECT]', adminApp.options.projectId);
 
 // ── Config ───────────────────────────────────────────────────────────────────
-const JWT_SECRET = process.env.JWT_SECRET || 'your-default-jwt-secret';
-const JWT_EXPIRES = process.env.JWT_EXPIRES_IN || '24h';
+const JWT_EXPIRES = getJwtExpires();
 
 const USERS_COL = 'users';
 const EMPS_COL = 'employees';
@@ -82,8 +86,10 @@ function makeTransport() {
     !process.env.SMTP_HOST ||
     !process.env.SMTP_USER ||
     !process.env.SMTP_PASS
-  )
+  ) {
     return null;
+  }
+
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT || 587),
@@ -94,35 +100,12 @@ function makeTransport() {
 const mailer = makeTransport();
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-const okRoles = new Set(['employee', 'admin']);
-const normEmail = (e = '') => String(e).trim().toLowerCase();
-
-interface JwtPayload {
-  userId: string;
-  email: string;
-  role: string;
-  empid?: string | null;
-  [key: string]: any;
-}
-
-const issueToken = (payload: JwtPayload): string =>
-  jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES } as jwt.SignOptions);
-
 const sanitizeUser = (id: string, data: any) => {
   const { password, passwordHash, hashedPassword, ...rest } = data || {};
   return { id, ...rest };
 };
 
-const isBcryptHash = (s = '') => /^\$2[aby]\$/.test(String(s));
-
-/** Pick emp id independent of key style in stored docs */
-const pickEmpId = (obj: any): string | null => {
-  const v = obj?.empid ?? obj?.empId ?? obj?.employeeId ?? null;
-  return v ? String(v).trim() : null;
-};
-
 async function getByEmail(colName: string, emailLower: string) {
-  // preferred: emailLower
   let snap = await db
     .collection(colName)
     .where('emailLower', '==', emailLower)
@@ -130,7 +113,6 @@ async function getByEmail(colName: string, emailLower: string) {
     .get();
   if (!snap.empty) return snap;
 
-  // legacy: email
   snap = await db
     .collection(colName)
     .where('email', '==', emailLower)
@@ -171,20 +153,22 @@ async function verifyWithFirebase(
     console.error('APP_FIREBASE_WEB_API_KEY invalid or missing at runtime');
     return false;
   }
-  
-  // use the current endpoint name
+
   const url = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`;
+
   try {
     const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password, returnSecureToken: true }),
     });
+
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
       console.warn('verifyWithFirebase failed:', resp.status, text);
       return false;
     }
+
     const data: any = await resp.json();
     return !!data?.idToken;
   } catch (e) {
@@ -193,7 +177,7 @@ async function verifyWithFirebase(
   }
 }
 
-// ── Controllers ─────────────────────────────────────────────────────────────-
+// ── Controllers ──────────────────────────────────────────────────────────────
 
 // POST /api/auth/register
 export const register = async (req: Request, res: Response): Promise<Response> => {
@@ -206,6 +190,7 @@ export const register = async (req: Request, res: Response): Promise<Response> =
       role = 'employee',
       status = 'active',
     } = req.body || {};
+
     email = normEmail(email || '');
     empid = String(empid || '').trim();
     name = String(name || '').trim();
@@ -213,14 +198,11 @@ export const register = async (req: Request, res: Response): Promise<Response> =
     status = String(status || 'active').trim().toLowerCase();
 
     if (!name || !email || !password) {
-      return res
-        .status(400)
-        .json({ error: 'Name, email and password are required' });
+      return errorResponse(res, 'Name, email and password are required', 400);
     }
+
     if (!okRoles.has(role)) {
-      return res
-        .status(400)
-        .json({ error: 'Role must be "employee" or "admin"' });
+      return errorResponse(res, 'Role must be "employee" or "admin"', 400);
     }
 
     const byEmail = await db
@@ -228,8 +210,10 @@ export const register = async (req: Request, res: Response): Promise<Response> =
       .where('emailLower', '==', email)
       .limit(1)
       .get();
-    if (!byEmail.empty)
-      return res.status(400).json({ error: 'Email is already in use' });
+
+    if (!byEmail.empty) {
+      return errorResponse(res, 'Email is already in use', 400);
+    }
 
     if (empid) {
       const byEmp = await db
@@ -237,17 +221,19 @@ export const register = async (req: Request, res: Response): Promise<Response> =
         .where('empid', '==', empid)
         .limit(1)
         .get();
-      if (!byEmp.empty)
-        return res.status(400).json({ error: 'Employee ID already exists' });
+
+      if (!byEmp.empty) {
+        return errorResponse(res, 'Employee ID already exists', 400);
+      }
     }
 
     const hash = await bcrypt.hash(password, 10);
     const now = new Date();
-
     const userId = uuidv4();
+
     await db.collection(USERS_COL).doc(userId).set({
       empid: empid || null,
-      empId: empid || null, // keep both keys for compatibility
+      empId: empid || null,
       name,
       email,
       emailLower: email,
@@ -262,20 +248,25 @@ export const register = async (req: Request, res: Response): Promise<Response> =
 
     const token = issueToken({ userId, email, role, empid: empid || null });
 
-    return res.status(201).json({
-      id: userId,
-      name,
-      email,
-      role,
-      empid: empid || null,
-      status,
-      token,
-      tokenType: 'Bearer',
-      expiresIn: JWT_EXPIRES,
-    });
+    return successResponse(
+      res,
+      {
+        id: userId,
+        name,
+        email,
+        role,
+        empid: empid || null,
+        status,
+        token,
+        tokenType: 'Bearer',
+        expiresIn: JWT_EXPIRES,
+      },
+      'User registered successfully',
+      201
+    );
   } catch (error) {
     console.error('Registration error:', error);
-    return res.status(500).json({ error: 'Failed to register user' });
+    return errorResponse(res, 'Failed to register user', 500);
   }
 };
 
@@ -287,61 +278,60 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
     const { password } = req.body;
 
     if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+      return errorResponse(res, 'Email and password are required', 400);
     }
 
-    // 1) USERS first
+    console.log('[login] request body email:', req.body.email);
+
     const userSnap = await getByEmail(USERS_COL, email);
+    console.log('[login] users query completed. empty =', !userSnap || userSnap.empty);
+
     if (userSnap && !userSnap.empty) {
       const doc = userSnap.docs[0];
       const user: any = doc.data();
 
-   const storedHash =
-  user.password || user.passwordHash || user.hashedPassword || '';
+      const storedHash =
+        user.password || user.passwordHash || user.hashedPassword || '';
 
-let match = false;
+      let match = false;
 
-// 1) Always try local bcrypt first if stored hash exists
-if (storedHash) {
-  try {
-    match = await bcrypt.compare(password, storedHash);
-  } catch {}
-}
+      if (storedHash) {
+        try {
+          match = await bcrypt.compare(password, storedHash);
+        } catch {}
+      }
 
-// 2) If bcrypt fails → try Firebase
-if (!match) {
-  const ok = await verifyWithFirebase(email, password);
-  if (!ok) return res.status(401).json({ error: 'Invalid email or password' });
+      if (!match) {
+        const ok = await verifyWithFirebase(email, password);
+        if (!ok) {
+          return errorResponse(res, 'Invalid email or password', 401);
+        }
 
-  // Firebase verified, rotate local password hash to new one
-  try {
-    await rotatePassword({
-      db,
-      userId: doc.id,
-      oldHash: storedHash || null,
-      newPlainPassword: password,
-      source: 'firebase_reset',
-      keepLast: 5,
-    });
-  } catch (e) {
-    console.warn('Password rotate failed:', e);
-  }
+        try {
+          await rotatePassword({
+            db,
+            userId: doc.id,
+            oldHash: storedHash || null,
+            newPlainPassword: password,
+            source: 'firebase_reset',
+            keepLast: 5,
+          });
+        } catch (e) {
+          console.warn('Password rotate failed:', e);
+        }
 
-  match = true;
-}
-
-      // === END USERS branch ===
+        match = true;
+      }
 
       if (user.status && user.status !== 'active') {
-        return res.status(403).json({ error: 'Account is not active' });
+        return errorResponse(res, 'Account is not active', 403);
       }
 
       const role = String(user.role || 'employee').toLowerCase();
       if (!okRoles.has(role)) {
-        return res.status(403).json({ error: 'Invalid role on account' });
+        return errorResponse(res, 'Invalid role on account', 403);
       }
 
-      // ensure empid populated
       let userEmpid = pickEmpId(user);
       if (!userEmpid) {
         const empQ = await db
@@ -349,6 +339,7 @@ if (!match) {
           .where('emailLower', '==', email)
           .limit(1)
           .get();
+
         if (!empQ.empty) {
           userEmpid = pickEmpId(empQ.docs[0].data());
           if (userEmpid) {
@@ -367,31 +358,34 @@ if (!match) {
         empid: userEmpid || null,
       });
 
-      return res.json({
-        message: 'Login successful',
-        token,
-        tokenType: 'Bearer',
-        expiresIn: JWT_EXPIRES,
-        role,
-        uid: doc.id,
-        empid: userEmpid || null,
-        name: user.name || user.fullName || '',
-        user: {
-          id: doc.id,
-          name: user.name || user.fullName || '',
-          email: user.email || incoming.trim(),
+      return successResponse(
+        res,
+        {
+          token,
+          tokenType: 'Bearer',
+          expiresIn: JWT_EXPIRES,
           role,
+          uid: doc.id,
           empid: userEmpid || null,
-          empId: userEmpid || null,
-          status: user.status || 'active',
+          name: user.name || user.fullName || '',
+          user: {
+            id: doc.id,
+            name: user.name || user.fullName || '',
+            email: user.email || incoming.trim(),
+            role,
+            empid: userEmpid || null,
+            empId: userEmpid || null,
+            status: user.status || 'active',
+          },
         },
-      });
+        'Login successful'
+      );
     }
 
-    // 2) EMPLOYEES fallback
+    console.log('[login] checking employees fallback');
     const empSnap = await getByEmail(EMPS_COL, email);
     if (!empSnap || empSnap.empty) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+      return errorResponse(res, 'Invalid email or password', 401);
     }
 
     const empDoc = empSnap.docs[0];
@@ -399,32 +393,30 @@ if (!match) {
 
     const stored = emp.password || '';
     let passOK = false;
+
     if (stored) {
       passOK = isBcryptHash(stored)
         ? await bcrypt.compare(password, stored)
         : stored === password;
     }
 
-    // === EMPLOYEES fallback: try Firebase if local fails ===
     if (!passOK) {
       const ok = await verifyWithFirebase(email, password);
-      if (!ok) return res.status(401).json({ error: 'Invalid email or password' });
-      // else continue as usual to mirror/create USERS doc etc. and rotate below
+      if (!ok) {
+        return errorResponse(res, 'Invalid email or password', 401);
+      }
     }
-    // === END EMPLOYEES fallback ===
 
     if (emp.status && emp.status !== 'active') {
-      return res.status(403).json({ error: 'Account is not active' });
+      return errorResponse(res, 'Account is not active', 403);
     }
 
-    // Mirror into USERS so future logins are consistent
     let mirror = await getByEmail(USERS_COL, email);
     let mirrorDoc: DocumentSnapshot | null = null;
 
     if (mirror && !mirror.empty) {
       mirrorDoc = mirror.docs[0];
 
-      // When Firebase accepted, rotate existing USERS doc with the entered password
       if (!passOK && mirrorDoc) {
         try {
           const prev =
@@ -446,10 +438,10 @@ if (!match) {
         }
       }
     } else {
-      // If authenticated via Firebase or local, create USERS mirror with the entered password
       const hash = isBcryptHash(stored) ? stored : await bcrypt.hash(password, 10);
       const now = new Date();
       const empIdVal = pickEmpId(emp);
+
       const ref = await db.collection(USERS_COL).add({
         empid: empIdVal || null,
         empId: empIdVal || null,
@@ -465,6 +457,7 @@ if (!match) {
         updatedAt: now,
         authSource: !passOK ? 'firebase' : 'local',
       });
+
       mirrorDoc = await ref.get();
     }
 
@@ -478,28 +471,38 @@ if (!match) {
       empid: finalEmpid || null,
     });
 
-    return res.json({
-      message: 'Login successful',
-      token,
-      tokenType: 'Bearer',
-      expiresIn: JWT_EXPIRES,
-      role: 'employee',
-      uid: mirrorDoc!.id,
-      empid: finalEmpid || null,
-      name: u.name || emp.name || '',
-      user: {
-        id: mirrorDoc!.id,
-        name: u.name || emp.name || '',
-        email: u.email || incoming.trim(),
+    return successResponse(
+      res,
+      {
+        token,
+        tokenType: 'Bearer',
+        expiresIn: JWT_EXPIRES,
         role: 'employee',
+        uid: mirrorDoc!.id,
         empid: finalEmpid || null,
-        empId: finalEmpid || null,
-        status: u.status || emp.status || 'active',
+        name: u.name || emp.name || '',
+        user: {
+          id: mirrorDoc!.id,
+          name: u.name || emp.name || '',
+          email: u.email || incoming.trim(),
+          role: 'employee',
+          empid: finalEmpid || null,
+          empId: finalEmpid || null,
+          status: u.status || emp.status || 'active',
+        },
       },
-    });
-  } catch (error) {
-    console.error('Login error:', error);
-    return res.status(500).json({ error: 'Failed to login' });
+      'Login successful'
+    );
+  } catch (error: any) {
+    console.error('Login error full:', error);
+    console.error('Login error message:', error?.message);
+    console.error('Login error stack:', error?.stack);
+
+    return errorResponse(
+      res,
+      error?.message || 'Failed to login',
+      500
+    );
   }
 };
 
@@ -508,16 +511,18 @@ export const getMe = async (req: Request, res: Response): Promise<Response> => {
   try {
     const userId = (req as any).user?.userId;
     const email = normEmail((req as any).user?.email || '');
-    if (!userId && !email)
-      return res.status(401).json({ error: 'Unauthorized' });
 
-    // Try USERS by id
+    if (!userId && !email) {
+      return errorResponse(res, 'Unauthorized', 401);
+    }
+
     let doc: DocumentSnapshot | null = null;
+
     if (userId) {
       const d = await db.collection(USERS_COL).doc(userId).get();
       if (d.exists) doc = d;
     }
-    // Fallback: USERS by emailLower
+
     if (!doc && email) {
       const q = await db
         .collection(USERS_COL)
@@ -534,6 +539,7 @@ export const getMe = async (req: Request, res: Response): Promise<Response> => {
         (user as any).empId ??
         (user as any).employeeId ??
         null;
+
       if (eid && !(user as any).empid) (user as any).empid = eid;
       if (eid && !(user as any).empId) (user as any).empId = eid;
 
@@ -543,43 +549,50 @@ export const getMe = async (req: Request, res: Response): Promise<Response> => {
           .where('empid', '==', (user as any).empid)
           .limit(1)
           .get();
+
         if (!empSnap.empty) {
           const emp = empSnap.docs[0].data();
           delete (emp as any).password;
           (user as any).employeeProfile = emp;
         }
       }
-      return res.json(user);
+
+      return successResponse(res, user, 'User profile fetched');
     }
 
-    // Last resort: employees by emailLower
     if (email) {
       const empSnap = await db
         .collection(EMPS_COL)
         .where('emailLower', '==', email)
         .limit(1)
         .get();
+
       if (!empSnap.empty) {
         const eDoc = empSnap.docs[0];
         const emp = eDoc.data();
         delete (emp as any).password;
         const eid = pickEmpId(emp);
-        return res.json({
-          id: eDoc.id,
-          email,
-          role: 'employee',
-          empid: eid || null,
-          empId: eid || null,
-          name: (emp as any).name || (emp as any).fullName || '',
-          employeeProfile: emp,
-        });
+
+        return successResponse(
+          res,
+          {
+            id: eDoc.id,
+            email,
+            role: 'employee',
+            empid: eid || null,
+            empId: eid || null,
+            name: (emp as any).name || (emp as any).fullName || '',
+            employeeProfile: emp,
+          },
+          'User profile fetched'
+        );
       }
     }
 
-    return res.status(404).json({ error: 'User not found' });
+    return errorResponse(res, 'User not found', 404);
   } catch (err) {
     console.error('getMe error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    return errorResponse(res, 'Internal server error', 500);
   }
 };
 
@@ -591,35 +604,33 @@ export const changePassword = async (req: Request, res: Response): Promise<Respo
     const newPassword = String(req.body?.newPassword || '').trim();
 
     if (!userId || !newPassword) {
-      return res.status(400).json({ error: 'newPassword and token are required' });
-    }
-    if (newPassword.length < 8) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+      return errorResponse(res, 'newPassword and token are required', 400);
     }
 
-    // 1) Load USERS doc
+    if (newPassword.length < 8) {
+      return errorResponse(res, 'Password must be at least 8 characters', 400);
+    }
+
     const userDoc = await db.collection(USERS_COL).doc(userId).get();
     if (!userDoc.exists) {
-      return res.status(404).json({ error: 'User not found' });
+      return errorResponse(res, 'User not found', 404);
     }
+
     const user = userDoc.data() as any;
-
-    // 2) Resolve account email (for Firebase UID lookup)
     const emailLower = normEmail(user.emailLower || user.email || tokenEmail);
+
     if (!emailLower) {
-      return res.status(500).json({ error: 'Account email missing on user document' });
+      return errorResponse(res, 'Account email missing on user document', 500);
     }
 
-    // 3) Update Firebase Auth password by email (correct UID)
     try {
       const fbUser = await auth.getUserByEmail(emailLower);
       await auth.updateUser(fbUser.uid, { password: newPassword });
     } catch (e) {
       console.warn('Firebase Auth update by email failed:', e);
-      return res.status(500).json({ error: 'Failed to update password in Firebase Auth' });
+      return errorResponse(res, 'Failed to update password in Firebase Auth', 500);
     }
 
-    // 4) Rotate local hash in Firestore (so local bcrypt also matches)
     const prevHash =
       user.password || user.passwordHash || user.hashedPassword || null;
 
@@ -632,20 +643,17 @@ export const changePassword = async (req: Request, res: Response): Promise<Respo
       keepLast: 5,
     });
 
-    // 5) Mark as local (so bcrypt is tried first) and clear mustChangePassword
     await userDoc.ref.set(
       { authSource: 'local', mustChangePassword: false, updatedAt: new Date() },
       { merge: true }
     );
 
-    return res.json({ message: 'Password changed successfully' });
+    return successResponse(res, null, 'Password changed successfully');
   } catch (err) {
     console.error('changePassword error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    return errorResponse(res, 'Internal server error', 500);
   }
 };
-
-// ── Admin helpers ────────────────────────────────────────────────────────────
 
 // POST /api/auth/admin/create-employee-login  { empid, email?, password? }
 export const createEmployeeLogin = async (
@@ -656,40 +664,48 @@ export const createEmployeeLogin = async (
     let { empid, email, password } = req.body || {};
     empid = String(empid || '').trim();
     email = normEmail(email || '');
-    if (!empid) return res.status(400).json({ error: 'empid is required' });
+
+    if (!empid) {
+      return errorResponse(res, 'empid is required', 400);
+    }
 
     const empQ = await db
       .collection(EMPS_COL)
       .where('empid', '==', empid)
       .limit(1)
       .get();
-    if (empQ.empty) return res.status(404).json({ error: 'Employee not found' });
-    const emp = empQ.docs[0].data() as any;
 
+    if (empQ.empty) {
+      return errorResponse(res, 'Employee not found', 404);
+    }
+
+    const emp = empQ.docs[0].data() as any;
     const name = String(emp.name || emp.fullName || '').trim();
+
     if (!email) email = normEmail(emp.email || '');
-    if (!email)
-      return res
-        .status(400)
-        .json({ error: 'email is required (not found on employee record)' });
+    if (!email) {
+      return errorResponse(res, 'email is required (not found on employee record)', 400);
+    }
 
     const existsByEmail = await db
       .collection(USERS_COL)
       .where('emailLower', '==', email)
       .limit(1)
       .get();
-    if (!existsByEmail.empty)
-      return res
-        .status(409)
-        .json({ error: 'Login already exists for this email' });
+
+    if (!existsByEmail.empty) {
+      return errorResponse(res, 'Login already exists for this email', 409);
+    }
 
     const existsByEmpid = await db
       .collection(USERS_COL)
       .where('empid', '==', empid)
       .limit(1)
       .get();
-    if (!existsByEmpid.empty)
-      return res.status(409).json({ error: 'Login already exists for this empid' });
+
+    if (!existsByEmpid.empty) {
+      return errorResponse(res, 'Login already exists for this empid', 409);
+    }
 
     const tempPassword = `${empid}@123`;
     const finalPassword = String(password || tempPassword);
@@ -698,7 +714,7 @@ export const createEmployeeLogin = async (
 
     const docRef = await db.collection(USERS_COL).add({
       empid,
-      empId: empid, // keep both keys
+      empId: empid,
       name,
       email,
       emailLower: email,
@@ -712,14 +728,17 @@ export const createEmployeeLogin = async (
       updatedAt: now,
     });
 
-    return res.json({
-      message: 'Login enabled for employee',
-      userId: docRef.id,
-      tempPassword: !password ? tempPassword : undefined,
-    });
+    return successResponse(
+      res,
+      {
+        userId: docRef.id,
+        tempPassword: !password ? tempPassword : undefined,
+      },
+      'Login enabled for employee'
+    );
   } catch (err) {
     console.error('createEmployeeLogin error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    return errorResponse(res, 'Internal server error', 500);
   }
 };
 
@@ -739,6 +758,7 @@ export const backfillEmployeesToUsers = async (
       const empid = empidRaw ? String(empidRaw) : '';
       const emailLower = normEmail(e.email || '');
       const name = String(e.name || e.fullName || '').trim();
+
       if (!empid || !emailLower) {
         await d.ref.set({ emailLower }, { merge: true });
         continue;
@@ -754,6 +774,7 @@ export const backfillEmployeesToUsers = async (
         .where('emailLower', '==', emailLower)
         .limit(1)
         .get();
+
       if (!exists.empty) continue;
 
       const existsEmp = await db
@@ -761,6 +782,7 @@ export const backfillEmployeesToUsers = async (
         .where('empid', '==', empid)
         .limit(1)
         .get();
+
       if (!existsEmp.empty) continue;
 
       const temp = `${empid}@123`;
@@ -769,7 +791,7 @@ export const backfillEmployeesToUsers = async (
 
       const ref = await db.collection(USERS_COL).add({
         empid,
-        empId: empid, // both keys
+        empId: empid,
         name,
         email: e.email || emailLower,
         emailLower,
@@ -791,19 +813,28 @@ export const backfillEmployeesToUsers = async (
       });
     }
 
-    return res.json({
-      message: 'Backfill complete',
-      createdCount: created.length,
-      normalizedEmployees: updatedEmp.length,
-      created,
-    });
-  } catch (err) {
-    console.error('backfillEmployeesToUsers error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    return successResponse(
+      res,
+      {
+        createdCount: created.length,
+        normalizedEmployees: updatedEmp.length,
+        created,
+      },
+      'Backfill complete'
+    );
+  } catch (error: any) {
+    console.error('backfillEmployeesToUsers error full:', error);
+    console.error('backfillEmployeesToUsers error message:', error?.message);
+    console.error('backfillEmployeesToUsers error stack:', error?.stack);
+
+    return errorResponse(
+      res,
+      error?.message || 'Failed to backfill employees',
+      500
+    );
   }
 };
 
-// ── Forgot password via Firebase reset link ONLY ─────────────────────────────
 // POST /api/auth/forgot-password/request-link  { email }
 export const requestPasswordResetLink = async (
   req: Request,
@@ -811,9 +842,10 @@ export const requestPasswordResetLink = async (
 ): Promise<Response> => {
   try {
     const email = normEmail(req.body.email || '');
-    if (!email) return res.status(400).json({ error: 'Email is required' });
+    if (!email) {
+      return errorResponse(res, 'Email is required', 400);
+    }
 
-    // Ensure user exists (users or employees)
     const userDoc = await getUserDocByEmailAny(email);
     if (!userDoc) {
       const empQ = await db
@@ -821,19 +853,21 @@ export const requestPasswordResetLink = async (
         .where('emailLower', '==', email)
         .limit(1)
         .get();
-      if (empQ.empty) return res.status(404).json({ error: 'User not found' });
+
+      if (empQ.empty) {
+        return errorResponse(res, 'User not found', 404);
+      }
     }
 
-    // Generate Firebase password reset link with continue URL to your hosted page
     const link = await auth.generatePasswordResetLink(email, {
       url: RESET_CONTINUE_URL,
-      handleCodeInApp: true, // hosted page should initialize same PROJECT
+      handleCodeInApp: true,
     });
 
-    // If SMTP configured, send email; else return link for testing
     if (mailer) {
       const from =
         process.env.SMTP_FROM || `SERV App <${process.env.SMTP_USER}>`;
+
       await mailer.sendMail({
         from,
         to: email,
@@ -847,46 +881,47 @@ export const requestPasswordResetLink = async (
         `,
         text: `Reset your password: ${link}`,
       });
-      return res.json({ message: 'Reset email sent' });
-    } else {
-      return res.json({
-        message: 'Mailer not configured; use link directly',
-        link,
-      });
+
+      return successResponse(res, null, 'Reset email sent');
     }
+
+    return successResponse(
+      res,
+      { link },
+      'Mailer not configured; use link directly'
+    );
   } catch (err: any) {
     console.error('requestPasswordResetLink error:', err);
-    return res
-      .status(500)
-      .json({ error: err.message || 'Internal server error' });
+    return errorResponse(res, err.message || 'Internal server error', 500);
   }
 };
 
-// ── Legacy convenience (kept) ────────────────────────────────────────────────
 // POST /api/auth/forgot-password { email, newPassword }
 export const forgotPassword = async (
   req: Request,
   res: Response
 ): Promise<Response> => {
   if (!req.body?.email || !req.body?.newPassword) {
-    return res.status(400).json({
-      error:
-        'Provide email and newPassword or use /forgot-password/request-link.',
-    });
+    return errorResponse(
+      res,
+      'Provide email and newPassword or use /forgot-password/request-link.',
+      400
+    );
   }
+
   return changePassword(req, res);
 };
 
-// ── Simple profile endpoints (compat) ────────────────────────────────────────
+// Simple profile endpoints
 export const getProfile = async (
   req: Request & { user?: { userId: string } },
   res: Response
 ) => getMe(req as any, res);
 
 export const updateProfile = async (
-  req: Request & { user?: { userId: string } },
+  _req: Request & { user?: { userId: string } },
   res: Response
-) => res.json({ message: 'Profile updated successfully' }); // stub or implement as needed
+) => successResponse(res, null, 'Profile updated successfully');
 
 export const resetPassword = async () => {
   /* unused */

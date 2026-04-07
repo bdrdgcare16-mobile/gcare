@@ -9,6 +9,9 @@ import 'package:serv_app/html_stub.dart'
 import 'create_shift_page.dart';
 import 'shift_permission_page.dart';
 
+import 'package:serv_app/config/api_config.dart';
+import 'package:serv_app/services/api_service.dart';
+
 // Theme Colors
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
@@ -17,7 +20,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 // ==== API ====
-const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+final String _apiBase = ApiConfig.baseUrl;
 
 class WorkdaysShiftPage extends StatefulWidget {
   const WorkdaysShiftPage({super.key});
@@ -63,7 +66,7 @@ class _WorkdaysShiftPageState extends State<WorkdaysShiftPage> {
       if (token != null) headers['Authorization'] = 'Bearer $token';
 
       final res = await http
-          .get(Uri.parse('$_apiBase/shifts'), headers: headers)
+          .get(Uri.parse('${ApiService.baseUrl}/shifts'), headers: headers)
           .timeout(const Duration(seconds: 15));
 
       if (res.statusCode != 200) {
@@ -143,7 +146,7 @@ class _WorkdaysShiftPageState extends State<WorkdaysShiftPage> {
     final headers = <String, String>{'Content-Type': 'application/json'};
     if (token != null) headers['Authorization'] = 'Bearer $token';
     final res = await http
-        .delete(Uri.parse('$_apiBase/shifts/$id'), headers: headers)
+        .delete(Uri.parse('${ApiService.baseUrl}/shifts/$id'), headers: headers)
         .timeout(const Duration(seconds: 15));
     if (!mounted) return;
     if (res.statusCode == 200) {

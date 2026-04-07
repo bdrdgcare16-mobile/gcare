@@ -30,7 +30,12 @@ export async function liveEmployeeDetails(req: Request, res: Response) {
       (req.params.empid || '').trim() ||
       String(req.headers['x-empid'] || '').trim();
 
-    if (!empid) return res.status(400).json({ error: 'empid required' });
+    if (!empid) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Employee ID required',
+      });
+    }
 
     const dateIso = pickDate(req);
 
@@ -84,7 +89,9 @@ export async function liveEmployeeDetails(req: Request, res: Response) {
     }
 
     const status =
-      d.checkIn && `${d.checkIn}`.trim().isNotEmpty ? 'Present' : 'Absent';
+      d.checkIn && String(d.checkIn).trim().length > 0
+        ? 'Present'
+        : 'Absent';
 
     return res.json({
       ok: true,
@@ -110,14 +117,3 @@ export async function liveEmployeeDetails(req: Request, res: Response) {
   }
 }
 
-// tiny guard for TS
-declare global {
-  interface String {
-    isNotEmpty: boolean;
-  }
-}
-Object.defineProperty(String.prototype, 'isNotEmpty', {
-  get() {
-    return (this as string).trim().length > 0;
-  },
-});

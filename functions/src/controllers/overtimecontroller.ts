@@ -1,8 +1,5 @@
 import { Request, Response } from "express";
-import * as admin from "firebase-admin";
-
-// Firestore reference
-const db = admin.firestore();
+import { db } from "../config/firebase";
 
 /**
  * GET /api/overtime?empid=EMP001&date=2025-10-28

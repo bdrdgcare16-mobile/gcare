@@ -4,6 +4,14 @@ import 'package:intl/intl.dart';
 import 'package:serv_app/services/api_service.dart';
 import 'leave_card.dart';
 import 'leave_detail_screen.dart' show RequestDetailsCard;
+import 'package:flutter/foundation.dart';
+
+
+void _log(Object message) {
+  if (kDebugMode) {
+    print(message);
+  }
+}
 
 class LeaveApprovalsScreen extends StatefulWidget {
   const LeaveApprovalsScreen({super.key});
@@ -36,7 +44,9 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
   /// Map UI tab → API `type` query value (what your backend expects)
   String _apiTypeForTab(String ui) {
     final t = ui.trim().toLowerCase();
-    print('Getting API type for UI tab: $t');
+    if (kDebugMode) {
+      _log('Getting API type for UI tab: $t');
+    }
     
     if (t == 'other location' || t == 'other_location') {
       // We won't pass this to fetchApprovals(); other-location uses its own API.
@@ -45,7 +55,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     
     // Special case: If the tab is one of our special types, we'll do client-side filtering
     if (t == 'permission' || t == 'over time' || t == 'half day leave' || t == 'comp off' || t == 'leave type') {
-      print('Using client-side filtering for tab: $t');
+      _log('Using client-side filtering for tab: $t');
       return 'Leave Type';  // This matches the 'type' in your database
     }
     
@@ -158,9 +168,9 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
       'category', 'type'
     ]);
     if (leaveType.isNotEmpty) {
-      print('Found leave type: "$leaveType" in item: ${it.toString()}');
+      _log('Found leave type: "$leaveType" in item: ${it.toString()}');
     } else {
-      print('No leave type found in item, available keys: ${it.keys.toList()}');
+      _log('No leave type found in item, available keys: ${it.keys.toList()}');
     }
     return leaveType;
   }
@@ -172,7 +182,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     final isMatch = ltLower == 'permission time' || ltLower == 'permission' || 
                    ltLower == 'permission_time' || rsn.contains('permission');
     if (isMatch) {
-      print('Permission match - Type: "$lt", Reason: "$rsn"');
+      _log('Permission match - Type: "$lt", Reason: "$rsn"');
     }
     return isMatch;
   }
@@ -185,7 +195,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                    ltLower == 'over_time' || rsn.contains('overtime') || 
                    rsn.contains('over time');
     if (isMatch) {
-      print('Overtime match - Type: "$lt", Reason: "$rsn"');
+      _log('Overtime match - Type: "$lt", Reason: "$rsn"');
     }
     return isMatch;
   }
@@ -198,7 +208,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                    ltLower == 'halfday' || ltLower == 'half_day' || 
                    (rsn.contains('half') && rsn.contains('day'));
     if (isMatch) {
-      print('Half day match - Type: "$lt", Reason: "$rsn"');
+      _log('Half day match - Type: "$lt", Reason: "$rsn"');
     }
     return isMatch;
   }
@@ -211,7 +221,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                    ltLower == 'comp-off' || ltLower == 'comp_off' || 
                    rsn.contains('comp off') || rsn.contains('compoff');
     if (isMatch) {
-      print('Comp off match - Type: "$lt", Reason: "$rsn"');
+      _log('Comp off match - Type: "$lt", Reason: "$rsn"');
     }
     return isMatch;
   }
@@ -236,7 +246,9 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
   List<Map<String, dynamic>> _filterByTabSmart(
       List<Map<String, dynamic>> items, String tab) {
     final t = tab.trim().toLowerCase();
-    print('Filtering ${items.length} items for tab: $t');
+    if (kDebugMode) {
+      _log('Filtering ${items.length} items for tab: $t');
+    }
 
     // First, filter by the tab type if it's a specific leave type
     if (t == 'permission' || t == 'over time' || t == 'half day leave' || t == 'comp off') {
@@ -254,7 +266,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
               (reason.isNotEmpty && reason.length < 20);
               
           if (isPermission) {
-            print('Found permission leave - Type: $type, Reason: "$reason"');
+            _log('Found permission leave - Type: $type, Reason: "$reason"');
           }
           return isPermission;
         } else if (t == 'over time') {
@@ -263,7 +275,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                             reason.contains('overtime') || 
                             reason.contains('over time');
           if (isOvertime) {
-            print('Found overtime leave - Type: $type, Reason: "$reason"');
+            _log('Found overtime leave - Type: $type, Reason: "$reason"');
           }
           return isOvertime;
         } else if (t == 'half day leave') {
@@ -279,7 +291,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
               reason.contains('half day');
           
           if (isHalfDay) {
-            print('Found half day leave - Type: $type, Reason: "$reason"');
+            _log('Found half day leave - Type: $type, Reason: "$reason"');
           }
           return isHalfDay;
         } else if (t == 'comp off') {
@@ -289,14 +301,14 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                            reason.contains('comp off') || 
                            reason.contains('compoff');
           if (isCompOff) {
-            print('Found comp off leave - Type: $type, Reason: "$reason"');
+            _log('Found comp off leave - Type: $type, Reason: "$reason"');
           }
           return isCompOff;
         }
         return false;
       }).toList();
       
-      print('Found ${result.length} items matching tab: $t');
+      _log('Found ${result.length} items matching tab: $t');
       return result;
     }
 
@@ -316,107 +328,135 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
           reason.contains('compoff') ||
           reason.contains('comp-off');
           
-        print('Item with reason "$reason" is ${isSpecialType ? 'special' : 'generic'} leave type');
+        _log('Item with reason "$reason" is ${isSpecialType ? 'special' : 'generic'} leave type');
         return !isSpecialType;
       }).toList();
       
-      print('Found ${result.length} generic leave type items');
+      _log('Found ${result.length} generic leave type items');
       return result;
     }
 
     // For other tabs, return all items
-    print('No specific filter for tab "$t", returning all ${items.length} items');
+    _log('No specific filter for tab "$t", returning all ${items.length} items');
     return items;
   }
 
   /// Fetch rows for a given tab+status.
   Future<List<Map<String, dynamic>>> _fetchByTabAndStatus(
       String tab, String status) async {
-    print('Fetching data for tab: $tab, status: $status');
+    _log('Fetching data for tab: $tab, status: $status');
     
     if (_isOtherLocationTab(tab)) {
       final data = await ApiService.fetchOtherLocation(status: status);
-      print('Fetched ${data.length} other location items');
+      _log('Fetched ${data.length} other location items');
       return _filterByTabSmart(data, tab);
     }
 
     final apiType = _apiTypeForTab(tab);
-    print('API type for tab "$tab": $apiType');
+    _log('API type for tab "$tab": $apiType');
     
     final data = await ApiService.fetchApprovals(type: apiType, status: status);
-    print('Fetched ${data.length} items from API');
+    if (kDebugMode) {
+      _log('Fetched ${data.length} items from API');
+    }
+    
     
     // Log the first few items to see their structure
     final itemsToLog = data.take(3).toList();
     for (var i = 0; i < itemsToLog.length; i++) {
-      print('Item $i keys: ${itemsToLog[i].keys.toList()}');
-      print('Item $i values: ${itemsToLog[i].values.take(5).toList()}...');
+      _log('Item $i keys: ${itemsToLog[i].keys.toList()}');
+      _log('Item $i values: ${itemsToLog[i].values.take(5).toList()}...');
     }
     
     final filtered = _filterByTabSmart(data, tab);
-    print('After filtering, ${filtered.length} items match tab "$tab"');
+    _log('After filtering, ${filtered.length} items match tab "$tab"');
     
     return filtered;
   }
 
   Future<void> _loadAll({bool adjustForType = false}) async {
-    setState(() => _loading = true);
-    try {
-      final pending  = await _fetchByTabAndStatus(selectedTab, 'Pending');
-      final approved = await _fetchByTabAndStatus(selectedTab, 'Approved');
-      final rejected = await _fetchByTabAndStatus(selectedTab, 'Rejected');
+  setState(() => _loading = true);
 
-      final newPendingCount = pending.length;
-      final newApprovedCount = approved.length;
-      final newRejectedCount = rejected.length;
+  try {
+    final allData = await _fetchByTabAndStatus(selectedTab, 'All');
 
-      String nextStatus = selectedStatusFilter;
-      if (adjustForType) {
-        final emptyNow = (nextStatus == 'Pending' && newPendingCount == 0) ||
-            (nextStatus == 'Approved' && newApprovedCount == 0) ||
-            (nextStatus == 'Rejected' && newRejectedCount == 0);
-        if (emptyNow) {
-          if (newPendingCount > 0) {
-            nextStatus = 'Pending';
-          } else if (newApprovedCount > 0) nextStatus = 'Approved';
-          else if (newRejectedCount > 0) nextStatus = 'Rejected';
+    String rowStatus(Map<String, dynamic> e) {
+      return (e['status'] ?? e['approvalStatus'] ?? '')
+          .toString()
+          .trim();
+    }
+
+    final pending =
+        allData.where((e) => rowStatus(e) == 'Pending').toList();
+
+    final approved =
+        allData.where((e) => rowStatus(e) == 'Approved').toList();
+
+    final rejected =
+        allData.where((e) => rowStatus(e) == 'Rejected').toList();
+
+    final newPendingCount = pending.length;
+    final newApprovedCount = approved.length;
+    final newRejectedCount = rejected.length;
+
+    String nextStatus = selectedStatusFilter;
+
+    if (adjustForType) {
+      final emptyNow = (nextStatus == 'Pending' && newPendingCount == 0) ||
+          (nextStatus == 'Approved' && newApprovedCount == 0) ||
+          (nextStatus == 'Rejected' && newRejectedCount == 0);
+
+      if (emptyNow) {
+        if (newPendingCount > 0) {
+          nextStatus = 'Pending';
+        } else if (newApprovedCount > 0) {
+          nextStatus = 'Approved';
+        } else if (newRejectedCount > 0) {
+          nextStatus = 'Rejected';
         }
       }
+    }
 
-      List<Map<String, dynamic>> current;
-      switch (nextStatus) {
-        case 'Approved':
-          current = approved;
-          break;
-        case 'Rejected':
-          current = rejected;
-          break;
-        case 'Pending':
-        default:
-          current = pending;
-          break;
-      }
+    List<Map<String, dynamic>> current;
+    switch (nextStatus) {
+      case 'Approved':
+        current = approved;
+        break;
+      case 'Rejected':
+        current = rejected;
+        break;
+      case 'Pending':
+      default:
+        current = pending;
+        break;
+    }
 
-      if (!mounted) return;
-      setState(() {
-        _cPending = newPendingCount;
-        _cApproved = newApprovedCount;
-        _cRejected = newRejectedCount;
-        selectedStatusFilter = nextStatus;
-        _rows = current;
-      });
-    } catch (e) {
-      _snack('Failed to fetch approvals: $e');
-      if (!mounted) return;
-      setState(() {
-        _rows = [];
-        _cPending = _cApproved = _cRejected = 0;
-      });
-    } finally {
-      if (mounted) setState(() => _loading = false);
+    if (!mounted) return;
+
+    setState(() {
+      _cPending = newPendingCount;
+      _cApproved = newApprovedCount;
+      _cRejected = newRejectedCount;
+      selectedStatusFilter = nextStatus;
+      _rows = current;
+    });
+  } catch (e) {
+    _snack('Failed to fetch approvals: $e');
+
+    if (!mounted) return;
+
+    setState(() {
+      _rows = [];
+      _cPending = 0;
+      _cApproved = 0;
+      _cRejected = 0;
+    });
+  } finally {
+    if (mounted) {
+      setState(() => _loading = false);
     }
   }
-
+}
   void _snack(String msg) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
 
@@ -501,6 +541,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
 
     final merged = {...backendItem, ...viewItem, ...details};
 
+    if (!mounted) return;
     final decision = await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => RequestDetailsCard(data: merged)),
@@ -736,7 +777,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: color.withOpacity(isSelected ? 1.0 : 0.7),
+          color: color.withValues(alpha: isSelected ? 1.0 : 0.7),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.black),
         ),

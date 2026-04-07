@@ -11,26 +11,46 @@ class ForgotPasswordPage extends StatefulWidget {
 class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   final TextEditingController emailController = TextEditingController();
 
+  bool _isLoading = false;
+
   Future<void> _sendResetLink() async {
     final email = emailController.text.trim();
 
-    if (email.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Please enter your email')));
+    final emailRegex =
+        RegExp(r"^[\w._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$", caseSensitive: false);
+
+    if (email.isEmpty || !emailRegex.hasMatch(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter valid email')),
+      );
       return;
     }
 
+    setState(() => _isLoading = true);
+
     try {
       await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Password reset link sent to your email')),
       );
-      if (mounted) Navigator.pop(context); // back to login after sending
+
+      if (mounted) Navigator.pop(context);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e')),
       );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
+  }
+
+  @override
+  void dispose() {
+    emailController.dispose();
+    super.dispose();
   }
 
   @override
@@ -53,8 +73,17 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
             ),
             const SizedBox(height: 20),
             ElevatedButton(
-              onPressed: _sendResetLink,
-              child: const Text('Send Reset Link'),
+              onPressed: _isLoading ? null : _sendResetLink,
+              child: _isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Text('Send Reset Link'),
             ),
           ],
         ),

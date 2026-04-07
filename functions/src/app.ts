@@ -5,8 +5,8 @@ import cors from "cors";
 import authRoutes from "./routes/authRoutes";
 import companyRoutes from "./routes/companyRoutes";
 import employeeRoutes from "./routes/employeeRoutes";
+import employeeDetailsRoutes from './routes/employeeDetailsRoutes';
 import attendanceRoutes from "./routes/attendanceRoutes";
-import leaveRoutes from "./routes/healthRoutes";
 import leaveTypeRoutes from "./routes/leaveTypeRoutes";
 import officeLocationRoutes from "./routes/officeLocationRoutes";
 import uploadRoutes from "./routes/uploadRoutes";
@@ -21,12 +21,12 @@ import liveEmployeeDetailsRouter from "./routes/liveEmployeeDetailsRoutes";
 import reasonsRouter from "./routes/reasonMasterRoutes";
 import overtimeRoutes from "./routes/overtimeRoutes";
 import adminRoutes from "./routes/adminRoutes";
+import leaveRoutes from './routes/leaveRoutes';
 
 import * as authController from "./controllers/authController";
 import { db } from "./config/firebase";
 
 const app = express();
-
 // ---------------- Middleware ----------------
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
@@ -40,33 +40,36 @@ app.use((req, _res, next) => {
 
 // ---------------- Health ----------------
 app.get("/", (_req, res) => res.send("API running"));
-app.get("/api/health", (_req: Request, res: Response) => {
+app.get("/health", (_req: Request, res: Response) => {
   res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
 // ---------------- Routes ----------------
-app.use("/api/auth", authRoutes);
-app.use("/api/company", companyRoutes);
-app.use("/api/employees", employeeRoutes);
-app.use("/api/attendance", attendanceRoutes);
-app.use("/api/leaves", leaveRoutes);
-app.use("/api/leave-types", leaveTypeRoutes);
-app.use("/api/office", officeLocationRoutes);
-app.use("/api/uploads", uploadRoutes);
-app.use("/api/reports", reportRoutes);
-app.use("/api/rewards", rewardRoutes);
-app.use("/api/events", eventRoutes(db));
-app.use("/api/feedback", feedbackRoutes(db));
-app.use("/api/shifts", shiftRoutes);
-app.use("/api/tasks", taskRoutes);
-app.use("/api/tracking", trackingRoutes);
-app.use("/api/liveEmployeeDetails", liveEmployeeDetailsRouter);
-app.use("/api/reasons", reasonsRouter);
-app.use("/api/overtime", overtimeRoutes);
-app.use("/api/admin", adminRoutes);
+app.use("/auth", authRoutes);
+app.use("/company", companyRoutes);
+app.use("/employees", employeeRoutes);
+app.use("/attendance", attendanceRoutes);
+app.use("/employee-details", employeeDetailsRoutes);
+app.use("/leaves", leaveRoutes);
+app.use("/leave-types", leaveTypeRoutes);
+app.use("/office", officeLocationRoutes);
+app.use("/uploads", uploadRoutes);
+app.use("/reports", reportRoutes);
+app.use("/rewards", rewardRoutes);
+app.use("/events", eventRoutes(db));
+app.use("/feedback", feedbackRoutes(db));
+app.use("/shifts", shiftRoutes);
+app.use("/tasks", taskRoutes);
+app.use("/tracking", trackingRoutes);
+app.use("/liveEmployeeDetails", liveEmployeeDetailsRouter);
+app.use("/reasons", reasonsRouter);
+app.use("/overtime", overtimeRoutes);
+app.use("/admin", adminRoutes);
+app.use('/leaves', leaveRoutes);
 
-app.get("/api/me", authController.getMe);
-app.get("/api/profile", authController.getMe);
+
+app.get("/me", authController.getMe);
+app.get("/profile", authController.getMe);
 
 // ---------------- 404 ----------------
 app.use((req, res) => {

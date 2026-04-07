@@ -1,8 +1,9 @@
 import { Request, Response } from 'express';
-import * as admin from 'firebase-admin';
+import { db } from '../config/firebase';
 import { v4 as uuidv4 } from 'uuid';
+import { Timestamp } from 'firebase-admin/firestore';
 
-const db = admin.firestore();
+
 
 type Shift = {
   id: string;
@@ -10,8 +11,8 @@ type Shift = {
   startTime: string; // "HH:mm"
   endTime: string;   // "HH:mm"
   shiftname: string;
-  createdAt: admin.firestore.Timestamp | Date;
-  updatedAt: admin.firestore.Timestamp | Date;
+  createdAt: Timestamp | Date;
+  updatedAt: Timestamp | Date;
 };
 
 /**
@@ -28,9 +29,20 @@ export const createShift = async (req: Request, res: Response): Promise<Response
         .status(400)
         .json({ error: 'name, startTime, endTime and shiftname are required' });
     }
+    const existing = await db
+    .collection('shifts')
+    .where('name','==',name)
+    .where('shiftname','==',shiftname)
+    .limit(1)
+    .get()
 
+    if(!existing.empty){
+      return res.status(400).json({
+        error:'Shift already exists'
+      })
+    }
     const id = uuidv4();
-    const now = admin.firestore.Timestamp.now();
+    const now = Timestamp.now();
 
     const payload: Shift = {
       id,
@@ -54,16 +66,21 @@ export const createShift = async (req: Request, res: Response): Promise<Response
  * List all shift templates
  * GET /api/shifts
  */
-export const getAllShifts = async (_req: Request, res: Response): Promise<Response> => {
+export const getAllShifts = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const snap = await db
-      .collection('shifts')
-      .orderBy('createdAt', 'desc')
-      .get();
 
-    // Return Firestore data as-is (id is already stored in document data)
+  const limit = Number(req.query.limit) || 50;
+
+  const snap = await db
+    .collection('shifts')
+    .orderBy('createdAt', 'desc')
+    .limit(limit)
+    .get();
+
     const shifts = snap.docs.map((d) => d.data());
+
     return res.json(shifts);
+
   } catch (err) {
     console.error('getAllShifts error:', err);
     return res.status(500).json({ error: 'Internal server error' });
@@ -98,7 +115,7 @@ export const updateShift = async (req: Request, res: Response): Promise<Response
     const { id } = req.params;
     const updates = {
       ...req.body,
-      updatedAt: admin.firestore.Timestamp.now(),
+      updatedAt: Timestamp.now(),
     };
 
     const ref = db.collection('shifts').doc(id);

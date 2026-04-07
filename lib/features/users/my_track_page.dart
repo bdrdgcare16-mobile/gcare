@@ -3,8 +3,16 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
-import 'dart:math' as MathLib;
+import 'dart:math' as math;
 import 'package:serv_app/models/company_data.dart';
+import 'package:flutter/foundation.dart';
+import 'package:serv_app/services/api_service.dart';
+
+void _log(Object msg) {
+  if (kDebugMode) {
+    print(msg);
+  }
+}
 
 // ----- Theme -----
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -53,10 +61,10 @@ class Math {
 
 // ignore: avoid_classes_with_only_static_members
 class MathInternal {
-  static double sin(double x) => MathLib.sin(x);
-  static double cos(double x) => MathLib.cos(x);
-  static double sqrt(double x) => MathLib.sqrt(x);
-  static double atan2(double y, double x) => MathLib.atan2(y, x);
+  static double sin(double x) => math.sin(x);
+  static double cos(double x) => math.cos(x);
+  static double sqrt(double x) => math.sqrt(x);
+  static double atan2(double y, double x) => math.atan2(y, x);
 }
 
 class MyTrackPage extends StatefulWidget {
@@ -68,12 +76,14 @@ class MyTrackPage extends StatefulWidget {
 class _MyTrackPageState extends State<MyTrackPage> {
   // --- date control ---
   DateTime? selectedDate;
+  bool _isLoadingPath = false;
   final TextEditingController dateController = TextEditingController();
 
   // --- API base/token/empid ---
-  final String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app';
+  final String _apiBase = ApiService.baseUrl;
   String? _jwt;
   String? _empId;
+
 
   // --- Google map state ---
   GoogleMapController? _mapCtrl;
@@ -90,9 +100,12 @@ class _MyTrackPageState extends State<MyTrackPage> {
   @override
   void initState() {
     super.initState();
-    print('TOKEN: $_jwt EMPID: $_empId');
-    _jwt = CompanyData.token;
+
+    _jwt = CompanyData.token ?? '';
     _empId = CompanyData.empid;
+
+    _log('TRACK INIT: jwt=${_jwt?.length ?? 0} empid=${_empId?.length ?? 0}');
+  
 
     final now = DateTime.now();
     selectedDate = now;
@@ -195,150 +208,111 @@ class _MyTrackPageState extends State<MyTrackPage> {
     return markers;
   }
 
-  Future<void> _loadAndDrawPath() async {
-    try {
-      if ((_jwt ?? '').isEmpty) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('You are not logged in.')),
-        );
-        return;
-      }
+Future<void> _loadAndDrawPath() async {
+  if (_isLoadingPath) return;
+  setState(() => _isLoadingPath = true);
 
-      final uri = Uri.parse('$_apiBase/api/tracking/day')
-          .replace(queryParameters: {'dateIso': _dateIso()});
-
-      final res = await http.get(
-        uri,
-        headers: {
-          'Authorization': 'Bearer $_jwt',
-          if ((_empId ?? '').isNotEmpty) 'x-empid': _empId!,
-        },
-      );
-      print('TRACK RES: ${res.statusCode} ${res.body}');
-      if (res.statusCode >= 400) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Failed: ${res.statusCode}')));
-        return;
-      }
-
-      final json = jsonDecode(res.body) as Map<String, dynamic>;
-      final data =
-          (json['data'] ?? <String, dynamic>{}) as Map<String, dynamic>;
-      final endedAt = (data['endedAt'] as String?);
-      _sessionEnded = (endedAt != null && endedAt.isNotEmpty);
-
-      // ---------- ACCEPT list or map for pathMap ----------
-      final dynamic pm = data['pathMap'];
-      List<dynamic> raw;
-      if (pm is List) {
-        raw = pm;
-      } else if (pm is Map) {
-        // Convert { "0": {...}, "1": {...}, ... } to a list in index order
-        final entries = pm.entries.toList()
-          ..sort((a, b) => int.tryParse(a.key.toString())!
-              .compareTo(int.tryParse(b.key.toString())!));
-        raw = entries.map((e) => e.value).toList();
-      } else {
-        raw = const [];
-      }
-      // ----------------------------------------------------
-
-      var points = _parseTrackPoints(raw);
-
-      // Client-side clean-up (matches server MIN_MOVE_M ~12m; we use 10m)
-      points = _simplifyByDistance(points, minMeters: 10);
-
-      if (points.isEmpty) {
-        if (!mounted) return;
-        setState(() {
-          _polylines = {};
-          _markers = {};
-          _center ??= const LatLng(12.9716, 77.5946);
-        });
-        return;
-      }
-
-      final latLngs = points.map((p) => p.ll).toList(growable: false);
-
-      // Polyline only if we have ≥ 2 points
-      final Set<Polyline> polylines = (latLngs.length >= 2)
-          ? {
-              Polyline(
-                polylineId: const PolylineId('route'),
-                points: latLngs,
-                width: 5,
-                color: const Color(0xFFB39DDB), // lavender
-              ),
-            }
-          : {};
-
-      final markers = _buildMarkers(points);
-
+  try {
+    if ((_jwt ?? '').isEmpty) {
       if (!mounted) return;
-      setState(() {
-        _polylines = polylines;
-        _markers = {...markers};
-        _center = latLngs.last;
-      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You are not logged in.')),
+      );
+      return;
+    }
 
-      if (_mapCtrl != null) {
-        if (latLngs.length >= 2) {
-          await _mapCtrl!.animateCamera(
-            CameraUpdate.newLatLngBounds(_boundsFromLatLngs(latLngs), 48),
-          );
-        } else {
-          await _mapCtrl!.animateCamera(
-            CameraUpdate.newLatLngZoom(latLngs.first, 17),
-          );
-        }
-      }
-    } catch (e) {
+    final uri = Uri.parse('${ApiService.baseUrl}/tracking/day')
+        .replace(queryParameters: {'dateIso': _dateIso()});
+
+    final res = await http.get(
+      uri,
+      headers: {
+        'Authorization': 'Bearer $_jwt',
+        if ((_empId ?? '').isNotEmpty) 'x-empid': _empId!,
+      },
+    ).timeout(const Duration(seconds: 15));
+
+    _log('TRACK RES: ${res.statusCode}');
+    if (res.statusCode >= 400) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Error loading path: $e')));
+          .showSnackBar(SnackBar(content: Text('Failed: ${res.statusCode}')));
+      return;
     }
-  }
 
-  LatLngBounds _boundsFromLatLngs(List<LatLng> list) {
-    double? minLat, maxLat, minLng, maxLng;
-    for (final p in list) {
-      minLat = (minLat == null)
-          ? p.latitude
-          : (p.latitude < minLat ? p.latitude : minLat);
-      maxLat = (maxLat == null)
-          ? p.latitude
-          : (p.latitude > maxLat ? p.latitude : maxLat);
-      minLng = (minLng == null)
-          ? p.longitude
-          : (p.longitude < minLng ? p.longitude : minLng);
-      maxLng = (maxLng == null)
-          ? p.longitude
-          : (p.longitude > maxLng ? p.longitude : maxLng);
+    final json = jsonDecode(res.body) as Map<String, dynamic>;
+    final data =
+        (json['data'] ?? <String, dynamic>{}) as Map<String, dynamic>;
+    final endedAt = (data['endedAt'] as String?);
+    _sessionEnded = (endedAt != null && endedAt.isNotEmpty);
+
+    final dynamic pm = data['pathMap'];
+    List<dynamic> raw;
+    if (pm is List) {
+      raw = pm;
+    } else if (pm is Map) {
+      final entries = pm.entries.toList()
+        ..sort((a, b) => int.tryParse(a.key.toString())!
+            .compareTo(int.tryParse(b.key.toString())!));
+      raw = entries.map((e) => e.value).toList();
+    } else {
+      raw = const [];
     }
-    return LatLngBounds(
-      southwest: LatLng(minLat ?? 0, minLng ?? 0),
-      northeast: LatLng(maxLat ?? 0, maxLng ?? 0),
-    );
-  }
 
-  Future<void> _pickDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: selectedDate ?? DateTime.now(),
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
-    );
-    if (picked != null) {
+    var points = _parseTrackPoints(raw);
+    points = _simplifyByDistance(points, minMeters: 10);
+
+    if (points.isEmpty) {
+      if (!mounted) return;
       setState(() {
-        selectedDate = picked;
-        dateController.text =
-            "${picked.day.toString().padLeft(2, '0')}/${picked.month.toString().padLeft(2, '0')}/${picked.year}";
+        _polylines = {};
+        _markers = {};
+        _center ??= const LatLng(12.9716, 77.5946);
       });
-      _loadAndDrawPath();
+      return;
     }
+
+    final latLngs = points.map((p) => p.ll).toList(growable: false);
+
+    final Set<Polyline> polylines = (latLngs.length >= 2)
+        ? {
+            Polyline(
+              polylineId: const PolylineId('route'),
+              points: latLngs,
+              width: 5,
+              color: const Color(0xFFB39DDB),
+            ),
+          }
+        : {};
+
+    final markers = _buildMarkers(points);
+
+    if (!mounted) return;
+    setState(() {
+      _polylines = polylines;
+      _markers = {...markers};
+      _center = latLngs.last;
+    });
+
+    if (_mapCtrl != null) {
+      if (latLngs.length >= 2) {
+        await _mapCtrl!.animateCamera(
+          CameraUpdate.newLatLngBounds(_boundsFromLatLngs(latLngs), 48),
+        );
+      } else {
+        await _mapCtrl!.animateCamera(
+          CameraUpdate.newLatLngZoom(latLngs.first, 17),
+        );
+      }
+    }
+  } catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('Error loading path: $e')));
+  } finally {
+    setState(() => _isLoadingPath = false);
   }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -446,4 +420,45 @@ class _MyTrackPageState extends State<MyTrackPage> {
       ),
     );
   }
+
+  LatLngBounds _boundsFromLatLngs(List<LatLng> list) {
+    double minLat = list.first.latitude;
+    double maxLat = list.first.latitude;
+    double minLng = list.first.longitude;
+    double maxLng = list.first.longitude;
+
+    for (LatLng latLng in list) {
+      if (latLng.latitude > maxLat) maxLat = latLng.latitude;
+      if (latLng.latitude < minLat) minLat = latLng.latitude;
+      if (latLng.longitude > maxLng) maxLng = latLng.longitude;
+      if (latLng.longitude < minLng) minLng = latLng.longitude;
+    }
+
+    return LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
+    );
+  }
+
+  Future<void> _pickDate() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2023),
+      lastDate: DateTime(2100),
+    );
+
+    if (picked != null) {
+      setState(() {
+        selectedDate = picked;
+      });
+    }
+  }
+
+  @override
+void dispose() {
+  _mapCtrl?.dispose();
+  dateController.dispose();
+  super.dispose();
+}
 }

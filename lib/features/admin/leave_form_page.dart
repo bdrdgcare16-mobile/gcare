@@ -8,6 +8,9 @@ import 'package:intl/intl.dart';
 
 // You keep a local list in globals_page.dart; we leave it untouched
 import 'package:serv_app/features/admin/globals_page.dart';
+import 'package:serv_app/services/api_service.dart';
+
+import 'package:serv_app/config/api_config.dart';
 
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
@@ -15,7 +18,7 @@ const Color kAppBarColor = Color(0xFF8C6EAF);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
-const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+final String apiBase = ApiConfig.baseUrl;
 
 class LeaveFormPage extends StatefulWidget {
   const LeaveFormPage({super.key});
@@ -105,7 +108,7 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
 
     try {
       final resp = await http.post(
-        Uri.parse('$apiBase/leave-types'),
+        Uri.parse('${ApiService.baseUrl}/leave-types'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
@@ -122,16 +125,19 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
           'days': daysCtrl.text,
         });
 
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Leave type saved')),
         );
         Navigator.pop(context, true);
       } else {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed: ${resp.statusCode} ${resp.body}')),
         );
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Network error: $e')),
       );

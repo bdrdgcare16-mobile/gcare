@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:serv_app/config/api_config.dart';
+import 'package:serv_app/services/api_service.dart';
 
 /* ===========================
    CONFIG
    =========================== */
-const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api'; // adjust if needed
+final String apiBase = ApiConfig.baseUrl; // adjust if needed
 const String kDefaultTypeName = 'General'; // hidden default type
 
 // Theme
@@ -96,7 +98,7 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
   Future<void> _ensureDefaultType() async {
     try {
       // 1) List types
-      final r = await http.get(Uri.parse('$apiBase/reasons/types'));
+      final r = await http.get(Uri.parse('${ApiService.baseUrl}/reasons/types'));
       if (r.statusCode == 200) {
         final List data = jsonDecode(r.body);
         final types = data.map((e) => ReasonType.fromJson(e)).toList().cast<ReasonType>();
@@ -112,7 +114,7 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
 
       // 2) If not found, create it
       final c = await http.post(
-        Uri.parse('$apiBase/reasons/types'),
+        Uri.parse('${ApiService.baseUrl}/reasons/types'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'name': kDefaultTypeName}),
       );
@@ -135,7 +137,7 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
   Future<void> _loadReasons() async {
     setState(() => _loading = true);
     try {
-      final r = await http.get(Uri.parse('$apiBase/reasons'));
+      final r = await http.get(Uri.parse('${ApiService.baseUrl}/reasons'));
       if (r.statusCode == 200) {
         final body = jsonDecode(r.body);
         final List items = (body is List) ? body : (body['items'] as List? ?? []);
@@ -158,7 +160,7 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
     }
     try {
       final r = await http.post(
-        Uri.parse('$apiBase/reasons'),
+        Uri.parse('${ApiService.baseUrl}/reasons'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'typeId': _defaultTypeId, // <-- hidden typeId
@@ -199,7 +201,7 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
 
   Future<void> _deleteReason(String id) async {
     try {
-      final r = await http.delete(Uri.parse('$apiBase/reasons/$id'));
+      final r = await http.delete(Uri.parse('${ApiService.baseUrl}/reasons/$id'));
       if (r.statusCode == 200) {
         setState(() {
           _all.removeWhere((x) => x.id == id);

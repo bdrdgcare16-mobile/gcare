@@ -1,11 +1,11 @@
 // controllers/reportController.ts
 import { Request, Response } from 'express';
-import * as admin from 'firebase-admin';
+import { db } from '../config/firebase';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
-const db = admin.firestore();
 const REPORTS = 'reports';
 
-type TS = admin.firestore.Timestamp;
+type TS =   Timestamp;
 
 interface ReportSchedule {
   id?: string;
@@ -33,7 +33,7 @@ export const createSchedule = async (req: Request, res: Response): Promise<Respo
       templateId,
       recipient,
       scheduleTime,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
     });
 
     return res.status(201).json({ id: docRef.id, message: 'Schedule created.' });

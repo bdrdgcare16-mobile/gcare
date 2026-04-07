@@ -1,10 +1,11 @@
 import 'dart:convert';
 import 'dart:typed_data';
-
+import 'package:serv_app/config/api_config.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:serv_app/services/api_service.dart';
 
 // Web-only storage shims (safe on non-web due to conditional import)
 import 'package:serv_app/html_stub.dart'
@@ -19,13 +20,15 @@ const Color kAppBarColor = Color(0xFF8C6EAF);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
+
+
 // Neutral overlays for glass effect
 const Color _glassFill = Color(0x26FFFFFF);      // white @ ~15%
 const Color _glassBorder = Color(0x33FFFFFF);    // white @ ~20%
 const Color _labelColor = Color(0xFF2F2A3B);
 
 // ===== Backend base (same as the rest of the app) =====
-const String _apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+final String _apiBase = ApiConfig.baseUrl;
 
 class CompanyProfilePage extends StatefulWidget {
   const CompanyProfilePage({super.key});
@@ -108,7 +111,7 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
     setState(() => _loading = true);
     try {
       final res = await http.get(
-        Uri.parse('$_apiBase/company/profile'),
+        Uri.parse('${ApiService.baseUrl}/company/profile'),
         headers: _authHeaders(json: true),
       );
 
@@ -195,7 +198,7 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
   Future<void> _saveProfile() async {
     setState(() => _saving = true);
     try {
-      final uri = Uri.parse('$_apiBase/company/profile');
+      final uri = Uri.parse('${ApiService.baseUrl}/company/profile');
       final req = http.MultipartRequest('POST', uri);
 
       // Auth header only; MultipartRequest sets its own content-type

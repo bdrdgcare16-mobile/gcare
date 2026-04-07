@@ -7,6 +7,9 @@ import 'package:serv_app/html_stub.dart'
 // If you keep the JWT centrally after login, import it.
 // Adjust the path if your project structure differs.
 import 'package:serv_app/models/company_data.dart';
+import 'package:serv_app/services/api_service.dart';
+
+import 'package:serv_app/config/api_config.dart';
 
 // ---- THEME ----
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -15,7 +18,7 @@ const Color kTextColor = Colors.white;
 const Color kHighlightBoxColor = Color(0xFF655193);
 
 // ---- API ----
-const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api';
+final String apiBase = ApiConfig.baseUrl;
 
 class RewardsPage extends StatefulWidget {
   const RewardsPage({super.key});
@@ -114,7 +117,7 @@ class _RewardsPageState extends State<RewardsPage> {
       "date": DateTime.now().toIso8601String(),
     };
 
-    final uri = Uri.parse('$apiBase/rewards');
+    final uri = Uri.parse('${ApiService.baseUrl}/rewards');
 
     try {
       final resp = await http.post(

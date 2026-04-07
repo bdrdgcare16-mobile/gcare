@@ -1,9 +1,7 @@
 // functions/src/controllers/adminController.ts
 import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
-import { getFirestore } from "firebase-admin/firestore";
-
-const db = getFirestore();
+import { db } from '../config/firebase';
 const USERS = "users"; // ← change if your collection name is different
 
 // POST /api/admin/create

@@ -1,10 +1,10 @@
 import { Request, Response } from 'express';
-import * as admin from 'firebase-admin';
-
-const db = admin.firestore();
 const COMPANY_COLLECTION = 'companyProfile';
+import { Timestamp } from 'firebase-admin/firestore';
+import { db } from '../config/firebase';
 
-type TS = admin.firestore.Timestamp;
+
+type TS = Timestamp;
 
 interface CompanyProfile {
   id?: string;
@@ -78,7 +78,7 @@ export const saveCompanyProfile = async (req: Request, res: Response): Promise<R
       return res.status(400).json({ success: false, error: 'Missing required fields', missingFields: missing });
     }
 
-    const now = admin.firestore.Timestamp.now();
+    const now =Timestamp.now();
     const docRef = db.collection(COMPANY_COLLECTION).doc(adminEmailFromToken);
 
     const data: Partial<CompanyProfile> = {

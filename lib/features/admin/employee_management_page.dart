@@ -150,7 +150,7 @@
 
 //   // static Future<List<Employee>> fetchEmployees() async {
 //   //   final res =
-//   //       await http.get(Uri.parse('$apiBase/employees'), headers: _headers());
+//   //       await http.get(Uri.parse('${ApiService.baseUrl}/employees'), headers: _headers());
 //   //
 //   //   if (res.statusCode == 200) {
 //   //     final decoded = jsonDecode(res.body);
@@ -172,7 +172,7 @@
 //     final List<Employee> all = [];
 
 //     while (true) {
-//       final url = Uri.parse('$apiBase/employees?page=$page&limit=$limit');
+//       final url = Uri.parse('${ApiService.baseUrl}/employees?page=$page&limit=$limit');
 //       final res = await http.get(url, headers: _headers());
 
 //       if (res.statusCode == 200) {
@@ -204,7 +204,7 @@
 //   static Future<String> createEmployee(Employee e) async {
 //     final body = jsonEncode(e.toCreateBody());
 //     final res = await http.post(
-//       Uri.parse('$apiBase/employees'),
+//       Uri.parse('${ApiService.baseUrl}/employees'),
 //       headers: _headers(),
 //       body: body,
 //     );
@@ -222,7 +222,7 @@
 //   static Future<void> updateEmployee(
 //       String docId, Map<String, dynamic> updates) async {
 //     final res = await http.put(
-//       Uri.parse('$apiBase/employees/$docId'),
+//       Uri.parse('${ApiService.baseUrl}/employees/$docId'),
 //       headers: _headers(),
 //       body: jsonEncode(updates),
 //     );
@@ -234,7 +234,7 @@
 //   // === fetch shift groups for dropdown ===
 //   static Future<List<String>> fetchShiftGroups() async {
 //     final res =
-//         await http.get(Uri.parse('$apiBase/shifts'), headers: _headers());
+//         await http.get(Uri.parse('${ApiService.baseUrl}/shifts'), headers: _headers());
 //     if (res.statusCode != 200) {
 //       throw Exception('Failed to load shifts (${res.statusCode})');
 //     }
@@ -820,6 +820,7 @@
 //   }
 // }
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl_phone_field/intl_phone_field.dart';
 import 'package:http/http.dart' as http;
@@ -832,6 +833,16 @@ import 'package:serv_app/html_stub.dart'
 
 // >>> NEW: read token from the same in-memory place as other pages
 import 'package:serv_app/models/company_data.dart';
+import 'package:serv_app/services/api_service.dart';
+import 'package:flutter/foundation.dart';
+
+import 'package:serv_app/config/api_config.dart';
+
+void _log(Object msg){
+  if(kDebugMode){
+    print(msg);
+  }
+}
 
 // ===== Theme =====
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -841,7 +852,7 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 // ===== API base =====
-const String apiBase = 'https://api-zmj7dqloiq-el.a.run.app/api'; // keep /api here
+final String apiBase = ApiConfig.baseUrl; // keep /api here
 
 // ===== Model =====
 class Employee {
@@ -857,6 +868,7 @@ class Employee {
   final String? docId; // Firestore document id (server generated)
   final String? password; // only used on create
   final String role; // defaults to "employee"
+  bool _isFetching = false;
 
   Employee({
     required this.name,
@@ -969,44 +981,45 @@ class EmployeeService {
     return headers;
   }
 
-  static Future<List<Employee>> fetchEmployees({int limit = 50}) async {
-    int page = 1;
-    final List<Employee> all = [];
+static Future<Map<String, dynamic>> fetchEmployees({
+  int limit = 20,
+  String? lastDocId,
+}) async {
+  String url = '${ApiService.baseUrl}/employees?limit=$limit';
 
-    while (true) {
-      final url = Uri.parse('$apiBase/employees?page=$page&limit=$limit');
-      final res = await http.get(url, headers: _headers());
-
-      if (res.statusCode == 200) {
-        final decoded = jsonDecode(res.body);
-        final List<dynamic> raw = decoded is List
-            ? decoded
-            : (decoded is Map<String, dynamic> && decoded['data'] is List)
-                ? decoded['data'] as List
-                : <dynamic>[];
-
-        final items = raw
-            .map((e) => Employee.fromServer(e as Map<String, dynamic>))
-            .toList();
-        all.addAll(items);
-
-        if (items.length < limit) break; // last page
-        page += 1;
-        continue;
-      }
-
-      if (res.statusCode == 404) break; // no data
-      throw Exception(
-          'Failed to fetch employees (${res.statusCode}): ${res.body}');
-    }
-
-    return all;
+  if (lastDocId != null && lastDocId.isNotEmpty) {
+    url += '&lastDocId=$lastDocId';
   }
 
+  final res = await http.get(
+    Uri.parse(url),
+    headers: _headers(),
+  );
+
+  if (res.statusCode == 200) {
+    final decoded = jsonDecode(res.body);
+
+    final List<dynamic> raw =
+        decoded['data'] ?? [];
+
+    final employees = raw
+        .map((e) => Employee.fromServer(e))
+        .toList();
+
+    return {
+      'employees': employees,
+      'lastDocId': decoded['lastDocId']
+    };
+  }
+
+  throw Exception(
+    'Failed to fetch employees (${res.statusCode})',
+  );
+}
   static Future<String> createEmployee(Employee e) async {
     final body = jsonEncode(e.toCreateBody());
     final res = await http.post(
-      Uri.parse('$apiBase/employees'),
+      Uri.parse('${ApiService.baseUrl}/employees'),
       headers: _headers(),
       body: body,
     );
@@ -1024,7 +1037,7 @@ class EmployeeService {
   static Future<void> updateEmployee(
       String docId, Map<String, dynamic> updates) async {
     final res = await http.put(
-      Uri.parse('$apiBase/employees/$docId'),
+      Uri.parse('${ApiService.baseUrl}/employees/$docId'),
       headers: _headers(),
       body: jsonEncode(updates),
     );
@@ -1036,7 +1049,7 @@ class EmployeeService {
   // === fetch shift groups for dropdown ===
   static Future<List<String>> fetchShiftGroups() async {
     final res =
-        await http.get(Uri.parse('$apiBase/shifts'), headers: _headers());
+        await http.get(Uri.parse('${ApiService.baseUrl}/shifts'), headers: _headers());
     if (res.statusCode != 200) {
       throw Exception('Failed to load shifts (${res.statusCode})');
     }
@@ -1053,7 +1066,7 @@ class EmployeeService {
   // >>> NEW: delete employee by Firestore document id
   static Future<void> deleteEmployeeById(String docId) async {
     final res = await http.delete(
-      Uri.parse('$apiBase/employees/$docId'),
+      Uri.parse('${ApiService.baseUrl}/employees/$docId'),
       headers: _headers(),
     );
     if (res.statusCode != 200) {
@@ -1074,35 +1087,98 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
   List<Employee> filtered = [];
   final TextEditingController searchController = TextEditingController();
 
-  @override
-  void initState() {
-    super.initState();
-    _loadEmployees();
-  }
+  bool _loading = false;
+  String? _error;
+  Timer? _searchDebounce;
+  String? _lastDocId;
+  bool _hasMore = true;
+  bool _isFetching = false;
 
-  Future<void> _loadEmployees() async {
-    try {
-      final list = await EmployeeService.fetchEmployees();
-      setState(() {
-        employees = list;
-        filtered = list;
-      });
-    } catch (_) {
-      // optionally show a SnackBar
+  final ScrollController _scrollController = ScrollController();
+
+
+ @override
+void initState() {
+  super.initState();
+  _loadEmployees();
+
+  _scrollController.addListener(() {
+    if (_scrollController.position.pixels ==
+        _scrollController.position.maxScrollExtent) {
+      if (_hasMore) {
+        _loadEmployees(loadMore: true);
+      }
     }
-  }
+  });
+}
 
-  void updateFiltered(String query) {
+  Future<void> _loadEmployees({bool loadMore = false}) async {
+  if (_isFetching) return;
+
+  _isFetching = true;
+
+  if (!loadMore) {
+    if (!mounted) return;
+
     setState(() {
-      final q = query.toLowerCase();
-      filtered = employees.where((e) {
-        return e.name.toLowerCase().contains(q) ||
-            e.id.toLowerCase().contains(q) ||
-            e.email.toLowerCase().contains(q);
-      }).toList();
+      _loading = true;
+      _error = null;
     });
   }
 
+  try {
+    final result = await EmployeeService.fetchEmployees(
+      lastDocId: loadMore ? _lastDocId : null,
+    );
+
+    final List<Employee> newList = result['employees'];
+    _lastDocId = result['lastDocId'];
+
+    if (!mounted) return;
+
+    setState(() {
+      if (loadMore) {
+        employees.addAll(newList);
+      } else {
+        employees = newList;
+      }
+
+      filtered = employees;
+      _hasMore = newList.isNotEmpty;
+      _loading = false;
+    });
+  } catch (e) {
+    if (!mounted) return;
+
+    setState(() {
+      _error = 'Failed to load employees';
+      _loading = false;
+    });
+  }
+
+  _isFetching = false;
+}
+void updateFiltered(String value) {
+  final q = value.trim().toLowerCase();
+
+  setState(() {
+    if (q.isEmpty) {
+      filtered = employees;
+    } else {
+      filtered = employees.where((e) {
+        return e.id.toLowerCase().contains(q) ||
+            e.name.toLowerCase().contains(q) ||
+            e.email.toLowerCase().contains(q) ||
+            e.mobile.toLowerCase().contains(q) ||
+            e.shiftGroup.toLowerCase().contains(q) ||
+            e.location.toLowerCase().contains(q) ||
+            e.dept.toLowerCase().contains(q) ||
+            e.designation.toLowerCase().contains(q) ||
+            e.status.toLowerCase().contains(q);
+      }).toList();
+    }
+  });
+}
   int countStatus(String status) =>
       employees.where((e) => e.status.toLowerCase() == status.toLowerCase()).length;
 
@@ -1134,6 +1210,12 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
         style: const TextStyle(fontSize: 13),
       ),
     );
+  }
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    searchController.dispose();
+    super.dispose();
   }
 
   @override
@@ -1227,7 +1309,12 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
               padding: const EdgeInsets.all(10),
               child: TextField(
                 controller: searchController,
-                onChanged: updateFiltered,
+                onChanged: (value) {
+                  _searchDebounce?.cancel();
+                  _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+                    updateFiltered(value);
+                  });
+                },
                 decoration: InputDecoration(
                   prefixIcon: const Icon(Icons.search),
                   hintText: 'Search',
@@ -1265,6 +1352,10 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
                       ),
                       Expanded(
                         child: ListView.builder(
+                          controller: _scrollController,
+                          addAutomaticKeepAlives: false,
+                          addRepaintBoundaries: true,
+                          cacheExtent: 800,
                           itemCount: filtered.length,
                           itemBuilder: (context, i) {
                             final e = filtered[i];
@@ -1373,6 +1464,7 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
                                                   );
                                                 }
                                               }
+     
                                             }
                                           }
                                         },
