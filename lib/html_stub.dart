@@ -1,5 +1,8 @@
 // Minimal mobile stubs so code compiles & runs without dart:html.
 
+// Export the window object so it can be imported
+final window = _Window();
+
 class _StorageMap {
   final Map<String, String> _m = {};
   String? operator [](String key) => _m[key];
@@ -20,8 +23,6 @@ class _Window {
   // No-op on mobile (web uses window.open)
   void open(String url, String target) {}
 }
-
-final window = _Window();
 
 class Blob {
   final List<Object> data;

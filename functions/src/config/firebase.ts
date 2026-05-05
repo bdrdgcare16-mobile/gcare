@@ -63,7 +63,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getStorage } from 'firebase-admin/storage';
 
-const PROJECT_ID = process.env.APP_FIREBASE_PROJECT_ID || 'serv-dev-f2557';
+const PROJECT_ID = process.env.APP_FIREBASE_PROJECT_ID || 'servappbackend';
 const APP_NAME = 'serv-core';
 
 let adminApp: App;

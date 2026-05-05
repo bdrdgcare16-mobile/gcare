@@ -168,7 +168,19 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
       );
 
       if (resp.statusCode == 200) {
-        final List data = jsonDecode(resp.body) as List;
+        final body = jsonDecode(resp.body);
+        List<dynamic> data;
+
+        if (body is List) {
+          data = body;
+        } else if (body is Map && body['data'] is List) {
+          data = body['data'] as List;
+        } else if (body is Map && body['items'] is List) {
+          data = body['items'] as List;
+        } else {
+          throw Exception('Invalid response format: ${resp.body}');
+        }
+
         final rules = data.map((e) => LeaveTypeRule.fromJson(e)).toList();
         final names =
             rules.where((r) => r.active).map((r) => r.type).toSet().toList();
@@ -510,16 +522,41 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
     final durationOptions = _durationOptionsFromRule();
 
     return Scaffold(
-      // ✅ Full-width native AppBar so the title expands to screen width
-      appBar: AppBar(
-        backgroundColor: kAppBarColor,
-        centerTitle: false,
-        leading: const BackButton(color: Colors.white),
-        title: const Text(
-          "Apply Leave",
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(90),
+        child: AppBar(
+          automaticallyImplyLeading: false,
+          backgroundColor: kAppBarColor,
+          elevation: 0,
+          flexibleSpace: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                height: 90,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.arrow_back, color: Colors.white),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        "Apply Leave",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
       backgroundColor: kPrimaryBackgroundBottom,

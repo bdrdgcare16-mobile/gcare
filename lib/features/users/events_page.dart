@@ -1,8 +1,13 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:serv_app/html_stub.dart'
+    if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/models/company_data.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // ==== Colors ====
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -32,7 +37,6 @@ class _UserEventUpdatesPageState extends State<UserEventUpdatesPage> {
     _eventsFuture = fetchEventData();
   }
 
-  // Make '/uploads/abc.jpg' -> '<origin>/uploads/abc.jpg'
   String _resolveUrl(String? url) {
     if (url == null || url.isEmpty) return '';
     if (url.startsWith('http://') || url.startsWith('https://')) return url;
@@ -40,44 +44,128 @@ class _UserEventUpdatesPageState extends State<UserEventUpdatesPage> {
     return '$_apiOrigin/$url';
   }
 
-  // Format 'YYYY-MM-DD' -> 'dd/MM'
   String _fmtDate(String? d) {
     if (d == null || d.isEmpty) return '';
-    final parts = d.split('T').first.split('-'); // [yyyy, mm, dd]
+    final parts = d.split('T').first.split('-');
     if (parts.length != 3) return d;
-    return '${parts[2]}/${parts[1]}';
+    return '${parts[2]}/${parts[1]}/${parts[0]}';
+  }
+
+  Future<String?> _getToken() async {
+    // Try web localStorage first
+    if (kIsWeb) {
+      try {
+        final tokenKeys = ['token', 'jwt', 'access_token', 'auth_token'];
+        for (final key in tokenKeys) {
+          final value = html.window.localStorage[key];
+          if (value != null && value.isNotEmpty) {
+            debugPrint('[Events] Token found in localStorage: $key');
+            return value;
+          }
+        }
+      } catch (e) {
+        debugPrint('[Events] Error reading token from localStorage: $e');
+      }
+    }
+    
+    // Try mobile SharedPreferences
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final tokenKeys = ['token', 'jwt', 'access_token', 'auth_token'];
+      for (final key in tokenKeys) {
+        final value = prefs.getString(key);
+        if (value != null && value.isNotEmpty) {
+          debugPrint('[Events] Token found in SharedPreferences: $key');
+          return value;
+        }
+      }
+    } catch (e) {
+      debugPrint('[Events] Error reading token from SharedPreferences: $e');
+    }
+    
+    // Try centralized CompanyData token
+    if (CompanyData.token != null && CompanyData.token.toString().isNotEmpty) {
+      debugPrint('[Events] Token found in CompanyData');
+      return CompanyData.token.toString();
+    }
+    
+    debugPrint('[Events] No token found in any source');
+    return null;
   }
 
   Future<List<Map<String, String>>> fetchEventData() async {
-    try {
-      final res = await http.get(Uri.parse('${ApiService.baseUrl}/events'));
-      if (res.statusCode != 200) {
-        throw Exception('HTTP ${res.statusCode}');
-      }
-      final List<dynamic> data = jsonDecode(res.body);
+  try {
+    final token = await _getToken();
 
-      // Map backend fields to UI keys (image kept but not rendered)
-      return data.map<Map<String, String>>((e) {
-        final title = (e['title'] ?? '').toString();
-        final location = (e['location'] ?? '').toString();
-        final desc = (e['description'] ?? '').toString();
-        final fromDateStr = (e['fromDate'] ?? '').toString();
-        final toDateStr = (e['toDate'] ?? '').toString();
-        final imageUrl = _resolveUrl((e['imageUrl'] ?? '').toString());
+    debugPrint('[Events] Fetching events from: ${ApiService.baseUrl}/events');
+    debugPrint(
+      '[Events] Token available: ${token != null ? 'Yes (${token.length} chars)' : 'No'}',
+    );
 
-        return {
-          'event': title,
-          'from': _fmtDate(fromDateStr),
-          'to': _fmtDate(toDateStr),
-          'location': location,
-          'image': imageUrl, // not rendered
-          'desc': desc,
-        };
-      }).toList();
-    } catch (e) {
-      throw Exception('Error fetching events: $e');
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+    };
+
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
+      debugPrint('[Events] Authorization header added');
+    } else {
+      debugPrint('[Events] WARNING: No token available, request may fail');
     }
+
+    final res = await http.get(
+      Uri.parse('${ApiService.baseUrl}/events'),
+      headers: headers,
+    );
+
+    debugPrint('[Events] Response status code: ${res.statusCode}');
+    debugPrint('[Events] Response body: ${res.body}');
+
+    if (res.statusCode != 200) {
+      throw Exception('HTTP ${res.statusCode}: ${res.body}');
+    }
+
+    final decoded = jsonDecode(res.body);
+
+    List rawEvents = [];
+
+    if (decoded is List) {
+      rawEvents = decoded;
+    } else if (decoded is Map<String, dynamic>) {
+      if (decoded['events'] is List) {
+        rawEvents = decoded['events'] as List;
+      } else if (decoded['data'] is List) {
+        rawEvents = decoded['data'] as List;
+      } else {
+        throw Exception('Invalid response format: no events list found');
+      }
+    } else {
+      throw Exception('Invalid response format');
+    }
+
+    return rawEvents.map<Map<String, String>>((e) {
+      final event = Map<String, dynamic>.from(e as Map);
+
+      final title = (event['title'] ?? '').toString();
+      final location = (event['location'] ?? '').toString();
+      final desc = (event['description'] ?? '').toString();
+      final fromDateStr = (event['fromDate'] ?? '').toString();
+      final toDateStr = (event['toDate'] ?? '').toString();
+      final imageUrl = _resolveUrl((event['imageUrl'] ?? '').toString());
+
+      return {
+        'event': title,
+        'from': _fmtDate(fromDateStr),
+        'to': _fmtDate(toDateStr),
+        'location': location,
+        'image': imageUrl,
+        'desc': desc,
+      };
+    }).toList();
+  } catch (e) {
+    throw Exception('Error fetching events: $e');
   }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -87,7 +175,6 @@ class _UserEventUpdatesPageState extends State<UserEventUpdatesPage> {
         title: const Text('Event Updates'),
         backgroundColor: const Color(0xFF8C6EAF),
       ),
-      // ✅ Apply the same gradient as Rewards page
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -109,15 +196,14 @@ class _UserEventUpdatesPageState extends State<UserEventUpdatesPage> {
             }
 
             final events = snapshot.data!;
+
             return SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Header (Image column removed)
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
                     decoration: BoxDecoration(
                       color: kButtonColor,
                       borderRadius: BorderRadius.circular(8),
@@ -128,44 +214,56 @@ class _UserEventUpdatesPageState extends State<UserEventUpdatesPage> {
                           width: 130,
                           child: Text(
                             "Event Name",
-                            style: TextStyle(fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: kTextColor,
+                            ),
                           ),
                         ),
                         SizedBox(
                           width: 90,
                           child: Text(
                             "From",
-                            style: TextStyle(fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: kTextColor,
+                            ),
                           ),
                         ),
                         SizedBox(
                           width: 90,
                           child: Text(
                             "To",
-                            style: TextStyle(fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: kTextColor,
+                            ),
                           ),
                         ),
                         SizedBox(
                           width: 110,
                           child: Text(
                             "Location",
-                            style: TextStyle(fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: kTextColor,
+                            ),
                           ),
                         ),
-                        // Image column removed
                         SizedBox(
-                          width: 220, // widened since Image column is gone
+                          width: 220,
                           child: Text(
                             "Description",
-                            style: TextStyle(fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: kTextColor,
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 12),
-
-                  // Rows (Image cell removed)
                   ...events.map((event) {
                     return Container(
                       margin: const EdgeInsets.only(bottom: 10),
@@ -195,7 +293,6 @@ class _UserEventUpdatesPageState extends State<UserEventUpdatesPage> {
                             width: 110,
                             child: Text(event['location'] ?? ''),
                           ),
-                          // Image widget removed
                           SizedBox(
                             width: 220,
                             child: Text(event['desc'] ?? ''),

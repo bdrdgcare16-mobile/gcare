@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/utils/performance_logger.dart';
 import 'leave_card.dart';
 import 'leave_detail_screen.dart' show RequestDetailsCard;
 import 'package:flutter/foundation.dart';
-
 
 void _log(Object message) {
   if (kDebugMode) {
@@ -21,8 +21,8 @@ class LeaveApprovalsScreen extends StatefulWidget {
 }
 
 class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
-  String selectedTab = 'All'; // Type filter (UI label)
-  String selectedStatusFilter = 'Pending'; // Status chip
+  String selectedTab = 'All';
+  String selectedStatusFilter = 'Pending';
   final TextEditingController searchController = TextEditingController();
 
   List<Map<String, dynamic>> _rows = [];
@@ -35,42 +35,36 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     _loadAll(adjustForType: true);
   }
 
-  // ── helpers ────────────────────────────────────────────────────────────────
-
   bool _isOtherLocationTab(String label) {
     final t = label.trim().toLowerCase();
     return t == 'other location' || t == 'other_location';
   }
-  /// Map UI tab → API `type` query value (what your backend expects)
+
   String _apiTypeForTab(String ui) {
     final t = ui.trim().toLowerCase();
+
     if (kDebugMode) {
       _log('Getting API type for UI tab: $t');
     }
-    
+
     if (t == 'other location' || t == 'other_location') {
-      // We won't pass this to fetchApprovals(); other-location uses its own API.
       return 'Other Location';
     }
-    
-    // Special case: If the tab is one of our special types, we'll do client-side filtering
-    if (t == 'permission' || t == 'over time' || t == 'half day leave' || t == 'comp off' || t == 'leave type') {
-      _log('Using client-side filtering for tab: $t');
-      return 'Leave Type';  // This matches the 'type' in your database
+
+    if (t == 'permission' ||
+        t == 'over time' ||
+        t == 'half day leave' ||
+        t == 'comp off' ||
+        t == 'leave type') {
+      _log('Fetching all requests for client-side filtering - tab: $t');
+      return 'all';
     }
-    
-    // For other cases, use the existing mapping
+
     switch (t) {
       case 'late check in':
         return 'attendance:late_check_in';
       case 'early check out':
         return 'attendance:early_check_out';
-      case 'casual leave':
-        return 'Casual Leave';
-      case 'planned leave':
-        return 'Planned Leave';
-      case 'sick leave':
-        return 'Sick Leave';
       case 'all':
       default:
         return 'all';
@@ -85,21 +79,16 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     return input.trim();
   }
 
-  /// Heuristic to decide if a row is attendance, leaves, or other_location.
   String _sourceFromItemOrTab(Map<String, dynamic> item) {
-    // Explicit source wins.
     final s = (item['source'] ?? '').toString().toLowerCase();
-    if (s == 'attendance' || s == 'leaves' || s == 'other_location') return s;
+    if (s == 'attendance' || s == 'leaves' || s == 'other_location') {
+      return s;
+    }
 
-    // The tab can force it.
-    if (_isOtherLocationTab(selectedTab)) return 'other_location';
-
-    // If a leaveType field is present, it's definitely leaves.
     if ((item['leaveType'] ?? item['leave type'] ?? item['leave_type']) != null) {
       return 'leaves';
     }
 
-    // Type/category hints.
     final typeStr =
         (item['type'] ?? item['category'] ?? '').toString().toLowerCase();
     if (typeStr.contains('other') && typeStr.contains('location')) {
@@ -115,7 +104,6 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
       return 'leaves';
     }
 
-    // Field-based hints:
     if (item.containsKey('withinRadius') ||
         item.containsKey('expectedLatitude') ||
         item.containsKey('expectedLongitude') ||
@@ -126,11 +114,9 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
       return 'other_location';
     }
 
-    // Attendance fall-back.
     return 'attendance';
   }
 
-  // ✅ Only allow navigation for: Other Location, Late Check-In, Early Check-Out
   bool _isRowTappable(Map<String, dynamic> item) {
     if (_isOtherLocationTab(selectedTab)) return true;
 
@@ -149,10 +135,6 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     return isLateIn || isEarlyOut;
   }
 
-  // ───────────────────────────────────────────────────────────────────────────
-  // LEAVE SUBTYPE HELPERS
-  // ───────────────────────────────────────────────────────────────────────────
-
   String _stringOf(Map<String, dynamic> it, List<String> keys) {
     for (final k in keys) {
       final v = it[k];
@@ -163,9 +145,13 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
 
   String _leaveTypeOf(Map<String, dynamic> it) {
     final leaveType = _stringOf(it, [
-      'leave type', 'leaveType', 'leave_type',
-      'leaveCategory', 'leave_category',
-      'category', 'type'
+      'leave type',
+      'leaveType',
+      'leave_type',
+      'leaveCategory',
+      'leave_category',
+      'category',
+      'type'
     ]);
     if (leaveType.isNotEmpty) {
       _log('Found leave type: "$leaveType" in item: ${it.toString()}');
@@ -179,8 +165,10 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     final lt = _leaveTypeOf(it);
     final ltLower = lt.toLowerCase();
     final rsn = (it['reason'] ?? '').toString().toLowerCase();
-    final isMatch = ltLower == 'permission time' || ltLower == 'permission' || 
-                   ltLower == 'permission_time' || rsn.contains('permission');
+    final isMatch = ltLower == 'permission time' ||
+        ltLower == 'permission' ||
+        ltLower == 'permission_time' ||
+        rsn.contains('permission');
     if (isMatch) {
       _log('Permission match - Type: "$lt", Reason: "$rsn"');
     }
@@ -191,9 +179,11 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     final lt = _leaveTypeOf(it);
     final ltLower = lt.toLowerCase();
     final rsn = (it['reason'] ?? '').toString().toLowerCase();
-    final isMatch = ltLower == 'overtime' || ltLower == 'over time' || 
-                   ltLower == 'over_time' || rsn.contains('overtime') || 
-                   rsn.contains('over time');
+    final isMatch = ltLower == 'overtime' ||
+        ltLower == 'over time' ||
+        ltLower == 'over_time' ||
+        rsn.contains('overtime') ||
+        rsn.contains('over time');
     if (isMatch) {
       _log('Overtime match - Type: "$lt", Reason: "$rsn"');
     }
@@ -204,9 +194,12 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     final lt = _leaveTypeOf(it);
     final ltLower = lt.toLowerCase();
     final rsn = (it['reason'] ?? '').toString().toLowerCase();
-    final isMatch = ltLower == 'half-day' || ltLower == 'half day' || 
-                   ltLower == 'halfday' || ltLower == 'half_day' || 
-                   (rsn.contains('half') && rsn.contains('day'));
+    final isMatch = ltLower == 'half-day' ||
+        ltLower == 'half day' ||
+        ltLower == 'halfday' ||
+        ltLower == 'half_day' ||
+        ltLower == 'half-day' ||
+        (rsn.contains('half') && rsn.contains('day'));
     if (isMatch) {
       _log('Half day match - Type: "$lt", Reason: "$rsn"');
     }
@@ -217,250 +210,306 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     final lt = _leaveTypeOf(it);
     final ltLower = lt.toLowerCase();
     final rsn = (it['reason'] ?? '').toString().toLowerCase();
-    final isMatch = ltLower == 'comp off' || ltLower == 'compoff' || 
-                   ltLower == 'comp-off' || ltLower == 'comp_off' || 
-                   rsn.contains('comp off') || rsn.contains('compoff');
+    final isMatch = ltLower == 'comp off' ||
+        ltLower == 'compoff' ||
+        ltLower == 'comp-off' ||
+        ltLower == 'comp_off' ||
+        rsn.contains('comp off') ||
+        rsn.contains('compoff');
     if (isMatch) {
       _log('Comp off match - Type: "$lt", Reason: "$rsn"');
     }
     return isMatch;
   }
 
-  // Removed _isSpecificSubtype as it's no longer needed
-
-  /// NEW: map Firestore leaveType → **UI label used in dropdown/tabs**
   String _uiLabelForLeaveType(Map<String, dynamic> it) {
     if (_looksPermission(it)) return 'Permission';
     if (_looksOvertime(it)) return 'Over Time';
     if (_looksHalfday(it)) return 'Half Day Leave';
     if (_looksCompoff(it)) return 'Comp Off';
-    // anything else (Casual/Planned/Sick/etc.) shows under generic "Leave Type"
     return 'Leave Type';
   }
 
-  // ───────────────────────────────────────────────────────────────────────────
-  // UPDATED FILTER:
-  // - For the 4 specific tabs, also FILTER CLIENT-SIDE by leaveType.
-  // - For "Leave Type" tab, EXCLUDE those 4 subtypes.
-  // ───────────────────────────────────────────────────────────────────────────
   List<Map<String, dynamic>> _filterByTabSmart(
       List<Map<String, dynamic>> items, String tab) {
     final t = tab.trim().toLowerCase();
     if (kDebugMode) {
-      _log('Filtering ${items.length} items for tab: $t');
+      _log('=== FILTERING DEBUG START ===');
+      _log('Selected dropdown value: "$tab"');
+      _log('Normalized tab: "$t"');
+      _log('Total items before filtering: ${items.length}');
+      final itemsToLog = items.take(3).toList();
+      for (var i = 0; i < itemsToLog.length; i++) {
+        _log(
+            'Item $i - Source: "${itemsToLog[i]['source']}", Type: "${itemsToLog[i]['type']}"');
+      }
     }
 
-    // First, filter by the tab type if it's a specific leave type
-    if (t == 'permission' || t == 'over time' || t == 'half day leave' || t == 'comp off') {
-      // For these tabs, we need to check the reason field to determine the type
+    if (t == 'late check in' || t == 'early check out') {
       final result = items.where((item) {
-        final reason = (item['reason'] ?? '').toString().toLowerCase();
+        final source = (item['source'] ?? '').toString().toLowerCase();
         final type = (item['type'] ?? '').toString().toLowerCase();
-        
-        if (t == 'permission') {
-          // Check for permission in both type and reason fields
-          final isPermission = 
-              type.contains('permission') ||
-              reason.contains('permission') ||
-              reason == 'permission' ||
-              (reason.isNotEmpty && reason.length < 20);
-              
-          if (isPermission) {
-            _log('Found permission leave - Type: $type, Reason: "$reason"');
-          }
-          return isPermission;
-        } else if (t == 'over time') {
-          final isOvertime = type.contains('overtime') || 
-                            type.contains('over time') ||
-                            reason.contains('overtime') || 
-                            reason.contains('over time');
-          if (isOvertime) {
-            _log('Found overtime leave - Type: $type, Reason: "$reason"');
-          }
-          return isOvertime;
-        } else if (t == 'half day leave') {
-          // Check for various ways half-day leave might be represented
-          final isHalfDay = 
-              (type.contains('half') && type.contains('day')) ||
-              type.contains('half-day') ||
-              type.contains('halfday') ||
-              type.contains('half day') ||
-              (reason.contains('half') && reason.contains('day')) ||
-              reason.contains('half-day') ||
-              reason.contains('halfday') ||
-              reason.contains('half day');
-          
-          if (isHalfDay) {
-            _log('Found half day leave - Type: $type, Reason: "$reason"');
-          }
-          return isHalfDay;
-        } else if (t == 'comp off') {
-          final isCompOff = type.contains('comp') || 
-                           type.contains('comp off') ||
-                           type.contains('compoff') ||
-                           reason.contains('comp off') || 
-                           reason.contains('compoff');
-          if (isCompOff) {
-            _log('Found comp off leave - Type: $type, Reason: "$reason"');
-          }
-          return isCompOff;
+
+        if (source != 'attendance') return false;
+
+        final isMatch = type == t;
+        if (isMatch) {
+          _log('Found attendance request - Source: $source, Type: "$type"');
         }
-        return false;
+        return isMatch;
       }).toList();
-      
+
       _log('Found ${result.length} items matching tab: $t');
       return result;
     }
 
-    // For 'leave type' tab, show items that don't match any specific subtype
-    if (t == 'leave type') {
+    if (t == 'permission' ||
+        t == 'over time' ||
+        t == 'half day leave' ||
+        t == 'comp off' ||
+        t == 'leave type') {
       final result = items.where((item) {
-        final reason = (item['reason'] ?? '').toString().toLowerCase();
-        final isSpecialType = 
-          reason.contains('permission') ||
-          reason.contains('overtime') ||
-          reason.contains('over time') ||
-          (reason.contains('half') && reason.contains('day')) ||
-          reason.contains('half-day') ||
-          reason.contains('halfday') ||
-          reason.contains('half day') ||
-          reason.contains('comp off') ||
-          reason.contains('compoff') ||
-          reason.contains('comp-off');
-          
-        _log('Item with reason "$reason" is ${isSpecialType ? 'special' : 'generic'} leave type');
-        return !isSpecialType;
+        final source = (item['source'] ?? '').toString().toLowerCase();
+        final backendType = (item['type'] ?? '').toString().toLowerCase();
+
+        if (source != 'leaves') return false;
+
+        final isMatch = backendType == t;
+        if (isMatch) {
+          _log(
+              'Found leave request - Source: $source, Backend Type: "$backendType"');
+        }
+        return isMatch;
       }).toList();
-      
-      _log('Found ${result.length} generic leave type items');
+
+      _log('Found ${result.length} items matching tab: $t');
       return result;
     }
 
-    // For other tabs, return all items
+    if (t == 'leave type') {
+      final result = items.where((item) {
+        final source = (item['source'] ?? '').toString().toLowerCase();
+        final backendType = (item['type'] ?? '').toString().toLowerCase();
+
+        if (source != 'leaves') return false;
+
+        final isSpecialType = backendType == 'permission' ||
+            backendType == 'over time' ||
+            backendType == 'half day leave' ||
+            backendType == 'comp off';
+
+        final isGenericLeave = !isSpecialType && backendType == 'leave type';
+        if (isGenericLeave) {
+          _log('Found generic leave request - Source: $source, Backend Type: "$backendType"');
+        }
+        return isGenericLeave;
+      }).toList();
+
+      _log('Found ${result.length} generic leave type items');
+      if (kDebugMode) {
+        _log('=== FILTERING DEBUG END ===');
+      }
+      return result;
+    }
+
+    if (t == 'other location' || t == 'other_location') {
+      return items.where((item) {
+        final source = (item['source'] ?? '').toString().toLowerCase();
+        return source == 'other_location';
+      }).toList();
+    }
+
     _log('No specific filter for tab "$t", returning all ${items.length} items');
+    if (kDebugMode) {
+      _log('=== FILTERING DEBUG END ===');
+    }
     return items;
   }
 
-  /// Fetch rows for a given tab+status.
   Future<List<Map<String, dynamic>>> _fetchByTabAndStatus(
       String tab, String status) async {
+    final startTime = DateTime.now();
     _log('Fetching data for tab: $tab, status: $status');
-    
-    if (_isOtherLocationTab(tab)) {
-      final data = await ApiService.fetchOtherLocation(status: status);
-      _log('Fetched ${data.length} other location items');
-      return _filterByTabSmart(data, tab);
-    }
 
-    final apiType = _apiTypeForTab(tab);
-    _log('API type for tab "$tab": $apiType');
-    
-    final data = await ApiService.fetchApprovals(type: apiType, status: status);
-    if (kDebugMode) {
-      _log('Fetched ${data.length} items from API');
+    List<Map<String, dynamic>> result;
+    try {
+      if (_isOtherLocationTab(tab)) {
+        final data = await ApiService.fetchOtherLocationApprovals(status: status);
+        result = data.map((item) => {
+          ...item,
+          'source': 'other_location',
+          'type': 'Other Location',
+        }).toList();
+      } else {
+        final t = tab.trim().toLowerCase();
+
+        if (t == 'all') {
+          _log('Fetching merged data for "All" tab');
+          // OPTIMIZATION: Fetch attendance and leave data in parallel
+          final futures = await Future.wait([
+            ApiService.fetchAttendanceApprovals(status: status),
+            ApiService.fetchLeaveApprovals(status: status),
+          ]);
+
+          final List<Map<String, dynamic>> attendanceData = futures[0];
+          final List<Map<String, dynamic>> leaveData = futures[1];
+
+          if (kDebugMode) {
+            _log('Fetched ${attendanceData.length} attendance items');
+            _log('Fetched ${leaveData.length} leave items');
+            _log('Total merged items: ${attendanceData.length + leaveData.length}');
+          }
+
+          final mergedData = [...attendanceData, ...leaveData];
+          result = _filterByTabSmart(
+            List<Map<String, dynamic>>.from(mergedData),
+            tab,
+          );
+        } else if (t == 'late check in' || t == 'early check out') {
+          _log('Fetching attendance data for tab: $tab');
+          final data = await ApiService.fetchAttendanceApprovals(status: status);
+          if (kDebugMode) {
+            _log('Fetched ${data.length} attendance items');
+          }
+          result = _filterByTabSmart(data, tab);
+        } else if (t == 'permission' ||
+            t == 'over time' ||
+            t == 'half day leave' ||
+            t == 'comp off' ||
+            t == 'leave type') {
+          _log('Fetching leave data for tab: $tab');
+          final data = await ApiService.fetchLeaveApprovals(status: status);
+          if (kDebugMode) {
+            _log('Fetched ${data.length} leave items');
+          }
+          result = _filterByTabSmart(data, tab);
+        } else {
+          final apiType = _apiTypeForTab(tab);
+          _log('API type for tab "$tab": $apiType');
+
+          final data = await ApiService.fetchApprovals(type: apiType, status: status);
+          if (kDebugMode) {
+            _log('Fetched ${data.length} items from API');
+          }
+          result = _filterByTabSmart(data, tab);
+        }
+      }
+
+      final endTime = DateTime.now();
+      PerformanceLogger.logApiCall(
+        screen: 'LeaveApprovalsScreen',
+        endpoint: 'approvals/$tab',
+        startTime: startTime,
+        endTime: endTime,
+        statusCode: 200,
+        itemCount: result.length,
+      );
+
+      return result;
+    } catch (e) {
+      final endTime = DateTime.now();
+      PerformanceLogger.logApiCall(
+        screen: 'LeaveApprovalsScreen',
+        endpoint: 'approvals/$tab',
+        startTime: startTime,
+        endTime: endTime,
+        statusCode: 0,
+        error: e.toString(),
+      );
+      rethrow;
     }
-    
-    
-    // Log the first few items to see their structure
-    final itemsToLog = data.take(3).toList();
-    for (var i = 0; i < itemsToLog.length; i++) {
-      _log('Item $i keys: ${itemsToLog[i].keys.toList()}');
-      _log('Item $i values: ${itemsToLog[i].values.take(5).toList()}...');
-    }
-    
-    final filtered = _filterByTabSmart(data, tab);
-    _log('After filtering, ${filtered.length} items match tab "$tab"');
-    
-    return filtered;
   }
 
   Future<void> _loadAll({bool adjustForType = false}) async {
-  setState(() => _loading = true);
+    setState(() => _loading = true);
 
-  try {
-    final allData = await _fetchByTabAndStatus(selectedTab, 'All');
+    try {
+      final allData = await _fetchByTabAndStatus(selectedTab, 'All');
 
-    String rowStatus(Map<String, dynamic> e) {
-      return (e['status'] ?? e['approvalStatus'] ?? '')
-          .toString()
-          .trim();
-    }
+      String rowStatus(Map<String, dynamic> e) {
+        return (e['status'] ?? e['approvalStatus'] ?? '').toString().trim();
+      }
 
-    final pending =
-        allData.where((e) => rowStatus(e) == 'Pending').toList();
+      final pending = allData.where((e) => rowStatus(e) == 'Pending').toList();
+      final approved = allData.where((e) => rowStatus(e) == 'Approved').toList();
+      final rejected = allData.where((e) => rowStatus(e) == 'Rejected').toList();
 
-    final approved =
-        allData.where((e) => rowStatus(e) == 'Approved').toList();
+      final newPendingCount = pending.length;
+      final newApprovedCount = approved.length;
+      final newRejectedCount = rejected.length;
 
-    final rejected =
-        allData.where((e) => rowStatus(e) == 'Rejected').toList();
+      String nextStatus = selectedStatusFilter;
 
-    final newPendingCount = pending.length;
-    final newApprovedCount = approved.length;
-    final newRejectedCount = rejected.length;
+      if (adjustForType) {
+        final emptyNow = (nextStatus == 'Pending' && newPendingCount == 0) ||
+            (nextStatus == 'Approved' && newApprovedCount == 0) ||
+            (nextStatus == 'Rejected' && newRejectedCount == 0);
 
-    String nextStatus = selectedStatusFilter;
-
-    if (adjustForType) {
-      final emptyNow = (nextStatus == 'Pending' && newPendingCount == 0) ||
-          (nextStatus == 'Approved' && newApprovedCount == 0) ||
-          (nextStatus == 'Rejected' && newRejectedCount == 0);
-
-      if (emptyNow) {
-        if (newPendingCount > 0) {
-          nextStatus = 'Pending';
-        } else if (newApprovedCount > 0) {
-          nextStatus = 'Approved';
-        } else if (newRejectedCount > 0) {
-          nextStatus = 'Rejected';
+        if (emptyNow) {
+          if (newPendingCount > 0) {
+            nextStatus = 'Pending';
+          } else if (newApprovedCount > 0) {
+            nextStatus = 'Approved';
+          } else if (newRejectedCount > 0) {
+            nextStatus = 'Rejected';
+          }
         }
       }
-    }
 
-    List<Map<String, dynamic>> current;
-    switch (nextStatus) {
-      case 'Approved':
-        current = approved;
-        break;
-      case 'Rejected':
-        current = rejected;
-        break;
-      case 'Pending':
-      default:
-        current = pending;
-        break;
-    }
+      List<Map<String, dynamic>> current;
+      switch (nextStatus) {
+        case 'Approved':
+          current = approved;
+          break;
+        case 'Rejected':
+          current = rejected;
+          break;
+        case 'Pending':
+        default:
+          current = pending;
+          break;
+      }
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    setState(() {
-      _cPending = newPendingCount;
-      _cApproved = newApprovedCount;
-      _cRejected = newRejectedCount;
-      selectedStatusFilter = nextStatus;
-      _rows = current;
-    });
-  } catch (e) {
-    _snack('Failed to fetch approvals: $e');
+      setState(() {
+        _cPending = newPendingCount;
+        _cApproved = newApprovedCount;
+        _cRejected = newRejectedCount;
+        selectedStatusFilter = nextStatus;
+        _rows = current;
+      });
+    } catch (e) {
+      _snack('Failed to fetch approvals: $e');
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    setState(() {
-      _rows = [];
-      _cPending = 0;
-      _cApproved = 0;
-      _cRejected = 0;
-    });
-  } finally {
-    if (mounted) {
-      setState(() => _loading = false);
+      setState(() {
+        _rows = [];
+        _cPending = 0;
+        _cApproved = 0;
+        _cRejected = 0;
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
-}
-  void _snack(String msg) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
 
-  // Turn raw backend item into values for the card
+  void _snack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: const Color(0xFF4A3B67),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    );
+  }
+
   Map<String, dynamic> _toDisplay(Map<String, dynamic> item) {
     String pickStr(List keys, {String fallback = '-'}) {
       for (final k in keys) {
@@ -474,7 +523,6 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     final requestDate =
         pickStr(['requestDate', 'date', 'startDate', 'selectDate'], fallback: '');
 
-    // Show the right UI label in the card based on leaveType
     final typeLabel = _sourceFromItemOrTab(item) == 'leaves'
         ? _uiLabelForLeaveType(item)
         : pickStr(['type', 'category'], fallback: '-');
@@ -494,7 +542,6 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     };
   }
 
-  // 🔧 Prefer otherLocId first to avoid mixing ids between sources
   String _pickAnyId(Map<String, dynamic> item) {
     for (final k in [
       'otherLocId',
@@ -524,15 +571,22 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
       if (src == 'attendance' || src == 'other_location') {
         final id = _pickAnyId(backendItem);
         String empid =
-            (backendItem['empid'] ?? backendItem['empId'] ?? backendItem['employeeId'])?.toString() ?? '';
-        String date  =
-            (backendItem['requestDate'] ?? backendItem['date'] ?? backendItem['onDate'])?.toString() ?? '';
+            (backendItem['empid'] ??
+                        backendItem['empId'] ??
+                        backendItem['employeeId'])
+                    ?.toString() ??
+                '';
+        String date =
+            (backendItem['requestDate'] ?? backendItem['date'] ?? backendItem['onDate'])
+                    ?.toString() ??
+                '';
         if (date.length > 10) date = date.substring(0, 10);
 
         if (id.isNotEmpty) {
           details = await ApiService.fetchRequestDetails(id: id, src: src);
         } else if (empid.isNotEmpty && date.isNotEmpty) {
-          details = await ApiService.fetchRequestDetails(empid: empid, date: date);
+          details =
+              await ApiService.fetchRequestDetails(empid: empid, date: date);
         }
       }
     } catch (e) {
@@ -562,8 +616,8 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
             remarks: backendItem['decisionRemarks'],
           );
         } else {
-          final payload =
-              Map<String, dynamic>.from(backendItem)..['status'] = normalized;
+          final payload = Map<String, dynamic>.from(backendItem)
+            ..['status'] = normalized;
           await ApiService.decideApproval(
             item: payload,
             status: normalized,
@@ -579,13 +633,15 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     }
   }
 
-  // ── UI ─────────────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
-    const kAppBarColor = Color(0xFF8C6EAF);
-    const kBgTop = Color(0xFFFFFFFF);
-    const kBgBottom = Color(0xFFD1C4E9);
+    const kAppBarColor = Color(0xFF7C63A8);
+    const kTextPrimary = Color(0xFF2D2438);
+    const kTextSecondary = Color(0xFF6E647D);
+    const kSurface = Colors.white;
+    const kBgTop = Color(0xFFFDFBFF);
+    const kBgBottom = Color(0xFFF1EAF9);
+    const kBorder = Color(0xFFE4DDF0);
 
     final today = DateFormat('dd MMM yyyy').format(DateTime.now());
 
@@ -605,18 +661,8 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: kAppBarColor,
-        title: const Text("Leave Approvals"),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Center(child: Text(today)),
-          ),
-        ],
-      ),
+      backgroundColor: kBgTop,
       body: Container(
-        padding: const EdgeInsets.all(10),
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             colors: [kBgTop, kBgBottom],
@@ -624,166 +670,384 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
             end: Alignment.bottomCenter,
           ),
         ),
-        child: Column(
-          children: [
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Container(
-                    height: 30,
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    margin: const EdgeInsets.only(right: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.deepPurple[100],
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.black),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: selectedTab,
-                        onChanged: (val) async {
-                          setState(() => selectedTab = val!);
-                          await _loadAll(adjustForType: true);
-                        },
-                        icon: const Icon(Icons.arrow_drop_down,
-                            size: 18, color: Colors.black),
-                        style: const TextStyle(
-                            color: Colors.black,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500),
-                        dropdownColor: Colors.white,
-                        isDense: true,
-                        isExpanded: false,
-                        items: const [
-                          'All',
-                          'Late check in',
-                          'Early check out',
-                          'Leave Type',
-                          'Permission',
-                          'Over Time',
-                          'Half Day Leave',
-                          'Comp Off',
-                          'Other Location',
-                        ].map((t) =>
-                            DropdownMenuItem(value: t, child: Text(t))).toList(),
+                  RichText(
+                    text: const TextSpan(
+                      style: TextStyle(
+                        fontSize: 25,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.5,
+                        height: 1.15,
                       ),
+                      children: [
+                        TextSpan(
+                          text: 'Leave\n',
+                          style: TextStyle(color: Color(0xFF1E1B4B)),
+                        ),
+                        TextSpan(
+                          text: 'Approvals',
+                          style: TextStyle(color: Color(0xFF8B5CF6)),
+                        ),
+                      ],
                     ),
                   ),
-                  _buildStatusButton("Pending", _cPending),
-                  const SizedBox(width: 6),
-                  _buildStatusButton("Approved", _cApproved),
-                  const SizedBox(width: 6),
-                  _buildStatusButton("Rejected", _cRejected),
+                  Row(
+                    children: [
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF4CAF50),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      const Text(
+                        'Live  ·  ',
+                        style: TextStyle(
+                          color: Color(0xFF8B7AA8),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                      Text(
+                        today,
+                        style: const TextStyle(
+                          color: Color(0xFF8B7AA8),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: searchController,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                hintText: 'Search...',
-                prefixIcon: const Icon(Icons.search),
-                filled: true,
-                fillColor: Colors.white,
-                border:
-                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-            const SizedBox(height: 10),
-            if (_loading)
-              const Expanded(child: Center(child: CircularProgressIndicator()))
-            else
-              Expanded(
-                child: filteredDisplay.isEmpty
-                    ? const Center(child: Text('No requests'))
-                    : ListView.builder(
-                        itemCount: filteredDisplay.length,
-                        itemBuilder: (context, viewIdx) {
-                          final backendIdx = filteredIndices[viewIdx];
-                          final backendItem = _rows[backendIdx];
-                          final viewItem = filteredDisplay[viewIdx];
-
-                          final tappable = _isRowTappable(backendItem);
-
-                          final card = LeaveCard(
-                            item: viewItem,
-                            onStatusChange: (status) async {
-                              try {
-                                final normalized = _normalizeDecision(status);
-                                if (normalized != 'Approved' &&
-                                    normalized != 'Rejected') {
-                                  throw 'Invalid status "$status"';
-                                }
-                                final src = _sourceFromItemOrTab(backendItem);
-
-                                if (src == 'other_location') {
-                                  final id = _pickAnyId(backendItem);
-                                  if (id.isEmpty) throw 'Missing id for other-location';
-                                  await ApiService.decideOtherLocation(
-                                    id: id,
-                                    status: normalized,
-                                    remarks: backendItem['decisionRemarks'],
-                                  );
-                                } else {
-                                  final payloadItem =
-                                      Map<String, dynamic>.from(backendItem)
-                                        ..['status'] = normalized;
-                                  await ApiService.decideApproval(
-                                    item: payloadItem,
-                                    status: normalized,
-                                    sourceHint: src,
-                                  );
-                                }
-
-                                _snack('Updated: $normalized');
-                                await _loadAll(adjustForType: true);
-                              } catch (e) {
-                                _snack('Update failed: $e');
-                              }
-                            },
-                          );
-
-                          if (!tappable) return card;
-
-                          return GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: () => _openDetails(backendItem, viewItem),
-                            child: card,
-                          );
-                        },
+              const SizedBox(height: 24),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: kSurface.withOpacity(0.92),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: kBorder),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x12000000),
+                      blurRadius: 16,
+                      offset: Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Request Filters',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: kTextPrimary,
                       ),
+                    ),
+                    const SizedBox(height: 12),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          Container(
+                            height: 42,
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 12),
+                            margin: const EdgeInsets.only(right: 8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF7F3FC),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: kBorder),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: selectedTab,
+                                onChanged: (val) async {
+                                  setState(() => selectedTab = val!);
+                                  await _loadAll(adjustForType: true);
+                                },
+                                icon: const Icon(
+                                  Icons.keyboard_arrow_down_rounded,
+                                  color: kTextPrimary,
+                                ),
+                                style: const TextStyle(
+                                  color: kTextPrimary,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                dropdownColor: Colors.white,
+                                borderRadius: BorderRadius.circular(14),
+                                items: const [
+                                  'All',
+                                  'Late check in',
+                                  'Early check out',
+                                  'Leave Type',
+                                  'Permission',
+                                  'Over Time',
+                                  'Half Day Leave',
+                                  'Comp Off',
+                                  'Other Location',
+                                ]
+                                    .map(
+                                      (t) => DropdownMenuItem(
+                                        value: t,
+                                        child: Text(t),
+                                      ),
+                                    )
+                                    .toList(),
+                              ),
+                            ),
+                          ),
+                          _buildStatusButton("Pending", _cPending),
+                          const SizedBox(width: 8),
+                          _buildStatusButton("Approved", _cApproved),
+                          const SizedBox(width: 8),
+                          _buildStatusButton("Rejected", _cRejected),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-          ],
+              const SizedBox(height: 14),
+              Container(
+                decoration: BoxDecoration(
+                  color: kSurface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: kBorder),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x0E000000),
+                      blurRadius: 10,
+                      offset: Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: TextField(
+                  controller: searchController,
+                  onChanged: (_) => setState(() {}),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: kTextPrimary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'Search by employee, type, department...',
+                    hintStyle: const TextStyle(
+                      color: kTextSecondary,
+                      fontSize: 13,
+                    ),
+                    prefixIcon: const Icon(
+                      Icons.search_rounded,
+                      color: kTextSecondary,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide.none,
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(
+                        color: Color(0xFFBDA9DD),
+                        width: 1.2,
+                      ),
+                    ),
+                    filled: true,
+                    fillColor: kSurface,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 14,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Expanded(
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : filteredDisplay.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: const [
+                                Icon(
+                                  Icons.inbox_outlined,
+                                  size: 42,
+                                  color: kTextSecondary,
+                                ),
+                                SizedBox(height: 10),
+                                Text(
+                                  'No requests found',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                    color: kTextPrimary,
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  'Try changing the filter or search text.',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: kTextSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            physics: const BouncingScrollPhysics(),
+                            itemCount: filteredDisplay.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 10),
+                            itemBuilder: (context, viewIdx) {
+                              final backendIdx = filteredIndices[viewIdx];
+                              final backendItem = _rows[backendIdx];
+                              final viewItem = filteredDisplay[viewIdx];
+
+                              final tappable = _isRowTappable(backendItem);
+
+                              final card = Material(
+                                color: Colors.transparent,
+                                borderRadius: BorderRadius.circular(18),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(18),
+                                  onTap: tappable
+                                      ? () => _openDetails(
+                                            backendItem,
+                                            viewItem,
+                                          )
+                                      : null,
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 180),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(18),
+                                      color: Colors.transparent,
+                                    ),
+                                    child: LeaveCard(
+                                      item: viewItem,
+                                      onStatusChange: (status) async {
+                                        try {
+                                          final normalized = _normalizeDecision(status);
+                                          if (normalized != 'Approved' &&
+                                              normalized != 'Rejected') {
+                                            throw 'Invalid status "$status"';
+                                          }
+                                          final src =
+                                              _sourceFromItemOrTab(backendItem);
+
+                                          if (src == 'other_location') {
+                                            final id =
+                                                _pickAnyId(backendItem);
+                                            if (id.isEmpty) {
+                                              throw 'Missing id for other-location';
+                                            }
+                                            await ApiService.decideOtherLocation(
+                                              id: id,
+                                              status: normalized,
+                                              remarks: backendItem['decisionRemarks'],
+                                            );
+                                          } else {
+                                            final payloadItem =
+                                                Map<String, dynamic>.from(backendItem)
+                                                  ..['status'] = normalized;
+                                            await ApiService.decideApproval(
+                                              item: payloadItem,
+                                              status: normalized,
+                                              sourceHint: src,
+                                            );
+                                          }
+
+                                          _snack('Updated: $normalized');
+                                          await _loadAll(adjustForType: true);
+                                        } catch (e) {
+                                          _snack('Update failed: $e');
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              );
+
+                              return card;
+                            },
+                          ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildStatusButton(String label, int count) {
-    final color = label == 'Pending'
-        ? Colors.pink[100]!
-        : label == 'Approved'
-            ? Colors.greenAccent
-            : Colors.red[200]!;
     final isSelected = selectedStatusFilter == label;
+
+    final Color bgColor = label == 'Pending'
+        ? const Color(0xFFFFE4EF)
+        : label == 'Approved'
+            ? const Color(0xFFE2F7EA)
+            : const Color(0xFFFFE4E4);
+
+    final Color selectedColor = label == 'Pending'
+        ? const Color(0xFFE85C9E)
+        : label == 'Approved'
+            ? const Color(0xFF33A96B)
+            : const Color(0xFFD95C5C);
+
+    final Color textColor = isSelected ? Colors.white : const Color(0xFF3D3150);
 
     return GestureDetector(
       onTap: () async {
         setState(() => selectedStatusFilter = label);
         await _loadAll();
       },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: isSelected ? 1.0 : 0.7),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.black),
+          color: isSelected ? selectedColor : bgColor,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isSelected ? selectedColor : const Color(0xFFE4DDF0),
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: selectedColor.withOpacity(0.20),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : const [],
         ),
         child: Text(
-          "$label ($count)",
-          style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 11),
+          '$label ($count)',
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 12,
+            color: textColor,
+          ),
         ),
       ),
     );

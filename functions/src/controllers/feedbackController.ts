@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
-import { Timestamp } from 'firebase-admin/firestore'  
+import { Timestamp } from 'firebase-admin/firestore';
+import { trackUsage } from '../services/usageService';
 
 type FeedbackDoc = {
   empid: string;
@@ -8,11 +9,22 @@ type FeedbackDoc = {
   date: Timestamp | Date;
   response: string;
   visibility: string[];
+  companyId: string;
+  createdBy?: string;
+};
+
+type AuthUser = {
+  userId?: string;
+  uid?: string;
+  empid?: string | null;
+  name?: string | null;
+  email?: string | null;
+  role?: string | null;
+  companyId?: string | null;
 };
 
 const COLL = 'feedbacks';
 
-// Helper: safely get Firestore from app.locals (set by router factory)
 const getDb = (req: Request): FirebaseFirestore.Firestore => {
   const locals = req.app?.locals as { db?: FirebaseFirestore.Firestore } | undefined;
   if (!locals?.db) {
@@ -21,13 +33,45 @@ const getDb = (req: Request): FirebaseFirestore.Firestore => {
   return locals.db;
 };
 
+const getReqUser = (req: Request): AuthUser => {
+  return ((req as any).user || {}) as AuthUser;
+};
+
+const getReqCompanyId = (req: Request): string | null => {
+  return String(getReqUser(req)?.companyId || '').trim() || null;
+};
+
+const getReqActorId = (req: Request): string | null => {
+  const user = getReqUser(req);
+  return String(user.userId || user.uid || '').trim() || null;
+};
+
+/* ============================== Usage Tracking Helper ============================== */
+
+async function trackFeedbackUsage(
+  req: Request,
+  updates: Record<string, number>
+) {
+  try {
+    const user = (req as any).user;
+    await trackUsage({
+      companyId: user?.companyId || '',
+      companyName: user?.companyName || '',
+      plan: user?.plan || '',
+      updates,
+    });
+  } catch (trackingError) {
+    console.error('Usage tracking failed in feedback:', trackingError);
+  }
+}
+
 /**
  * POST /api/feedback
- * Headers (either):
- *  - x-user-id  (users/<id> doc will be resolved to empid/name), OR
- *  - x-empid AND x-name
  * Body:
  *  - { message: string }
+ *
+ * User/company info is resolved from JWT middleware first.
+ * Fallback to headers/body only if needed.
  */
 export const createFeedback = async (req: Request, res: Response) => {
   try {
@@ -35,35 +79,43 @@ export const createFeedback = async (req: Request, res: Response) => {
 
     const message = String(req.body?.message ?? '').trim();
     const headerUserId = String(req.header('x-user-id') ?? '').trim();
-    const headerEmpId  = String(req.header('x-empid') ?? '').trim();
-    const headerName   = String(req.header('x-name') ?? '').trim();
+    const headerEmpId = String(req.header('x-empid') ?? '').trim();
+    const headerName = String(req.header('x-name') ?? '').trim();
+
+    const authUser = getReqUser(req);
+    const companyId = getReqCompanyId(req);
+    const actorId = getReqActorId(req);
+
+    if (!companyId) {
+      return res.status(401).json({ error: 'Unauthorized: companyId missing in token' });
+    }
 
     if (!message) {
       return res.status(400).json({ error: 'Missing message' });
     }
 
-    let empid = '';
-    let name  = '';
+    let empid = String(authUser?.empid || '').trim();
+    let name = String(authUser?.name || '').trim();
 
-    if (headerUserId) {
-      // Resolve from users/<id>
-      const snap = await db.collection('users').doc(headerUserId).get();
-      if (!snap.exists) {
-        return res.status(404).json({ error: 'User not found in users DB' });
+    if (!empid || !name) {
+      if (headerUserId) {
+        const snap = await db.collection('users').doc(headerUserId).get();
+        if (!snap.exists) {
+          return res.status(404).json({ error: 'User not found in users DB' });
+        }
+
+        const u = snap.data() ?? {};
+        empid = String((u as any).empid ?? '').trim();
+        name = String((u as any).name ?? '').trim();
+      } else {
+        empid = headerEmpId || String(req.body?.empid ?? '').trim();
+        name = headerName || String(req.body?.name ?? '').trim();
       }
-      const u = snap.data() ?? {};
-      empid = String((u as any).empid ?? '');
-      name  = String((u as any).name  ?? '');
-    } else {
-      // Fallback to direct meta
-      empid = headerEmpId || String(req.body?.empid ?? '');
-      name  = headerName  || String(req.body?.name  ?? '');
     }
 
     if (!empid || !name) {
       return res.status(400).json({
-        error:
-          'Missing user id and emp meta. Provide x-user-id OR x-empid/x-name (or empid/name in body).',
+        error: 'Missing employee details. Provide empid and name through JWT, headers, or body.',
       });
     }
 
@@ -71,13 +123,25 @@ export const createFeedback = async (req: Request, res: Response) => {
       empid,
       name,
       message,
-      date:Timestamp.now(),
+      date: Timestamp.now(),
       response: '',
       visibility: ['admin'],
+      companyId,
+      createdBy: actorId || '',
     };
 
     const ref = await db.collection(COLL).add(doc);
-    return res.status(201).json({ id: ref.id });
+
+    // Track usage after successful feedback creation
+    await trackFeedbackUsage(req, {
+      writeCount: 1,
+      apiCalls: 1,
+    });
+
+    return res.status(201).json({
+      message: 'Feedback submitted successfully',
+      id: ref.id,
+    });
   } catch (err: any) {
     console.error('createFeedback error:', err);
     return res.status(500).json({ error: err?.message ?? 'Server error' });
@@ -86,23 +150,46 @@ export const createFeedback = async (req: Request, res: Response) => {
 
 /**
  * GET /api/feedback
- * Returns an array of feedbacks (newest first).
+ * Returns feedbacks only for the logged-in company.
  */
 export const getAllFeedback = async (req: Request, res: Response) => {
   try {
-    const db = getDb(req);
-    const snap = await db.collection(COLL).orderBy('date', 'desc').get();
+    const locals = req.app?.locals as { db?: FirebaseFirestore.Firestore } | undefined;
+    const db = locals?.db;
+
+    console.log('GET /feedback hit');
+    console.log('req.user =', (req as any).user);
+    console.log('db exists =', !!db);
+
+    if (!db) {
+      return res.status(500).json({ error: 'Database not initialized in app.locals' });
+    }
+
+    const companyId = String(((req as any).user?.companyId ?? '')).trim();
+    console.log('companyId =', companyId);
+
+    if (!companyId) {
+      return res.status(401).json({ error: 'Unauthorized: companyId missing in token' });
+    }
+
+    const snap = await db
+      .collection('feedbacks')
+      .where('companyId', '==', companyId)
+      .get();
+
+    console.log('feedback count =', snap.size);
 
     const data = snap.docs.map((d) => {
-      const x = d.data() as Partial<FeedbackDoc> & { [k: string]: any };
+      const x = d.data() as any;
 
-      // Normalize date to ISO string
       let iso = '';
       const dt = x?.date;
-      if (dt && typeof (dt as any).toDate === 'function') {
-        iso = (dt as Timestamp).toDate().toISOString();
+      if (dt && typeof dt.toDate === 'function') {
+        iso = dt.toDate().toISOString();
       } else if (dt instanceof Date) {
         iso = dt.toISOString();
+      } else if (typeof dt === 'string') {
+        iso = dt;
       }
 
       return {
@@ -111,12 +198,21 @@ export const getAllFeedback = async (req: Request, res: Response) => {
         name: String(x?.name ?? ''),
         message: String(x?.message ?? ''),
         response: String(x?.response ?? ''),
-        visibility: Array.isArray(x?.visibility) ? x.visibility! : [],
+        visibility: Array.isArray(x?.visibility) ? x.visibility : [],
+        companyId: String(x?.companyId ?? ''),
         date: iso,
       };
     });
 
-    return res.json(data);
+    data.sort((a, b) => b.date.localeCompare(a.date));
+
+    // Track usage after successful feedback read
+    await trackFeedbackUsage(req, {
+      readCount: 1,
+      apiCalls: 1,
+    });
+
+    return res.status(200).json(data);
   } catch (err: any) {
     console.error('getAllFeedback error:', err);
     return res.status(500).json({ error: err?.message ?? 'Server error' });

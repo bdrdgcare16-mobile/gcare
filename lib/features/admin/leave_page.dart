@@ -63,6 +63,31 @@ DateTime? _parseAnyDate(dynamic v) {
   return null;
 }
 
+// Enhanced Firestore timestamp parsing specifically for the API response format
+DateTime? _parseFirestoreTimestamp(dynamic v) {
+  try {
+    if (v == null) return null;
+    
+    // Handle Firestore timestamp format: { "_seconds": 1775001600, "_nanoseconds": 0 }
+    if (v is Map && v.containsKey('_seconds')) {
+      final sec = v['_seconds'];
+      final nanos = v['_nanoseconds'] ?? 0;
+      
+      if (sec is num && nanos is num) {
+        final totalMs = (sec * 1000) + (nanos / 1000000).round();
+        print('DEBUG: Converting Firestore timestamp: seconds=$sec, nanoseconds=$nanos, totalMs=$totalMs');
+        return DateTime.fromMillisecondsSinceEpoch(totalMs.round(), isUtc: true).toLocal();
+      }
+    }
+    
+    // Fallback to original parsing for string dates or other formats
+    return _parseAnyDate(v);
+  } catch (e) {
+    print('DEBUG: Error parsing Firestore timestamp: $e, value: $v');
+    return null;
+  }
+}
+
 String _fmtDDMMYYYY(DateTime? d) =>
     d == null ? '' : DateFormat('dd-MM-yyyy').format(d);
 
@@ -130,21 +155,64 @@ class _LeavePageState extends State<LeavePage> {
           .get(Uri.parse('${ApiService.baseUrl}/leave-types'), headers: _headers(token))
           .timeout(const Duration(seconds: 15));
 
+      // Debug prints for troubleshooting
+      print('DEBUG: Response status code: ${res.statusCode}');
+      print('DEBUG: Response body: ${res.body}');
+
       if (res.statusCode == 200) {
         final dynamic body = jsonDecode(res.body);
         final List<Map<String, String>> fresh = [];
 
-        if (body is List) {
+        // Parse response as Map<String, dynamic> with 'data' field
+        if (body is Map<String, dynamic>) {
+          final dynamic data = body['data'];
+          print('DEBUG: Parsed data type: ${data.runtimeType}');
+          print('DEBUG: Parsed data length: ${data is List ? data.length : 'N/A'}');
+          
+          if (data is List) {
+            for (final item in data) {
+              if (item is Map<String, dynamic>) {
+                final String type = (item['type'] ?? '').toString();
+                final String shift =
+                    (item['shift'] ?? item['dept'] ?? '').toString();
+
+                // Enhanced Firestore timestamp conversion
+                final DateTime? fromDt = _parseFirestoreTimestamp(item['fromDate']);
+                final DateTime? toDt = _parseFirestoreTimestamp(item['toDate']);
+
+                int? allowedDays;
+                final dynamic ad = item['allowedDays'] ?? item['days'];
+                if (ad is num) {
+                  allowedDays = ad.toInt();
+                } else if (ad is String) {
+                  allowedDays = int.tryParse(ad);
+                }
+                if (allowedDays == null && fromDt != null && toDt != null) {
+                  allowedDays = toDt.difference(fromDt).inDays + 1;
+                }
+
+                fresh.add({
+                  'type': type,
+                  'shift': shift,
+                  'fromDate': _fmtDDMMYYYY(fromDt),
+                  'toDate': _fmtDDMMYYYY(toDt),
+                  'allowedDays': (allowedDays ?? 0).toString(),
+                  'id': (item['id'] ?? '').toString(),
+                });
+              }
+            }
+          }
+        } else if (body is List) {
+          // Fallback for direct list response (if API format changes)
+          print('DEBUG: Using fallback list parsing');
           for (final item in body) {
             if (item is Map<String, dynamic>) {
               final String type = (item['type'] ?? '').toString();
               final String shift =
                   (item['shift'] ?? item['dept'] ?? '').toString();
 
-              final DateTime? fromDt =
-                  _parseAnyDate(item['fromDate'] ?? item['from']);
-              final DateTime? toDt =
-                  _parseAnyDate(item['toDate'] ?? item['to']);
+              final DateTime? fromDt = _parseFirestoreTimestamp(item['fromDate']);
+              final DateTime? toDt = _parseFirestoreTimestamp(item['toDate']);
 
               int? allowedDays;
               final dynamic ad = item['allowedDays'] ?? item['days'];
@@ -169,6 +237,8 @@ class _LeavePageState extends State<LeavePage> {
           }
         }
 
+        print('DEBUG: Final leaveTypes list length: ${fresh.length}');
+        
         leaveList
           ..clear()
           ..addAll(fresh);

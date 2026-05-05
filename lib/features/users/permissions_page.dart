@@ -33,62 +33,16 @@ class _PermissionsPageState extends State<PermissionsPage>
 
   // If you removed CAMERA from AndroidManifest, set this to false to hide the tile.
   // (You can also auto-hide at runtime; left as a constant for clarity.)
-  static const bool _showCameraTile = true;
+  static const bool _showCameraTile = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _syncPermissions().then((_) {
-      // After syncing permissions, check if we need to request background location
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _checkBackgroundLocationPermission();
-      });
-    });
+    _syncPermissions();
   }
 
-  // Check if we need to request background location permission
-  Future<void> _checkBackgroundLocationPermission() async {
-    if (!mounted) return;
-    
-    final locationStatus = await Permission.location.status;
-    final bgLocationStatus = await Permission.locationAlways.status;
-    
-    // Show dialog if location is granted but background location is not
-    if (locationStatus.isGranted && !bgLocationStatus.isGranted) {
-      if (!mounted) return;
-      
-      // Show dialog explaining why we need background location
-      final shouldOpenSettings = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          title: const Text('Background Location Required'),
-          content: const Text(
-            'To track your attendance accurately, SERV needs access to your location even when the app is closed or not in use.\n\n'
-            'Please change the location permission to "Allow all the time" in the next screen.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Not Now'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Open Settings'),
-            ),
-          ],
-        ),
-      );
-      
-      if (shouldOpenSettings == true) {
-        await openAppSettings();
-        // Re-check permissions after returning from settings
-        await _syncPermissions();
-      }
-    }
-  }
-
+  
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -98,11 +52,7 @@ class _PermissionsPageState extends State<PermissionsPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _syncPermissions().then((_) {
-        if (mounted) {
-          _checkBackgroundLocationPermission();
-        }
-      });
+      _syncPermissions();
     }
   }
 

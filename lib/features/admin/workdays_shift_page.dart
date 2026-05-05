@@ -7,7 +7,6 @@ import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
 import 'create_shift_page.dart';
-import 'shift_permission_page.dart';
 
 import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/services/api_service.dart';

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as leaveController from '../controllers/leaveController';
+import * as leaveTypeController from '../controllers/leaveTypeController';
 import { authMiddleware, roleMiddleware } from '../middlewares/authMiddleware';
 
 const router = Router();
@@ -58,19 +59,19 @@ router.get('/:id', leaveController.getLeaveRequestById);
  * GET /api/leave-types
  * Get all leave types
  */
-router.get('/types/all', roleMiddleware(['admin']), leaveController.getLeaveTypes);
+router.get('/types/all', roleMiddleware(['admin']), leaveTypeController.listLeaveTypes);
 
 /**
  * POST /api/leave-types
  * Add a new leave type (admin only)
  */
-router.post('/types', roleMiddleware(['admin']), leaveController.addLeaveType);
+router.post('/types', roleMiddleware(['admin']), leaveTypeController.createLeaveType);
 
 /**
  * DELETE /api/leave-types
  * Delete a leave type (admin only)
  */
-router.delete('/types', roleMiddleware(['admin']), leaveController.deleteLeaveType);
+router.delete('/types', roleMiddleware(['admin']), leaveTypeController.deleteLeaveType);
 
 // ============================================
 // Leave Request Management

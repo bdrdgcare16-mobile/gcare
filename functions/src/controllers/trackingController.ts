@@ -107,6 +107,10 @@ export async function trackingCheckIn(req: Request, res: Response) {
 
 /** POST /api/tracking/pos  — STRICT: accept at most once every 20 minutes. */
 export async function trackingAppendPos(req: Request, res: Response) {
+  console.log('[TrackingController] LOG: /tracking/pos endpoint HIT');
+  console.log('[TrackingController] LOG: Request body:', JSON.stringify(req.body, null, 2));
+  console.log('[TrackingController] LOG: Request headers:', JSON.stringify(req.headers, null, 2));
+  
   try {
     const empid = pickEmpId(req);
     const dateIso = dateFromReq(req);
@@ -114,13 +118,19 @@ export async function trackingAppendPos(req: Request, res: Response) {
     const pt = pointFromBody(req.body);
     const nowIso = new Date().toISOString();
 
+    console.log('[TrackingController] LOG: Parsed data - empid:', empid, 'dateIso:', dateIso, 'docId:', id);
+    console.log('[TrackingController] LOG: Point data - lat:', pt.lat, 'lng:', pt.lng, 'accuracy:', pt.accuracy, 'ts:', pt.ts);
+
     const ref = db.collection(COL).doc(id);
 
     let accepted = false;
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
 
+      console.log('[TrackingController] LOG: Transaction - checking if document exists for docId:', id);
+
       if (!snap.exists) {
+        console.log('[TrackingController] LOG: Document does not exist - creating new tracking document');
         const data: TrackDayDoc = {
           id,
           empid,
@@ -132,6 +142,7 @@ export async function trackingAppendPos(req: Request, res: Response) {
         };
         tx.set(ref, data);
         accepted = true;
+        console.log('[TrackingController] LOG: New document created with pathMap length: 1');
         return;
       }
 
@@ -139,20 +150,38 @@ export async function trackingAppendPos(req: Request, res: Response) {
       const list = Array.isArray(data.pathMap) ? data.pathMap : [];
       const last = list.length ? list[list.length - 1] : null;
 
+      console.log('[TrackingController] LOG: Existing document found - current pathMap length:', list.length);
+      if (last) {
+        console.log('[TrackingController] LOG: Last point - lat:', last.lat, 'lng:', last.lng, 'ts:', last.ts);
+      } else {
+        console.log('[TrackingController] LOG: No last point found in pathMap');
+      }
+
       let allow = false;
+      let rejectReason = '';
       if (!last) {
         allow = true;
+        rejectReason = 'No previous points - first point allowed';
       } else {
         const sinceMin = minutesBetween(pt.ts, last.ts);
         // STRICT time throttle
         allow = sinceMin >= MIN_TRACK_INTERVAL_MIN;
+        rejectReason = allow ? 'Time interval OK' : `Time throttled - only ${sinceMin.toFixed(1)}min since last (need ${MIN_TRACK_INTERVAL_MIN}min)`;
 
         // Optional: if last write was long ago BUT device hasn't moved at all, still skip
-        if (allow && distanceMeters({lat:last.lat, lng:last.lng}, {lat:pt.lat, lng:pt.lng}) < MIN_MOVE_METERS) {
-          // treat as duplicate at the same spot — keep lastUpdateAt only
-          allow = false;
+        if (allow) {
+          const distance = distanceMeters({lat:last.lat, lng:last.lng}, {lat:pt.lat, lng:pt.lng});
+          if (distance < MIN_MOVE_METERS) {
+            // treat as duplicate at the same spot — keep lastUpdateAt only
+            allow = false;
+            rejectReason = `Movement too small - only ${distance.toFixed(1)}m (need ${MIN_MOVE_METERS}m)`;
+          }
         }
       }
+
+      console.log('[TrackingController] LOG: Allow append:', allow, 'Reason:', rejectReason);
+      console.log('[TrackingController] LOG: Time since last:', last ? minutesBetween(pt.ts, last.ts).toFixed(1) + 'min' : 'N/A');
+      console.log('[TrackingController] LOG: Distance from last:', last ? distanceMeters({lat:last.lat, lng:last.lng}, {lat:pt.lat, lng:pt.lng}).toFixed(1) + 'm' : 'N/A');
 
       // Debug log
       const lastPoint = last || { lat: 0, lng: 0, ts: '' };
@@ -170,13 +199,17 @@ export async function trackingAppendPos(req: Request, res: Response) {
 
       if (allow) {
        const updatedPath = [...list.slice(-199), pt]; // keep last 200 only
+       console.log('[TrackingController] LOG: APPENDING SUCCESS - new pathMap length:', updatedPath.length);
        tx.update(ref, { pathMap: updatedPath, lastUpdateAt: nowIso });
        accepted = true;
+       console.log('[TrackingController] LOG: Transaction completed - point appended successfully');
       } else {
+        console.log('[TrackingController] LOG: APPEND REJECTED - point not added to pathMap');
         return;
       }
     });
 
+    console.log('[TrackingController] LOG: Final response - ok:', true, 'id:', id, 'added:', accepted ? 'YES' : 'NO', 'throttled:', !accepted);
     return res.status(200).json({ ok: true, id, added: accepted ? pt : null, throttled: !accepted });
   } catch (e: any) {
     return res.status(400).json({ error: e?.message || String(e) });

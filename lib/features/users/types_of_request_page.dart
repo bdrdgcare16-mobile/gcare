@@ -59,9 +59,11 @@ class TypeOfRequestPage extends StatelessWidget {
         ),
       );
     } else if (title == 'Comp Off') {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const ApplyHalfDayForm()),
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => const ApplyHalfDayForm(),
       );
     }
   }

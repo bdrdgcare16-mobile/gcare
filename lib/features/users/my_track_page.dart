@@ -87,10 +87,12 @@ class _MyTrackPageState extends State<MyTrackPage> {
 
   // --- Google map state ---
   GoogleMapController? _mapCtrl;
+  bool _mapControllerInitialized = false;
   MapType _mapType = MapType.normal;
   Set<Polyline> _polylines = {};
   Set<Marker> _markers = {};
   LatLng? _center;
+  String _emptyStateMessage = '';
 
   // show end marker only after checkout
   bool _sessionEnded = false;
@@ -122,12 +124,36 @@ class _MyTrackPageState extends State<MyTrackPage> {
 
   List<_TrackPoint> _parseTrackPoints(List<dynamic> raw) {
     final pts = <_TrackPoint>[];
+    debugPrint('[TRACKING] Parsing ${raw.length} raw points');
+    
     for (final e in raw) {
-      if (e is! Map) continue;
-      final lat = (e['lat'] as num?)?.toDouble();
-      final lng = (e['lng'] as num?)?.toDouble();
-      final tsRaw = e['ts'];
-      if (lat == null || lng == null || tsRaw == null) continue;
+      if (e is! Map) {
+        debugPrint('[TRACKING] Skipping non-Map point: $e');
+        continue;
+      }
+      
+      final pointMap = e as Map<String, dynamic>;
+      debugPrint('[TRACKING] Processing point with keys: ${pointMap.keys.toList()}');
+      
+      // Try different field name combinations
+      final lat = (pointMap['lat'] as num?)?.toDouble() ?? 
+                  (pointMap['latitude'] as num?)?.toDouble() ??
+                  (pointMap['location']?['lat'] as num?)?.toDouble() ??
+                  (pointMap['coordinates']?[0] as num?)?.toDouble();
+                  
+      final lng = (pointMap['lng'] as num?)?.toDouble() ?? 
+                  (pointMap['longitude'] as num?)?.toDouble() ??
+                  (pointMap['location']?['lng'] as num?)?.toDouble() ??
+                  (pointMap['coordinates']?[1] as num?)?.toDouble();
+                  
+      final tsRaw = pointMap['ts'] ?? pointMap['timestamp'] ?? pointMap['time'] ?? pointMap['createdAt'];
+      
+      debugPrint('[TRACKING] Point fields - lat: $lat, lng: $lng, ts: $tsRaw');
+      
+      if (lat == null || lng == null || tsRaw == null) {
+        debugPrint('[TRACKING] Skipping point due to missing required fields');
+        continue;
+      }
 
       DateTime ts;
       if (tsRaw is String) {
@@ -135,10 +161,13 @@ class _MyTrackPageState extends State<MyTrackPage> {
       } else if (tsRaw is int) {
         ts = DateTime.fromMillisecondsSinceEpoch(tsRaw).toLocal();
       } else {
+        debugPrint('[TRACKING] Skipping point due to invalid timestamp format: $tsRaw');
         continue;
       }
       pts.add(_TrackPoint(lat: lat, lng: lng, ts: ts));
     }
+    
+    debugPrint('[TRACKING] Successfully parsed ${pts.length} points');
     pts.sort((a, b) => a.ts.compareTo(b.ts));
     return pts;
   }
@@ -224,15 +253,20 @@ Future<void> _loadAndDrawPath() async {
     final uri = Uri.parse('${ApiService.baseUrl}/tracking/day')
         .replace(queryParameters: {'dateIso': _dateIso()});
 
+    // Debug logs
+    print("TRACKING API DATE: ${_dateIso()}");
+    print("TRACKING API URL: $uri");
+
     final res = await http.get(
       uri,
       headers: {
         'Authorization': 'Bearer $_jwt',
-        if ((_empId ?? '').isNotEmpty) 'x-empid': _empId!,
       },
     ).timeout(const Duration(seconds: 15));
 
     _log('TRACK RES: ${res.statusCode}');
+    debugPrint('[TRACKING] Response body: ${res.body}');
+    
     if (res.statusCode >= 400) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -247,6 +281,8 @@ Future<void> _loadAndDrawPath() async {
     _sessionEnded = (endedAt != null && endedAt.isNotEmpty);
 
     final dynamic pm = data['pathMap'];
+    debugPrint('[TRACKING] Raw pathMap data: $pm');
+    
     List<dynamic> raw;
     if (pm is List) {
       raw = pm;
@@ -259,8 +295,19 @@ Future<void> _loadAndDrawPath() async {
       raw = const [];
     }
 
+    debugPrint('[TRACKING] Raw points count: ${raw.length}');
+    if (raw.isNotEmpty) {
+      debugPrint('[TRACKING] First raw point: ${raw.first}');
+    }
+
     var points = _parseTrackPoints(raw);
+    debugPrint('[TRACKING] Parsed points count: ${points.length}');
+    if (points.isNotEmpty) {
+      debugPrint('[TRACKING] First parsed point: lat=${points.first.lat}, lng=${points.first.lng}');
+    }
+    
     points = _simplifyByDistance(points, minMeters: 10);
+    debugPrint('[TRACKING] Simplified points count: ${points.length}');
 
     if (points.isEmpty) {
       if (!mounted) return;
@@ -268,6 +315,7 @@ Future<void> _loadAndDrawPath() async {
         _polylines = {};
         _markers = {};
         _center ??= const LatLng(12.9716, 77.5946);
+        _emptyStateMessage = 'No tracking points available for this date.';
       });
       return;
     }
@@ -292,9 +340,10 @@ Future<void> _loadAndDrawPath() async {
       _polylines = polylines;
       _markers = {...markers};
       _center = latLngs.last;
+      _emptyStateMessage = ''; // Clear empty state when points are loaded
     });
 
-    if (_mapCtrl != null) {
+    if (_mapCtrl != null && _mapControllerInitialized) {
       if (latLngs.length >= 2) {
         await _mapCtrl!.animateCamera(
           CameraUpdate.newLatLngBounds(_boundsFromLatLngs(latLngs), 48),
@@ -320,6 +369,13 @@ Future<void> _loadAndDrawPath() async {
       // ✅ Use real AppBar so global AppBarTheme applies everywhere
       appBar: AppBar(
         title: const Text('My Track'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Reload path',
+            onPressed: _loadAndDrawPath,
+          ),
+        ],
       ),
       body: Container(
         decoration: const BoxDecoration(
@@ -336,48 +392,61 @@ Future<void> _loadAndDrawPath() async {
               // Controls
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: dateController,
-                        readOnly: true,
-                        onTap: _pickDate,
-                        decoration: InputDecoration(
-                          labelText: "Choose date",
-                          prefixIcon: const Icon(Icons.calendar_today,
-                              color: kButtonColor),
-                          filled: true,
-                          fillColor: Colors.white,
-                          border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12)),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide:
-                                const BorderSide(color: kButtonColor, width: 2),
+                    // Date selector row
+                    Row(
+                      children: [
+                        Expanded(
+                          flex: 2,
+                          child: TextFormField(
+                            controller: dateController,
+                            readOnly: true,
+                            onTap: _pickDate,
+                            decoration: InputDecoration(
+                              labelText: "Choose date",
+                              prefixIcon: const Icon(Icons.calendar_today,
+                                  color: kButtonColor),
+                              filled: true,
+                              fillColor: Colors.white,
+                              border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12)),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide:
+                                    const BorderSide(color: kButtonColor, width: 2),
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    ChoiceChip(
-                      label: const Text('Map'),
-                      selected: _mapType == MapType.normal,
-                      onSelected: (_) =>
-                          setState(() => _mapType = MapType.normal),
-                    ),
-                    const SizedBox(width: 8),
-                    ChoiceChip(
-                      label: const Text('Satellite'),
-                      selected: _mapType == MapType.satellite,
-                      onSelected: (_) =>
-                          setState(() => _mapType = MapType.satellite),
-                    ),
-                    const Spacer(),
-                    IconButton(
-                      icon: const Icon(Icons.refresh),
-                      tooltip: 'Reload path',
-                      onPressed: _loadAndDrawPath,
+                        const SizedBox(width: 12),
+                        // Map type buttons - wrap to prevent overflow
+                        Expanded(
+                          flex: 1,
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
+                            alignment: WrapAlignment.start,
+                            children: [
+                              ChoiceChip(
+                                label: const Text('Map'),
+                                selected: _mapType == MapType.normal,
+                                onSelected: (_) =>
+                                    setState(() => _mapType = MapType.normal),
+                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              ChoiceChip(
+                                label: const Text('Satellite'),
+                                selected: _mapType == MapType.satellite,
+                                onSelected: (_) =>
+                                    setState(() => _mapType = MapType.satellite),
+                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -388,29 +457,77 @@ Future<void> _loadAndDrawPath() async {
                 child: Padding(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: GoogleMap(
-                    initialCameraPosition: CameraPosition(
-                      target: _center ?? const LatLng(12.9716, 77.5946),
-                      zoom: 16,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: Stack(
+                      children: [
+                        GoogleMap(
+                          key: const ValueKey("my_track_google_map"),
+                          initialCameraPosition: CameraPosition(
+                            target: _center ?? const LatLng(12.9716, 77.5946),
+                            zoom: 16,
+                          ),
+                          onMapCreated: (c) {
+                            if (!mounted) return;
+                            _mapCtrl = c;
+                            _mapControllerInitialized = true;
+                            if (_polylines.isNotEmpty) {
+                              final pts = _polylines.first.points;
+                              if (pts.isNotEmpty) {
+                                _mapCtrl!.moveCamera(
+                                  CameraUpdate.newLatLngBounds(
+                                    _boundsFromLatLngs(pts), 48),
+                                  );
+                              }
+                            }
+                          },
+                          mapType: _mapType,
+                          polylines: _polylines,
+                          markers: _markers,
+                          myLocationButtonEnabled: false,
+                          zoomControlsEnabled: true,
+                          compassEnabled: false,
+                        ),
+                        if (_emptyStateMessage.isNotEmpty)
+                          Center(
+                            child: Container(
+                              padding: const EdgeInsets.all(16),
+                              margin: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.1),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.location_off,
+                                    size: 48,
+                                    color: Colors.grey[400],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    _emptyStateMessage,
+                                    style: TextStyle(
+                                      color: Colors.grey[600],
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
-                    onMapCreated: (c) {
-                      _mapCtrl = c;
-                      if (_polylines.isNotEmpty) {
-                        final pts = _polylines.first.points;
-                        if (pts.isNotEmpty) {
-                          _mapCtrl!.moveCamera(
-                            CameraUpdate.newLatLngBounds(
-                                _boundsFromLatLngs(pts), 48),
-                          );
-                        }
-                      }
-                    },
-                    mapType: _mapType,
-                    polylines: _polylines,
-                    markers: _markers,
-                    myLocationButtonEnabled: false,
-                    zoomControlsEnabled: true,
-                    compassEnabled: false,
                   ),
                 ),
               ),
@@ -443,21 +560,38 @@ Future<void> _loadAndDrawPath() async {
   Future<void> _pickDate() async {
     final DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.now(),
+      initialDate: selectedDate ?? DateTime.now(),
       firstDate: DateTime(2023),
       lastDate: DateTime(2100),
     );
 
     if (picked != null) {
+      final formattedDisplayDate =
+          "${picked.day.toString().padLeft(2, '0')}/"
+          "${picked.month.toString().padLeft(2, '0')}/"
+          "${picked.year}";
+
       setState(() {
         selectedDate = picked;
+        dateController.text = formattedDisplayDate;
       });
+      
+      // Debug logs
+      print("DATE PICKER SELECTED DATE: $picked");
+      
+      // Call existing tracking load method
+      await _loadAndDrawPath();
     }
   }
 
   @override
 void dispose() {
-  _mapCtrl?.dispose();
+  // Only dispose GoogleMapController if it was properly initialized
+  if (_mapCtrl != null && _mapControllerInitialized) {
+    _mapCtrl!.dispose();
+    _mapCtrl = null;
+    _mapControllerInitialized = false;
+  }
   dateController.dispose();
   super.dispose();
 }

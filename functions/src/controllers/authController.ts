@@ -25,7 +25,7 @@ import {
 
 // Choose credential: prefer service account JSON via env, else ADC.
 const SERVICE_ACCOUNT_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '';
-const PROJECT_ID = process.env.APP_FIREBASE_PROJECT_ID || 'serv-dev-f2557';
+const PROJECT_ID = process.env.APP_FIREBASE_PROJECT_ID || 'servappbackend';
 
 const APP_NAME = 'serv-core';
 const existingApp = getApps().find((a) => a.name === APP_NAME);
@@ -59,17 +59,23 @@ const USERS_COL = 'users';
 const EMPS_COL = 'employees';
 
 // Optional: where the Firebase hosted reset flow should land after completion
-const RESET_CONTINUE_URL =
-  process.env.RESET_CONTINUE_URL || 'https://servappbackend.web.app/reset-done';
+function getResetContinueUrl(): string {
+  return process.env.RESET_CONTINUE_URL || 'https://servappbackend.web.app/reset-done';
+}
 
 // *** Web API key used only for server-side Firebase fallback ***
-const FIREBASE_WEB_API_KEY = (process.env.APP_FIREBASE_WEB_API_KEY || '').trim();
-if (!/^AIza[0-9A-Za-z_\-]{10,}$/.test(FIREBASE_WEB_API_KEY)) {
-  console.error(
-    'APP_FIREBASE_WEB_API_KEY looks invalid or missing (pattern check failed).'
-  );
+function getFirebaseWebApiKey(): string {
+  const key = (process.env.APP_FIREBASE_WEB_API_KEY || '').trim();
+
+  if (!/^AIza[0-9A-Za-z_\-]{10,}$/.test(key)) {
+    console.warn(
+      'APP_FIREBASE_WEB_API_KEY looks invalid or missing (pattern check failed).'
+    );
+  }
+
+  console.log('[env] WEB_API_KEY configured:', key ? 'YES' : 'MISSING');
+  return key;
 }
-console.log('[env] WEB_API_KEY prefix:', FIREBASE_WEB_API_KEY.slice(0, 5));
 
 // ── Optional mailer ──────────────────────────────────────────────────────────
 let nodemailer: any = null;
@@ -148,7 +154,7 @@ async function verifyWithFirebase(
   email: string,
   password: string
 ): Promise<boolean> {
-  const apiKey = FIREBASE_WEB_API_KEY;
+  const apiKey = getFirebaseWebApiKey();
   if (!/^AIza/.test(apiKey)) {
     console.error('APP_FIREBASE_WEB_API_KEY invalid or missing at runtime');
     return false;
@@ -189,6 +195,7 @@ export const register = async (req: Request, res: Response): Promise<Response> =
       password,
       role = 'employee',
       status = 'active',
+      companyId,
     } = req.body || {};
 
     email = normEmail(email || '');
@@ -196,9 +203,14 @@ export const register = async (req: Request, res: Response): Promise<Response> =
     name = String(name || '').trim();
     role = String(role || 'employee').trim().toLowerCase();
     status = String(status || 'active').trim().toLowerCase();
+    companyId = String(companyId || '').trim();
 
     if (!name || !email || !password) {
       return errorResponse(res, 'Name, email and password are required', 400);
+    }
+
+    if (!companyId) {
+      return errorResponse(res, 'companyId is required', 400);
     }
 
     if (!okRoles.has(role)) {
@@ -242,11 +254,18 @@ export const register = async (req: Request, res: Response): Promise<Response> =
       hashedPassword: hash,
       role,
       status,
+      companyId,
       createdAt: now,
       updatedAt: now,
     });
 
-    const token = issueToken({ userId, email, role, empid: empid || null });
+    const token = issueToken({
+      userId,
+      email,
+      role,
+      empid: empid || null,
+      companyId,
+    });
 
     return successResponse(
       res,
@@ -256,6 +275,7 @@ export const register = async (req: Request, res: Response): Promise<Response> =
         email,
         role,
         empid: empid || null,
+        companyId,
         status,
         token,
         tokenType: 'Bearer',
@@ -289,6 +309,12 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
     if (userSnap && !userSnap.empty) {
       const doc = userSnap.docs[0];
       const user: any = doc.data();
+
+      const companyId = String(user.companyId || '').trim() || null;
+
+      if (!companyId) {
+        return errorResponse(res, 'companyId missing on user account', 403);
+      }
 
       const storedHash =
         user.password || user.passwordHash || user.hashedPassword || '';
@@ -356,6 +382,7 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
         email: user.email || incoming.trim(),
         role,
         empid: userEmpid || null,
+        companyId,
       });
 
       return successResponse(
@@ -367,6 +394,7 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
           role,
           uid: doc.id,
           empid: userEmpid || null,
+          companyId,
           name: user.name || user.fullName || '',
           user: {
             id: doc.id,
@@ -375,6 +403,7 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
             role,
             empid: userEmpid || null,
             empId: userEmpid || null,
+            companyId,
             status: user.status || 'active',
           },
         },
@@ -390,6 +419,11 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
 
     const empDoc = empSnap.docs[0];
     const emp: any = empDoc.data();
+    const employeeCompanyId = String(emp.companyId || '').trim() || null;
+
+    if (!employeeCompanyId) {
+      return errorResponse(res, 'companyId missing on employee record', 403);
+    }
 
     const stored = emp.password || '';
     let passOK = false;
@@ -415,19 +449,27 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
     let mirrorDoc: DocumentSnapshot | null = null;
 
     if (mirror && !mirror.empty) {
-      mirrorDoc = mirror.docs[0];
+      const existingMirrorDoc = mirror.docs[0];
+      const mirrorData = existingMirrorDoc.data() as any;
 
-      if (!passOK && mirrorDoc) {
+      if (!mirrorData.companyId && employeeCompanyId) {
+        await existingMirrorDoc.ref.set(
+          { companyId: employeeCompanyId, updatedAt: new Date() },
+          { merge: true }
+        );
+      }
+
+      if (!passOK) {
         try {
           const prev =
-            (mirrorDoc.get('password') ||
-              mirrorDoc.get('passwordHash') ||
-              mirrorDoc.get('hashedPassword') ||
+            (existingMirrorDoc.get('password') ||
+              existingMirrorDoc.get('passwordHash') ||
+              existingMirrorDoc.get('hashedPassword') ||
               null) as string | null;
 
           await rotatePassword({
             db,
-            userId: mirrorDoc.id,
+            userId: existingMirrorDoc.id,
             oldHash: prev,
             newPlainPassword: password,
             source: 'firebase_reset',
@@ -437,6 +479,8 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
           console.warn('rotatePassword failed (EMPLOYEES existing mirror):', e);
         }
       }
+
+      mirrorDoc = existingMirrorDoc;
     } else {
       const hash = isBcryptHash(stored) ? stored : await bcrypt.hash(password, 10);
       const now = new Date();
@@ -453,6 +497,7 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
         hashedPassword: hash,
         role: 'employee',
         status: 'active',
+        companyId: employeeCompanyId,
         createdAt: now,
         updatedAt: now,
         authSource: !passOK ? 'firebase' : 'local',
@@ -461,14 +506,26 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
       mirrorDoc = await ref.get();
     }
 
-    const u = mirrorDoc!.data() as any;
+    if (!mirrorDoc) {
+      return errorResponse(res, 'Failed to create or load employee login account', 500);
+    }
+    
+
+    const u = mirrorDoc.data() as any;
     const finalEmpid = pickEmpId(u) || pickEmpId(emp);
+    const finalCompanyId =
+      String(u.companyId || employeeCompanyId || '').trim() || null;
+
+    if (!finalCompanyId) {
+      return errorResponse(res, 'companyId missing on employee login account', 403);
+    }
 
     const token = issueToken({
-      userId: mirrorDoc!.id,
+      userId: mirrorDoc.id,
       email: u.email || incoming.trim(),
       role: 'employee',
       empid: finalEmpid || null,
+      companyId: finalCompanyId,
     });
 
     return successResponse(
@@ -478,16 +535,18 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
         tokenType: 'Bearer',
         expiresIn: JWT_EXPIRES,
         role: 'employee',
-        uid: mirrorDoc!.id,
+        uid: mirrorDoc.id,
         empid: finalEmpid || null,
+        companyId: finalCompanyId,
         name: u.name || emp.name || '',
         user: {
-          id: mirrorDoc!.id,
+          id: mirrorDoc.id,
           name: u.name || emp.name || '',
           email: u.email || incoming.trim(),
           role: 'employee',
           empid: finalEmpid || null,
           empId: finalEmpid || null,
+          companyId: finalCompanyId,
           status: u.status || emp.status || 'active',
         },
       },
@@ -569,9 +628,10 @@ export const getMe = async (req: Request, res: Response): Promise<Response> => {
 
       if (!empSnap.empty) {
         const eDoc = empSnap.docs[0];
-        const emp = eDoc.data();
-        delete (emp as any).password;
+        const emp = eDoc.data() as any;
+        delete emp.password;
         const eid = pickEmpId(emp);
+        const employeeCompanyId = String(emp.companyId || '').trim() || null;
 
         return successResponse(
           res,
@@ -581,7 +641,8 @@ export const getMe = async (req: Request, res: Response): Promise<Response> => {
             role: 'employee',
             empid: eid || null,
             empId: eid || null,
-            name: (emp as any).name || (emp as any).fullName || '',
+            companyId: employeeCompanyId,
+            name: emp.name || emp.fullName || '',
             employeeProfile: emp,
           },
           'User profile fetched'
@@ -680,6 +741,12 @@ export const createEmployeeLogin = async (
     }
 
     const emp = empQ.docs[0].data() as any;
+    const companyId = String(emp.companyId || '').trim();
+
+    if (!companyId) {
+      return errorResponse(res, 'companyId missing on employee record', 400);
+    }
+
     const name = String(emp.name || emp.fullName || '').trim();
 
     if (!email) email = normEmail(emp.email || '');
@@ -723,6 +790,7 @@ export const createEmployeeLogin = async (
       hashedPassword: hash,
       role: 'employee',
       status: 'active',
+      companyId,
       mustChangePassword: !password,
       createdAt: now,
       updatedAt: now,
@@ -758,8 +826,14 @@ export const backfillEmployeesToUsers = async (
       const empid = empidRaw ? String(empidRaw) : '';
       const emailLower = normEmail(e.email || '');
       const name = String(e.name || e.fullName || '').trim();
+      const companyId = String(e.companyId || '').trim();
 
       if (!empid || !emailLower) {
+        await d.ref.set({ emailLower }, { merge: true });
+        continue;
+      }
+
+      if (!companyId) {
         await d.ref.set({ emailLower }, { merge: true });
         continue;
       }
@@ -800,6 +874,7 @@ export const backfillEmployeesToUsers = async (
         hashedPassword: hash,
         role: 'employee',
         status: 'active',
+        companyId,
         mustChangePassword: true,
         createdAt: now,
         updatedAt: now,
@@ -860,7 +935,7 @@ export const requestPasswordResetLink = async (
     }
 
     const link = await auth.generatePasswordResetLink(email, {
-      url: RESET_CONTINUE_URL,
+      url: getResetContinueUrl(),
       handleCodeInApp: true,
     });
 

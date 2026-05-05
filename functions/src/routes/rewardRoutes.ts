@@ -9,39 +9,20 @@ const router = Router();
  * tags:
  *   - name: Rewards
  *     description: Manage employee rewards (admin & user)
- *
- * components:
- *   schemas:
- *     Reward:
- *       type: object
- *       required:
- *         - empid
- *         - name
- *         - department
- *         - description
- *         - adminname
- *         - date
- *       properties:
- *         id: { type: string }
- *         empid: { type: string, description: Employee ID (recipient) }
- *         name: { type: string, description: Employee name }
- *         department: { type: string, description: Department }
- *         description: { type: string, description: Reason/context }
- *         adminname: { type: string, description: Admin who granted reward }
- *         date: { type: string, format: date-time, description: Reward date }
- *         createdAt: { type: string, format: date-time }
- *         updatedAt: { type: string, format: date-time }
  */
 
-// Inject auth where needed
 router.post('/', authMiddleware, roleMiddleware(['admin']), ctrl.createReward);
 
-router.get('/', ctrl.getAllRewards);
+// Admin and Employee can see rewards (employee only own, admin all company rewards)
+router.get('/', authMiddleware, roleMiddleware(['admin', 'employee']), ctrl.getAllRewards);
 
+// Employee can see own rewards only
 router.get('/mine', authMiddleware, ctrl.getMyRewards);
 
-router.get('/:id', ctrl.getRewardById);
+// Admin can see one reward only if it belongs to same company
+router.get('/:id', authMiddleware, roleMiddleware(['admin']), ctrl.getRewardById);
 
+// Admin can delete reward only if it belongs to same company
 router.delete('/:id', authMiddleware, roleMiddleware(['admin']), ctrl.deleteReward);
 
 export default router;

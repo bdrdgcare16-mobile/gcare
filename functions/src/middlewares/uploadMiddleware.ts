@@ -15,11 +15,29 @@ const storage = multer.memoryStorage();
 // File filter to only allow certain file types
 const fileFilter = (req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
   const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
-  if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error('Invalid file type. Only JPEG, PNG, JPG, and PDF files are allowed.'));
+  const allowedExtensions = ['.jpg', '.jpeg', '.png', '.pdf'];
+  
+  // Check MIME type
+  if (!allowedTypes.includes(file.mimetype)) {
+    console.log('[Upload] Rejected file: invalid MIME type', file.mimetype);
+    return cb(new Error('Invalid file type. Only JPEG, PNG, JPG, and PDF files are allowed.'));
   }
+  
+  // Check file extension
+  const fileExtension = file.originalname.toLowerCase().substring(file.originalname.lastIndexOf('.'));
+  if (!allowedExtensions.includes(fileExtension)) {
+    console.log('[Upload] Rejected file: invalid extension', fileExtension);
+    return cb(new Error('Invalid file extension. Only JPEG, PNG, JPG, and PDF files are allowed.'));
+  }
+  
+  // Check for double extensions (potential security risk)
+  if (file.originalname.includes('.') && file.originalname.substring(file.originalname.lastIndexOf('.')).toLowerCase() !== fileExtension) {
+    console.log('[Upload] Rejected file: suspicious filename', file.originalname);
+    return cb(new Error('Invalid filename. Files with multiple extensions are not allowed.'));
+  }
+  
+  console.log('[Upload] File validation passed:', file.originalname, file.mimetype);
+  cb(null, true);
 };
 
 // Configure multer with our storage and file filter

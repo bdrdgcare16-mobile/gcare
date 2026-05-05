@@ -73,7 +73,7 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
 
     try {
       // 0) Fetch current user info -> shiftGroup (no admin required)
-      final meUri = Uri.parse("${widget.baseUrl}/users/me");
+      final meUri = Uri.parse("${widget.baseUrl}/auth/me");
 
       final meRes = await http.get(
         meUri,
@@ -126,7 +126,7 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
         _applyFromJson(dayRecord);
       }
     } catch (e) {
-      _error = 'Failed to load: $e';
+      _error = 'Failed to load attendance summary';
     } finally {
       if (mounted) setState(() => _loading = false);
     }

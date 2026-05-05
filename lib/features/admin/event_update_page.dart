@@ -1,20 +1,22 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:serv_app/html_stub.dart'
-    if (dart.library.html) 'package:serv_app/html_web.dart'
-    as html; // Web-only APIs (fine for Flutter Web builds)
+    if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
 import 'event_model_page.dart';
 import 'add_event_page.dart';
 import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/models/company_data.dart';
+import 'package:serv_app/utils/button_helpers.dart';
 
 // ====== CONFIG ======
 final String apiBase = ApiConfig.baseUrl;
-// Derive the origin (no /api) so we can resolve /uploads/...
-final String _apiOrigin = ApiConfig.baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
+final String _apiOrigin =
+    ApiConfig.baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
 
 // ====== THEME ======
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -23,13 +25,35 @@ const Color kAppBarColor = Color(0xFF8C6EAF);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
+// ====== TABLE LAYOUT ======
+const double _tableHorizontalPadding = 6;
+const double _eventNameWidth = 140;
+const double _fromDateWidth = 100;
+const double _toDateWidth = 100;
+const double _locationWidth = 120;
+const double _descriptionWidth = 220;
+const double _deleteWidth = 40;
+
+const double _tableRowContentWidth =
+    _eventNameWidth +
+    _fromDateWidth +
+    _toDateWidth +
+    _locationWidth +
+    _descriptionWidth +
+    _deleteWidth;
+
+const double _tableTotalWidth =
+    _tableRowContentWidth + (_tableHorizontalPadding * 2);
+
 class EventUpdatesPage extends StatefulWidget {
   const EventUpdatesPage({super.key});
+
   @override
   State<EventUpdatesPage> createState() => _EventUpdatesPageState();
 }
 
 class _EventUpdatesPageState extends State<EventUpdatesPage> {
+  List<EventModel> eventsList = [];
   List<EventModel> _filtered = [];
   bool _loading = false;
 
@@ -39,46 +63,369 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
     _load();
   }
 
-  // ---------- Networking ----------
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: kAppBarColor,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: kTextColor),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text(
+          'Event Updates',
+          style: TextStyle(color: kTextColor),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.search, color: kTextColor),
+            onPressed: _search,
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh, color: kTextColor),
+            onPressed: _load,
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                GuardedElevatedButton(
+                  key: const ValueKey('events_add_button'),
+                  onPressed: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const EventUploadPage(),
+                      ),
+                    );
+                    await _load();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kButtonColor,
+                    foregroundColor: kTextColor,
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.add),
+                      SizedBox(width: 8),
+                      Text("Add"),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : ClipRect(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: SizedBox(
+                            width: _tableTotalWidth,
+                            child: Column(
+                              children: [
+                                Container(
+                                  width: _tableTotalWidth,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: _tableHorizontalPadding,
+                                    vertical: 8,
+                                  ),
+                                  color: kPrimaryBackgroundBottom.withOpacity(
+                                    0.5,
+                                  ),
+                                  child: const Row(
+                                    children: [
+                                      _HeaderCell(
+                                        'Event Name',
+                                        width: _eventNameWidth,
+                                      ),
+                                      _HeaderCell(
+                                        'From Date',
+                                        width: _fromDateWidth,
+                                      ),
+                                      _HeaderCell(
+                                        'To Date',
+                                        width: _toDateWidth,
+                                      ),
+                                      _HeaderCell(
+                                        'Location',
+                                        width: _locationWidth,
+                                      ),
+                                      _HeaderCell(
+                                        'Description',
+                                        width: _descriptionWidth,
+                                      ),
+                                      _HeaderCell(
+                                        'Delete',
+                                        width: _deleteWidth,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const Divider(height: 1),
+                                Expanded(
+                                  child: _filtered.isEmpty
+                                      ? const Center(child: Text('No data'))
+                                      : ListView.builder(
+                                          itemCount: _filtered.length,
+                                          itemBuilder: (_, i) {
+                                            final e = _filtered[i];
+                                            return Container(
+                                              width: _tableTotalWidth,
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal:
+                                                    _tableHorizontalPadding,
+                                                vertical: 10,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                border: Border(
+                                                  bottom: BorderSide(
+                                                    color: Colors.grey.shade300,
+                                                  ),
+                                                ),
+                                              ),
+                                              child: Row(
+                                                children: [
+                                                  _BodyCell(
+                                                    e.title,
+                                                    width: _eventNameWidth,
+                                                  ),
+                                                  _BodyCell(
+                                                    e.fromDate
+                                                        .toIso8601String()
+                                                        .split('T')
+                                                        .first,
+                                                    width: _fromDateWidth,
+                                                  ),
+                                                  _BodyCell(
+                                                    e.toDate
+                                                        .toIso8601String()
+                                                        .split('T')
+                                                        .first,
+                                                    width: _toDateWidth,
+                                                  ),
+                                                  _BodyCell(
+                                                    e.location,
+                                                    width: _locationWidth,
+                                                  ),
+                                                  _BodyCell(
+                                                    e.description,
+                                                    width: _descriptionWidth,
+                                                  ),
+                                                  SizedBox(
+                                                    width: _deleteWidth,
+                                                    child: GuardedIconButton(
+                                                      key: ValueKey(
+                                                        'delete_event_${e.id}',
+                                                      ),
+                                                      icon: const Icon(
+                                                        Icons.delete,
+                                                        color: Colors.red,
+                                                        size: 20,
+                                                      ),
+                                                      onPressed: () =>
+                                                          _delete(e.id),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<String?> _getToken() async {
+    String? token = CompanyData.token;
+
+    if ((token == null || token.isEmpty) && kIsWeb) {
+      try {
+        final t1 = html.window.localStorage['token'];
+        final t2 = html.window.sessionStorage['token'];
+        token = (t1 != null && t1.isNotEmpty) ? t1 : (t2 ?? token);
+      } catch (_) {}
+    }
+
+    if ((token == null || token.isEmpty) && !kIsWeb) {
+      try {
+        final prefs = await _getPrefs();
+        token = prefs.getString('token');
+      } catch (_) {}
+    }
+
+    debugPrint('[Events] Token retrieved: ${token != null && token.isNotEmpty}');
+    return token;
+  }
+
+  Future<SharedPreferences> _getPrefs() async {
+    return await SharedPreferences.getInstance();
+  }
+
   Future<void> _load() async {
-    setState(() => _loading = true);
+    if (mounted) {
+      setState(() => _loading = true);
+    }
+
     try {
-      final r = await http.get(Uri.parse('${ApiService.baseUrl}/events'));
-      if (r.statusCode == 200) {
-        final List data = jsonDecode(r.body);
-        eventsList = data.map((e) => EventModel.fromJson(e)).toList();
-        setState(() => _filtered = List.of(eventsList));
+      final token = await _getToken();
+
+      final headers = <String, String>{
+        'Content-Type': 'application/json',
+      };
+
+      if (token != null && token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+
+      debugPrint('[Events] Fetching events from: ${ApiService.baseUrl}/events');
+      debugPrint(
+        '[Events] Token available: ${token != null && token.isNotEmpty}',
+      );
+
+      final response = await http.get(
+        Uri.parse('${ApiService.baseUrl}/events'),
+        headers: headers,
+      );
+
+      debugPrint('[Events] Response status code: ${response.statusCode}');
+      debugPrint('[Events] Response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+
+        List rawEvents = [];
+
+        if (decoded is List) {
+          rawEvents = decoded;
+        } else if (decoded is Map<String, dynamic>) {
+          if (decoded['events'] is List) {
+            rawEvents = decoded['events'] as List;
+          } else if (decoded['data'] is List) {
+            rawEvents = decoded['data'] as List;
+          } else {
+            throw Exception('Invalid response format: no events list found');
+          }
+        } else {
+          throw Exception('Invalid response format');
+        }
+
+        final List<EventModel> loadedEvents = rawEvents
+            .whereType<Map>()
+            .map(
+              (eventJson) => EventModel.fromJson(
+                Map<String, dynamic>.from(eventJson),
+              ),
+            )
+            .toList();
+
+        debugPrint('[Events] Parsed events count: ${loadedEvents.length}');
+        eventsList = loadedEvents;
+
+        if (mounted) {
+          setState(() {
+            _filtered = List<EventModel>.from(eventsList);
+          });
+          debugPrint('[Events] UI updated with ${_filtered.length} events');
+        }
+      } else if (response.statusCode == 401) {
+        _toast('Unauthorized. Please log in again.');
       } else {
-        _toast('Load failed: ${r.statusCode}');
+        String message = 'Load failed: ${response.statusCode}';
+
+        try {
+          final decodedError = jsonDecode(response.body);
+          if (decodedError is Map<String, dynamic> &&
+              decodedError['message'] != null) {
+            message = decodedError['message'].toString();
+          }
+        } catch (_) {}
+
+        _toast(message);
       }
     } catch (e) {
       _toast('Load error: $e');
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
   Future<void> _delete(String id) async {
     try {
-      final r = await http.delete(Uri.parse('${ApiService.baseUrl}/events/$id'));
-      if (r.statusCode == 200) {
-        _toast('Deleted');
+      final token = await _getToken();
+
+      final headers = <String, String>{
+        'Content-Type': 'application/json',
+      };
+
+      if (token != null && token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+
+      final response = await http.delete(
+        Uri.parse('${ApiService.baseUrl}/events/$id'),
+        headers: headers,
+      );
+
+      if (response.statusCode == 200) {
+        _toast('Deleted successfully');
         await _load();
+      } else if (response.statusCode == 401) {
+        _toast('Unauthorized. Please log in again.');
       } else {
-        _toast('Delete failed: ${r.statusCode}');
+        String message = 'Delete failed: ${response.statusCode}';
+
+        try {
+          final decodedError = jsonDecode(response.body);
+          if (decodedError is Map<String, dynamic> &&
+              decodedError['message'] != null) {
+            message = decodedError['message'].toString();
+          }
+        } catch (_) {}
+
+        _toast(message);
       }
     } catch (e) {
       _toast('Delete error: $e');
     }
   }
 
-  // ---------- Helpers ----------
-  void _toast(String m) {
+  void _toast(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  // Turn '/uploads/abc.jpg' into 'http://localhost:3000/uploads/abc.jpg'
   String _resolveUrl(String? url) {
     if (url == null || url.isEmpty) return '';
     if (url.startsWith('http://') || url.startsWith('https://')) return url;
@@ -86,7 +433,6 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
     return '$_apiOrigin/$url';
   }
 
-  // Show an in-app preview dialog for the image
   void _showImagePreview(String? url) {
     final link = _resolveUrl(url);
     if (link.isEmpty) {
@@ -103,7 +449,6 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         child: Stack(
           children: [
-            // Zoom/pan
             InteractiveViewer(
               minScale: 0.5,
               maxScale: 4,
@@ -111,7 +456,6 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
                 child: Image.network(
                   link,
                   fit: BoxFit.contain,
-                  // Progress indicator while loading
                   loadingBuilder: (ctx, child, progress) {
                     if (progress == null) return child;
                     return SizedBox(
@@ -127,7 +471,6 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
                       ),
                     );
                   },
-                  // Friendly error UI
                   errorBuilder: (ctx, err, stack) => SizedBox(
                     height: 420,
                     width: 560,
@@ -135,8 +478,11 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.broken_image,
-                              size: 48, color: Colors.grey),
+                          const Icon(
+                            Icons.broken_image,
+                            size: 48,
+                            color: Colors.grey,
+                          ),
                           const SizedBox(height: 8),
                           Text(
                             'Could not load image',
@@ -146,7 +492,9 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
                           Text(
                             link,
                             style: const TextStyle(
-                                fontSize: 12, color: Colors.grey),
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
                             textAlign: TextAlign.center,
                           ),
                         ],
@@ -156,182 +504,12 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
                 ),
               ),
             ),
-            // Close button
             Positioned(
               top: 8,
               right: 8,
               child: IconButton(
                 onPressed: () => Navigator.of(context).pop(),
                 icon: const Icon(Icons.close),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ---------- UI ----------
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: kPrimaryBackgroundBottom,
-      appBar: AppBar(
-        backgroundColor: kAppBarColor,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: kTextColor),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text('Event Updates', style: TextStyle(color: kTextColor)),
-        actions: [
-          IconButton(
-              icon: const Icon(Icons.search, color: kTextColor),
-              onPressed: _search),
-          IconButton(
-              icon: const Icon(Icons.refresh, color: kTextColor),
-              onPressed: _load),
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: _downloadCsv,
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: kButtonColor,
-                      foregroundColor: kTextColor),
-                  icon: const Icon(Icons.download),
-                  label: const Text("Download"),
-                ),
-                const SizedBox(width: 10),
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    await Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const EventUploadPage()));
-                    await _load();
-                  },
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: kButtonColor,
-                      foregroundColor: kTextColor),
-                  icon: const Icon(Icons.add),
-                  label: const Text("Add"),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(10)),
-                child: _loading
-                    ? const Center(child: CircularProgressIndicator())
-                    : SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: SizedBox(
-                          width: 980,
-                          child: Column(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 8),
-                                color:
-                                    kPrimaryBackgroundBottom.withOpacity(0.5),
-                                child: Row(
-                                  children: const [
-                                    _HeaderCell('Event Name', width: 160),
-                                    _HeaderCell('From Date', width: 120),
-                                    _HeaderCell('To Date', width: 120),
-                                    _HeaderCell('Location', width: 150),
-                                    _HeaderCell('Image', width: 100),
-                                    _HeaderCell('Description', width: 260),
-                                    _HeaderCell('Delete', width: 60),
-                                  ],
-                                ),
-                              ),
-                              const Divider(height: 1),
-                              Expanded(
-                                child: _filtered.isEmpty
-                                    ? const Center(child: Text('No data'))
-                                    : ListView.builder(
-                                        itemCount: _filtered.length,
-                                        itemBuilder: (_, i) {
-                                          final e = _filtered[i];
-                                          return Container(
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 10, vertical: 10),
-                                            decoration: BoxDecoration(
-                                              border: Border(
-                                                  bottom: BorderSide(
-                                                      color: Colors
-                                                          .grey.shade300)),
-                                            ),
-                                            child: Row(
-                                              children: [
-                                                _BodyCell(e.title, width: 160),
-                                                _BodyCell(
-                                                  e.fromDate
-                                                      .toIso8601String()
-                                                      .split('T')
-                                                      .first,
-                                                  width: 120,
-                                                ),
-                                                _BodyCell(
-                                                  e.toDate
-                                                      .toIso8601String()
-                                                      .split('T')
-                                                      .first,
-                                                  width: 120,
-                                                ),
-                                                _BodyCell(e.location,
-                                                    width: 150),
-
-                                                // ====== VIEW BUTTON (in-app preview) ======
-                                                SizedBox(
-                                                  width: 100,
-                                                  child: (e.imageUrl ?? '')
-                                                          .isEmpty
-                                                      ? const Text('—',
-                                                          textAlign:
-                                                              TextAlign.center)
-                                                      : TextButton(
-                                                          onPressed: () =>
-                                                              _showImagePreview(
-                                                                  e.imageUrl),
-                                                          child: const Text(
-                                                              'View'),
-                                                        ),
-                                                ),
-
-                                                _BodyCell(e.description,
-                                                    width: 260),
-                                                SizedBox(
-                                                  width: 60,
-                                                  child: IconButton(
-                                                    icon: const Icon(
-                                                        Icons.delete,
-                                                        color: Colors.red),
-                                                    onPressed: () =>
-                                                        _delete(e.id),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          );
-                                        },
-                                      ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
               ),
             ),
           ],
@@ -357,7 +535,8 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
               setState(() {
                 _filtered = eventsList
                     .where(
-                        (e) => e.title.toLowerCase().contains(q.toLowerCase()))
+                      (e) => e.title.toLowerCase().contains(q.toLowerCase()),
+                    )
                     .toList();
               });
               Navigator.of(context).pop();
@@ -382,19 +561,20 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
       return;
     }
 
-    final b = StringBuffer()
-      ..writeln('Event Name,From Date,To Date,Location,Image,Description');
+    final buffer = StringBuffer()
+      ..writeln('Event Name,From Date,To Date,Location,Description');
 
     for (final e in _filtered) {
-      b.writeln('${e.title},'
-          '${e.fromDate.toIso8601String().split('T').first},'
-          '${e.toDate.toIso8601String().split('T').first},'
-          '${e.location},'
-          '${(e.imageUrl ?? '').isNotEmpty ? 'Yes' : 'No'},'
-          '${e.description.replaceAll(',', ' ')}');
+      buffer.writeln(
+        '${e.title},'
+        '${e.fromDate.toIso8601String().split('T').first},'
+        '${e.toDate.toIso8601String().split('T').first},'
+        '${e.location},'
+        '${e.description.replaceAll(',', ' ')}',
+      );
     }
 
-    final bytes = utf8.encode(b.toString());
+    final bytes = utf8.encode(buffer.toString());
     final blob = html.Blob([bytes], 'text/csv');
     final url = html.Url.createObjectUrlFromBlob(blob);
     html.AnchorElement(href: url)
@@ -407,13 +587,19 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
 class _HeaderCell extends StatelessWidget {
   final String label;
   final double width;
+
   const _HeaderCell(this.label, {required this.width});
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       width: width,
-      child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+      child: Text(
+        label,
+        overflow: TextOverflow.ellipsis,
+        maxLines: 1,
+        style: const TextStyle(fontWeight: FontWeight.bold),
+      ),
     );
   }
 }
@@ -421,6 +607,7 @@ class _HeaderCell extends StatelessWidget {
 class _BodyCell extends StatelessWidget {
   final String text;
   final double width;
+
   const _BodyCell(this.text, {required this.width});
 
   @override

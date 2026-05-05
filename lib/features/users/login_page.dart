@@ -1,14 +1,12 @@
 import 'dart:convert';
-import 'dart:developer' as dev;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:jwt_decoder/jwt_decoder.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:serv_app/models/company_profile.dart';
+import 'package:serv_app/utils/location_permission_dialog.dart';
 
 // Web localStorage shim
 import 'package:serv_app/html_stub.dart'
@@ -70,118 +68,9 @@ class _LoginPageState extends State<LoginPage> {
     await sp.setString(key, value);
   }
 
-  // ---------- PERMISSION FLOW (from your new page) ----------
+  // ---------- PERMISSION FLOW (using unified dialog) ----------
   Future<void> _showPermissionIntroThenRequest() async {
-    await showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Container(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('We need location access',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 16),
-              const Text(
-                'To track your attendance and location during work hours, we need the following permissions:',
-                style: TextStyle(fontSize: 14, color: Colors.black54),
-              ),
-              const SizedBox(height: 24),
-              _buildPermissionItem(
-                icon: Icons.location_on_outlined,
-                title: 'Device Location',
-                description:
-                    'To track your location for attendance and work hours',
-                color: const Color(0xFF4CAF50),
-              ),
-              const SizedBox(height: 16),
-              _buildPermissionItem(
-                icon: Icons.gps_fixed_outlined,
-                title: 'Location Accuracy',
-                description: 'For precise tracking of your work location',
-                color: const Color(0xFF2196F3),
-              ),
-              const SizedBox(height: 32),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Not Now'),
-                  ),
-                  const SizedBox(width: 12),
-                  ElevatedButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _requestAllPermissions();
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF4CAF50),
-                    ),
-                    child: const Text('Allow All',
-                        style: TextStyle(color: Colors.white)),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPermissionItem({
-    required IconData icon,
-    required String title,
-    required String description,
-    required Color color,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF5F5F5),
-        borderRadius: BorderRadius.circular(8.0),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 24),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    style: const TextStyle(
-                        fontSize: 14, fontWeight: FontWeight.w600)),
-                Text(description,
-                    style: const TextStyle(fontSize: 12, color: Colors.black54)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _requestAllPermissions() async {
-    var locationStatus = await Permission.locationWhenInUse.status;
-    if (!locationStatus.isGranted) {
-      locationStatus = await Permission.locationWhenInUse.request();
-    }
-    if (locationStatus.isGranted) await Permission.location.request();
-    final gpsOn = await Geolocator.isLocationServiceEnabled();
-    if (!gpsOn && mounted) {
-      _showSnack('Please enable Location Services for accurate check-in.');
-      try {
-        await Geolocator.openLocationSettings();
-      } catch (e) {
-        dev.log('Error opening location settings: $e');
-      }
-    }
+    await LocationPermissionDialog.showIfNeeded(context);
   }
 
   // ---------- COMPANY PROFILE CHECK (from your old page) ----------
@@ -215,12 +104,12 @@ class _LoginPageState extends State<LoginPage> {
         'Authorization': 'Bearer $token',
         'Accept': 'application/json'
       }).timeout(const Duration(seconds: 15));
-      dev.log('[GET] $u1 -> ${r1.statusCode}');
+      debugPrint('[GET] $u1 -> ${r1.statusCode}');
       if (r1.statusCode == 200) return norm(jsonDecode(r1.body));
       if (r1.statusCode == 404) return treat404();
       // fall through to fallback for non-200/404
     } catch (e) {
-      dev.log('profile/check exception: $e');
+      debugPrint('profile/check exception: $e');
     }
 
     // 2) Fallback /company/profile?email=...
@@ -231,7 +120,7 @@ class _LoginPageState extends State<LoginPage> {
       'Accept': 'application/json'
     }).timeout(const Duration(seconds: 15));
 
-    dev.log('[GET] $u2 -> ${r2.statusCode}');
+    debugPrint('[GET] $u2 -> ${r2.statusCode}');
     if (r2.statusCode == 200) return norm(jsonDecode(r2.body));
     if (r2.statusCode == 404) return treat404();
 
@@ -244,208 +133,218 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   // ---------- LOGIN (merged: old flow + new permission + new forgot) ----------
-  Future<void> _login({required bool isAdmin}) async {
-    if (!_formKey.currentState!.validate()) return;
+Future<void> _login({required bool isAdmin}) async {
+  if (!_formKey.currentState!.validate()) return;
 
-    setState(() {
-      if (isAdmin) {
-        _isAdminLoading = true;
-      } else {
-        _isEmpLoading = true;
+  setState(() {
+    if (isAdmin) {
+      _isAdminLoading = true;
+    } else {
+      _isEmpLoading = true;
+    }
+  });
+
+  try {
+    final email = idController.text.trim().toLowerCase();
+    final pwd = passwordController.text;
+
+    debugPrint('Current API Base URL: ${ApiService.baseUrl}');
+
+    final response = await http
+        .post(
+          Uri.parse('${ApiService.baseUrl}/auth/login'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: jsonEncode({
+            'email': email,
+            'password': pwd,
+          }),
+        )
+        .timeout(const Duration(seconds: 15));
+
+    debugPrint('LOGIN STATUS: ${response.statusCode}');
+    debugPrint('LOGIN BODY: ${response.body}');
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+    if (response.statusCode == 200) {
+      final token = (data['token'] ?? data['data']?['token'] ?? '').toString();
+      final role = (data['role'] ?? data['data']?['role'] ?? '').toString();
+
+      final empId = (data['empId'] ??
+              data['empid'] ??
+              data['data']?['empId'] ??
+              data['data']?['empid'] ??
+              data['user']?['empId'] ??
+              data['user']?['empid'] ??
+              '')
+          .toString()
+          .trim();
+
+      final companyId = (data['companyId'] ??
+              data['data']?['companyId'] ??
+              data['user']?['companyId'] ??
+              '')
+          .toString()
+          .trim();
+
+      final name = (data['name'] ??
+              data['data']?['name'] ??
+              data['user']?['name'] ??
+              '')
+          .toString()
+          .trim();
+
+      if (token.isEmpty || role.isEmpty) {
+        _showSnack('Invalid server response. Token or role missing.');
+        return;
       }
-    });
 
-    try {
-      final email = idController.text.trim().toLowerCase();
-      final pwd = passwordController.text;
-      debugPrint('Current API Base URL: ${ApiConfig.baseUrl}');
+      if (isAdmin && role != 'admin') {
+        _showSnack("Not authorized as admin.");
+        return;
+      }
 
-      final response = await ApiService.post(
-        '/auth/login',
-        body: jsonEncode({
-          'email': email,
-          'password': pwd,
-        }),
-        authRequired: false,
-      ).timeout(const Duration(seconds: 15));
+      if (!isAdmin && role != 'employee') {
+        _showSnack("Not authorized as employee.");
+        return;
+      }
 
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      CompanyData.token = token;
+      CompanyData.role = role;
+      CompanyData.empid = empId;
+      CompanyData.companyId = companyId;
 
-      if (response.statusCode == 200) {
-        final tok = (data['token'] ?? '').toString();
-        final role = (data['role'] ?? '').toString();
+      // Extract empid from JWT token as fallback
+      final decoded = JwtDecoder.decode(token);
 
-        if (tok.isEmpty || role.isEmpty) {
-          _showSnack('Invalid server response');
-          return;
-        }
+      final empIdFromToken = (decoded['empid'] ??
+              decoded['empId'] ??
+              decoded['employeeId'] ??
+              '')
+          .toString()
+          .trim();
 
-        // Persist token and role
-        CompanyData.token = tok;
-        await _persist('token', tok);
-        await _persist('role', role);
+      final finalEmpId = empId.isNotEmpty ? empId : empIdFromToken;
 
-        // Role sanity vs button
-        if (isAdmin && role != 'admin') {
-          _showSnack("Not authorized as admin.");
-          return;
-        }
-        if (!isAdmin && role != 'employee') {
-          _showSnack("Not authorized as employee.");
-          return;
-        }
+      CompanyData.empid = finalEmpId;
 
-        if (isAdmin) {
-          // ---------- ADMIN FLOW ----------
-          try {
-            final result =
-                await _checkCompanyProfile(token: tok, adminEmail: email);
-            final exists = result['exists'] == true;
-            final companyData =
-                result['data'] as Map<String, dynamic>? ?? const {};
+      if (finalEmpId.isNotEmpty) {
+        await _persist('empid', finalEmpId);
+        await _persist('empId', finalEmpId);
+      }
 
-            if (!mounted) return;
-            if (exists) {
-              Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(
-                  builder: (_) => AdminDashboard(
-                    companyProfile: CompanyProfile(
-                      name: (companyData['companyName'] ?? '').toString(),
-                      adminName: (companyData['adminName'] ?? '').toString(),
-                      logoUrl: companyData['logoUrl']?.toString(),
-                    ),
-                  ),
-                ),
-                (route) => false,
-              );
-            } else {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (_) => const CompanyDetailsFormPage()),
-              );
-            }
-          } catch (e) {
-            dev.log('Company profile check failed: $e');
-            _showSnack('Company profile check failed: $e');
-          }
-        } else {
-          // ---------- EMPLOYEE FLOW ----------
-          // 1) Seed from login response immediately
-          String empIdSeed = (data['empId'] ??
-                  data['empid'] ??
-                  data['user']?['empId'] ??
-                  data['user']?['empid'] ??
-                  '')
-              .toString()
-              .trim();
+      await _persist('token', token);
+      await _persist('role', role);
 
-          String nameSeed =
-              (data['name'] ?? data['user']?['name'] ?? '').toString().trim();
+      if (companyId.isNotEmpty) {
+        await _persist('companyId', companyId);
+      }
 
-          if (nameSeed.isEmpty) {
-            try {
-              final decoded = JwtDecoder.decode(tok);
-              nameSeed = (decoded['name'] ?? '').toString().trim();
-            } catch (_) {}
-          }
+      if (name.isNotEmpty) {
+        await _persist('name', name);
+      }
 
-          if (empIdSeed.isNotEmpty) {
-            await _persist('empId', empIdSeed);
-            await _persist('empid', empIdSeed); // legacy
-          }
-          if (nameSeed.isNotEmpty) {
-            await _persist('name', nameSeed);
-          }
+      debugPrint('User authentication completed - role: ${CompanyData.role}');
+      debugPrint('Employee ID exists: ${CompanyData.empid.isNotEmpty}');
+      debugPrint('Company ID exists: ${CompanyData.companyId.isNotEmpty}');
 
-          // 2) Decode token for docId (optional)
-          String docId = '';
-          try {
-            final decoded = JwtDecoder.decode(tok);
-            docId = (decoded['userId'] ?? decoded['uid'] ?? '').toString();
-          } catch (_) {}
+      if (isAdmin) {
+        final result = await _checkCompanyProfile(
+          token: token,
+          adminEmail: email,
+        );
 
-          // 3) Normalize profile via /auth/me
-          try {
-            final meRes = await http.get(
-              Uri.parse('${ApiService.baseUrl}/auth/me'),
-              headers: {'Authorization': 'Bearer $tok'},
-            );
-            if (meRes.statusCode == 200) {
-              final meData = jsonDecode(meRes.body) as Map<String, dynamic>;
-              final profile = (meData['employeeProfile'] is Map)
-                  ? Map<String, dynamic>.from(meData['employeeProfile'])
-                  : <String, dynamic>{};
+        final exists = result['exists'] == true;
+        final companyData =
+            result['data'] as Map<String, dynamic>? ?? const {};
 
-              final realName = (meData['name'] ??
-                      profile['name'] ??
-                      meData['fullName'] ??
-                      nameSeed)
-                  .toString()
-                  .trim();
+        if (!mounted) return;
 
-              final empId = (meData['empId'] ??
-                      profile['empId'] ??
-                      meData['empid'] ??
-                      profile['empid'] ??
-                      meData['employeeId'] ??
-                      profile['employeeId'] ??
-                      empIdSeed)
-                  .toString()
-                  .trim();
-
-              await _persist(
-                'employeeProfile',
-                jsonEncode({
-                  ...profile,
-                  if (realName.isNotEmpty) 'name': realName,
-                  if (empId.isNotEmpty) 'empId': empId,
-                }),
-              );
-
-              if (realName.isNotEmpty) await _persist('name', realName);
-              if (empId.isNotEmpty) {
-                await _persist('empId', empId);
-                await _persist('empid', empId);
-              }
-            }
-          } catch (_) {
-            // ignore minor normalization errors
-          }
-
-          if (docId.isNotEmpty) await _persist('userDocId', docId);
-
-          // Request permissions (from your new page) then route
-          if (mounted) await _showPermissionIntroThenRequest();
-          if (!mounted) return;
-
+        if (exists) {
           Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(
-              builder: (_) => HomeScreen(
-                userName: nameSeed.isNotEmpty
-                    ? nameSeed
-                    : email.split('@').first,
-                employeeDocId: docId,
+              builder: (_) => AdminDashboard(
+                companyProfile: CompanyProfile(
+                  name: (companyData['companyName'] ?? '').toString(),
+                  adminName: (companyData['adminName'] ?? '').toString(),
+                  logoUrl: companyData['logoUrl']?.toString(),
+                ),
               ),
             ),
             (route) => false,
           );
+        } else {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const CompanyDetailsFormPage(),
+            ),
+          );
         }
       } else {
-        final msg =
-            (data['message'] ?? data['error'] ?? 'Login failed').toString();
-        _showSnack(msg);
+        String docId = '';
+
+        try {
+          final decoded = JwtDecoder.decode(token);
+          docId = (decoded['userId'] ?? decoded['uid'] ?? '').toString();
+
+          final jwtEmpId =
+              (decoded['empId'] ?? decoded['empid'] ?? '').toString().trim();
+
+          final jwtCompanyId =
+              (decoded['companyId'] ?? '').toString().trim();
+
+          if (CompanyData.empid.isEmpty && jwtEmpId.isNotEmpty) {
+            CompanyData.empid = jwtEmpId;
+            await _persist('empId', jwtEmpId);
+            await _persist('empid', jwtEmpId);
+          }
+
+          if (CompanyData.companyId.isEmpty && jwtCompanyId.isNotEmpty) {
+            CompanyData.companyId = jwtCompanyId;
+            await _persist('companyId', jwtCompanyId);
+          }
+        } catch (_) {}
+
+        if (docId.isNotEmpty) {
+          await _persist('userDocId', docId);
+        }
+
+        if (mounted) {
+          await _showPermissionIntroThenRequest();
+        }
+
+        if (!mounted) return;
+
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (_) => HomeScreen(
+              userName: name.isNotEmpty ? name : email.split('@').first,
+              employeeDocId: docId,
+            ),
+          ),
+          (route) => false,
+        );
       }
-    } catch (e) {
-      _showSnack('Error: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isEmpLoading = false;
-          _isAdminLoading = false;
-        });
-      }
+    } else {
+      final msg =
+          (data['message'] ?? data['error'] ?? 'Login failed').toString();
+      _showSnack(msg);
+    }
+  } catch (e) {
+    _showSnack('Error: $e');
+  } finally {
+    if (mounted) {
+      setState(() {
+        _isEmpLoading = false;
+        _isAdminLoading = false;
+      });
     }
   }
+}
 
   // ---------- UI ----------
   @override
@@ -633,7 +532,7 @@ class _ArcLoader extends StatefulWidget {
   const _ArcLoader({
     required this.size,
     required this.color,
-    this.strokeWidth = 4.0,
+    this.strokeWidth = 2.0,
   });
 
   @override

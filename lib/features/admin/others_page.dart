@@ -30,56 +30,125 @@ class OthersPage extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10),
             child: ListView(
               children: [
-                // Header Row
-              
-
-                const Text(
-                  'Others',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Color.fromARGB(255, 15, 14, 14),
-                  ),
+                _buildPremiumCard(
+                  context,
+                  'My Tasks',
+                  Icons.checklist,
+                  () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const MyTasksPage()),
+                    );
+                  },
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
 
-                _buildMenuButton(context, 'My Tasks', onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const MyTasksPage()),
-                  );
-                }, isSelected: true),
+                _buildPremiumCard(
+                  context,
+                  'Rewards',
+                  Icons.emoji_events,
+                  () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const RewardsPage()),
+                    );
+                  },
+                ),
+                const SizedBox(height: 16),
 
-                const SizedBox(height: 10),
+                _buildPremiumCard(
+                  context,
+                  'Feedback',
+                  Icons.message,
+                  () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const FeedbackPage(employeeName: '', employeeId: '')),
+                    );
+                  },
+                ),
+                const SizedBox(height: 16),
 
-                _buildMenuButton(context, 'Rewards', onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const RewardsPage()),
-                  );
-                }),
-
-                const SizedBox(height: 10),
-
-                _buildMenuButton(context, 'Feedback', onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const FeedbackPage(employeeName: '', employeeId: '',)),
-                  );
-                }),
-
-                const SizedBox(height: 10),
-
-                _buildMenuButton(context, 'Event Updates', onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const EventUpdatesPage()),
-                  );
-                }),
-
-                const SizedBox(height: 20),
+                _buildPremiumCard(
+                  context,
+                  'Event Updates',
+                  Icons.event,
+                  () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const EventUpdatesPage()),
+                    );
+                  },
+                ),
+                const SizedBox(height: 24),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPremiumCard(
+    BuildContext context,
+    String title,
+    IconData icon,
+    VoidCallback onTap,
+  ) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: kButtonColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(icon, size: 24, color: kButtonColor),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Icon(
+                Icons.chevron_right,
+                size: 20,
+                color: kButtonColor,
+              ),
+            ],
           ),
         ),
       ),
@@ -101,11 +170,12 @@ class OthersPage extends StatelessWidget {
         child: ElevatedButton(
           style: ElevatedButton.styleFrom(
             elevation: 0,
-            backgroundColor: isSelected ? kButtonColor : Colors.white,
-            foregroundColor: isSelected ? Colors.white : Colors.black,
+            backgroundColor: isSelected ? Colors.white : Colors.white,
+            foregroundColor: isSelected ? kButtonColor : Colors.black,
             padding: const EdgeInsets.symmetric(vertical: 14),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(20),
+              side: isSelected ? BorderSide(color: kButtonColor, width: 2) : BorderSide.none,
             ),
           ),
           onPressed: onTap,

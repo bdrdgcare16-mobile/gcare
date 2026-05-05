@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { createFeedback, getAllFeedback } from '../controllers/feedbackController';
 import type { Firestore } from 'firebase-admin/firestore';
+import { authMiddleware } from '../middlewares/authMiddleware';
 
 /**
  * @openapi
@@ -24,20 +25,23 @@ import type { Firestore } from 'firebase-admin/firestore';
  *         visibility:
  *           type: array
  *           items: { type: string }
+ *         companyId:
+ *           type: string
  *         date:
  *           type: string
  *           format: date-time
  */
 
-// Factory so we can inject Firestore cleanly
 export default function feedbackRoutes(db: Firestore) {
   const router = Router();
 
-  // Inject Firestore into req.app.locals.db so controllers can read it
   router.use((req: Request, _res: Response, next: NextFunction) => {
-    (req.app.locals as any).db = db;
+    req.app.locals.db = db;
     next();
   });
+
+  // Protect all feedback routes
+  router.use(authMiddleware);
 
   /**
    * @openapi
@@ -45,24 +49,6 @@ export default function feedbackRoutes(db: Firestore) {
    *   post:
    *     summary: Submit feedback (user)
    *     tags: [Feedback]
-   *     description: |
-   *       Provide **either**:
-   *       - `x-user-id` (users doc id, server resolves empid/name), **or**
-   *       - `x-empid` **and** `x-name` directly.
-   *     parameters:
-   *       - in: header
-   *         name: x-user-id
-   *         required: false
-   *         schema: { type: string }
-   *         description: Firestore `users` document ID
-   *       - in: header
-   *         name: x-empid
-   *         required: false
-   *         schema: { type: string }
-   *       - in: header
-   *         name: x-name
-   *         required: false
-   *         schema: { type: string }
    *     requestBody:
    *       required: true
    *       content:
@@ -74,6 +60,7 @@ export default function feedbackRoutes(db: Firestore) {
    *     responses:
    *       201: { description: Feedback created }
    *       400: { description: Missing user meta or message }
+   *       401: { description: Unauthorized }
    */
   router.post('/', createFeedback);
 
@@ -81,16 +68,13 @@ export default function feedbackRoutes(db: Firestore) {
    * @openapi
    * /api/feedback:
    *   get:
-   *     summary: Get all feedbacks (admin)
+   *     summary: Get all feedbacks for logged-in company only
    *     tags: [Feedback]
    *     responses:
    *       200:
    *         description: List of feedbacks
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: array
-   *               items: { $ref: '#/components/schemas/FeedbackOut' }
+   *       401:
+   *         description: Unauthorized
    */
   router.get('/', getAllFeedback);
 

@@ -5,6 +5,7 @@ import 'package:serv_app/html_stub.dart'
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // You keep a local list in globals_page.dart; we leave it untouched
 import 'package:serv_app/features/admin/globals_page.dart';
@@ -38,6 +39,64 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
   DateTime? fromDate;
   DateTime? toDate;
 
+  // Auth state variables
+  String? _token;
+  String? _role;
+  bool _loadingAuth = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAuthData();
+  }
+
+  Future<void> _loadAuthData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // Load token from SharedPreferences
+      final tokenKeys = ['jwt', 'token', 'access_token', 'auth_token'];
+      for (final key in tokenKeys) {
+        final token = prefs.getString(key);
+        if (token != null && token.isNotEmpty) {
+          _token = token;
+          break;
+        }
+      }
+
+      // Load role from SharedPreferences
+      _role = prefs.getString('role');
+
+      // If role is null, try to decode from JWT payload
+      if (_role == null && _token != null) {
+        try {
+          final parts = _token!.split('.');
+          if (parts.length == 3) {
+            final payload = jsonDecode(
+              utf8.decode(base64.decode(base64.normalize(parts[1])))
+            );
+            _role = payload['role']?.toString();
+          }
+        } catch (e) {
+          print('JWT parse error: $e');
+        }
+      }
+
+      print('SHARED PREF TOKEN: $_token');
+      print('SHARED PREF ROLE: $_role');
+      print('ADMIN CHECK FINAL: ${_isAdmin()}');
+
+      setState(() {
+        _loadingAuth = false;
+      });
+    } catch (e) {
+      print('Error loading auth data: $e');
+      setState(() {
+        _loadingAuth = false;
+      });
+    }
+  }
+
   String? _getToken() {
     final keys = ['jwt', 'token', 'access_token', 'auth_token'];
     for (final k in keys) {
@@ -46,6 +105,15 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
     }
     return null;
   }
+
+  String? _getUserRole() {
+  return _role;
+}
+
+  bool _isAdmin() {
+  final role = _role?.trim().toLowerCase();
+  return role != null && role.contains('admin');
+}
 
   Future<void> _selectDate(TextEditingController ctrl,
       {DateTime? minDate, bool isFrom = false}) async {
@@ -84,6 +152,16 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
             content: Text('To Date cannot be before From Date'),
+            backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    // Check admin access
+    if (!_isAdmin()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Only admin can create leave types'),
             backgroundColor: Colors.red),
       );
       return;
@@ -146,6 +224,16 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_loadingAuth) {
+      return Scaffold(
+        appBar: AppBar(
+            title: const Text('Add Leave Type'), backgroundColor: kAppBarColor),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final role = _getUserRole();
+
     return Scaffold(
       appBar: AppBar(
           title: const Text('Add Leave Type'), backgroundColor: kAppBarColor),
@@ -181,11 +269,11 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
                     ),
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: kButtonColor,
+                        backgroundColor: _isAdmin() ? kButtonColor : Colors.grey,
                         foregroundColor: Colors.white,
                       ),
-                      onPressed: _saveLeave,
-                      child: const Text('Create'),
+                      onPressed: _isAdmin() ? _saveLeave : null,
+                      child: Text(_isAdmin() ? 'Create' : 'Admin Only'),
                     ),
                   ],
                 ),

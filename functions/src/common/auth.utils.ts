@@ -1,27 +1,41 @@
-import jwt, { Secret, SignOptions } from "jsonwebtoken";
+import * as jwt from 'jsonwebtoken';
 
-const JWT_SECRET: Secret = process.env.JWT_SECRET || "local-dev-secret";
-const JWT_EXPIRES = process.env.JWT_EXPIRES_IN || "24h";
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('JWT_SECRET environment variable is required.');
+  }
+  return secret;
+}
 
-export interface JwtPayload {
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+
+export interface TokenPayload {
   userId: string;
   email: string;
   role: string;
   empid?: string | null;
-  [key: string]: any;
+  companyId?: string | null;
 }
 
-export const issueToken = (payload: JwtPayload): string => {
-  const options: SignOptions = {
-    expiresIn: JWT_EXPIRES as any,
-  };
-
-  console.log('JWT_SECRET present in issueToken:', !!process.env.JWT_SECRET);
-  console.log('JWT_SECRET length in issueToken:', (process.env.JWT_SECRET || '').length);
-
-  return jwt.sign(payload, JWT_SECRET, options);
+export const issueToken = (payload: TokenPayload): string => {
+  return jwt.sign(
+    {
+      userId: payload.userId,
+      email: payload.email,
+      role: payload.role,
+      empid: payload.empid ?? null,
+      companyId: payload.companyId ?? null,
+    },
+    getJwtSecret(),
+    { expiresIn: JWT_EXPIRES_IN as jwt.SignOptions['expiresIn'] }
+  );
 };
 
 export const getJwtExpires = (): string => {
-  return JWT_EXPIRES;
+  return JWT_EXPIRES_IN;
+};
+
+export const verifyToken = (token: string): TokenPayload => {
+  return jwt.verify(token, getJwtSecret()) as TokenPayload;
 };

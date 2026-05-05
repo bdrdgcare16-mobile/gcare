@@ -91,16 +91,41 @@ class _MyTasksPageState extends State<MyTasksPage> {
 
     // merged view (broadcast + personal)
     final uri = Uri.parse('${ApiService.baseUrl}/tasks/user?limit=50');
+    
+    // Debug logs
+    final token = CompanyData.token ?? '';
+    _log('[MyTasks] token exists: ${token.isNotEmpty}');
+    
+    // Extract role and companyId from profile data
+    String? role = '';
+    String? companyId = '';
+    try {
+      if (CompanyData.employeeProfile != null) {
+        final profile = CompanyData.employeeProfile as Map<String, dynamic>?;
+        role = profile?['role']?.toString() ?? '';
+        companyId = profile?['companyId']?.toString() ?? '';
+      }
+    } catch (e) {
+      _log('[MyTasks] Error extracting profile data: $e');
+    }
+    
+    _log('[MyTasks] role: $role');
+    _log('[MyTasks] empid: ${CompanyData.empid}');
+    _log('[MyTasks] companyId: $companyId');
+    _log('[MyTasks] request URL: $uri');
 
     try {
       final resp = await http.get(
         uri,
         headers: {
           'Content-Type': 'application/json',
-          if ((CompanyData.token ?? '').isNotEmpty)
-            'Authorization': 'Bearer ${CompanyData.token}',
+          if (token.isNotEmpty)
+            'Authorization': 'Bearer $token',
         },
       ).timeout(const Duration(seconds: 15));
+      
+      _log('[MyTasks] response status: ${resp.statusCode}');
+      _log('[MyTasks] response body: ${resp.body}');
 
       if (resp.statusCode == 200) {
         final List<dynamic> list = jsonDecode(resp.body);
@@ -123,8 +148,17 @@ class _MyTasksPageState extends State<MyTasksPage> {
         setState(() => _error = 'Error ${resp.statusCode}: ${resp.body}');
       }
     } catch (e) {
-      _log(e);
-      setState(() => _error = 'Failed to fetch tasks');
+      _log('[MyTasks] Exception caught: $e');
+      _log('[MyTasks] Exception type: ${e.runtimeType}');
+      if (e is FormatException) {
+        setState(() => _error = 'Failed to parse response: ${e.message}');
+      } else if (e.toString().contains('timeout')) {
+        setState(() => _error = 'Request timed out');
+      } else if (e.toString().contains('SocketException')) {
+        setState(() => _error = 'Network error - please check connection');
+      } else {
+        setState(() => _error = 'Failed to fetch tasks: $e');
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
       _isFetching = false;
@@ -188,12 +222,14 @@ class _MyTasksPageState extends State<MyTasksPage> {
     if(_posting) return;
     _posting = true;
     // server derives empid from JWT; no client empid needed
-    final uri = Uri.parse('${ApiService.baseUrl}/tasks?audience=all');
+    final uri = Uri.parse('${ApiService.baseUrl}/tasks/daily-update');
     final body = jsonEncode({
       'title': 'Daily Update',
       'description': description,
       'dueDate': null,
     });
+
+    print("DAILY UPDATE SUBMIT URL: $uri");
 
     try {
       final resp = await http.post(
@@ -206,13 +242,17 @@ class _MyTasksPageState extends State<MyTasksPage> {
         body: body,
       );
 
+      print("DAILY UPDATE SUBMIT STATUS: ${resp.statusCode}");
+      print("DAILY UPDATE SUBMIT BODY: ${resp.body}");
+
       if (!mounted) return;
 
       if (resp.statusCode == 201) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Daily update posted')),
         );
-        await _fetchTasks();
+        await _fetchTasks(); // Refresh assigned tasks
+        // Note: Daily updates are fetched from GET /tasks/user, so _fetchTasks() should refresh them
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Post failed (${resp.statusCode}): ${resp.body}')),

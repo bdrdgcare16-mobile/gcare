@@ -3,9 +3,9 @@ import 'dart:typed_data';
 import 'package:serv_app/config/api_config.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:serv_app/services/api_service.dart';
+import 'package:image_picker/image_picker.dart';
 
 // Web-only storage shims (safe on non-web due to conditional import)
 import 'package:serv_app/html_stub.dart'

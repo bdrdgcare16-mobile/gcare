@@ -2,7 +2,27 @@
 import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import { db } from '../config/firebase';
+import { trackUsage } from '../services/usageService';
 const USERS = "users"; // ← change if your collection name is different
+
+/* ============================== Usage Tracking Helper ============================== */
+
+async function trackAdminUsage(
+  req: Request,
+  updates: Record<string, number>
+) {
+  try {
+    const user = (req as any).user;
+    await trackUsage({
+      companyId: user?.companyId || '',
+      companyName: user?.companyName || '',
+      plan: user?.plan || '',
+      updates,
+    });
+  } catch (trackingError) {
+    console.error('Usage tracking failed in admin:', trackingError);
+  }
+}
 
 // POST /api/admin/create
 // body: { email, password, name? }
@@ -30,6 +50,12 @@ export async function createAdmin(req: Request, res: Response) {
     };
     const ref = await db.collection(USERS).add(doc);
 
+    // Track usage after successful admin creation
+    await trackAdminUsage(req, {
+      writeCount: 1,
+      apiCalls: 1,
+    });
+
     return res.status(201).json({ id: ref.id, ...doc });
   } catch (e: any) {
     return res.status(500).json({ error: e.message || "failed to create admin" });
@@ -48,6 +74,12 @@ export async function promoteToAdmin(req: Request, res: Response) {
 
     const docRef = q.docs[0].ref;
     await docRef.update({ role: "admin", updatedAt: new Date().toISOString() });
+
+    // Track usage after successful admin promotion
+    await trackAdminUsage(req, {
+      writeCount: 1,
+      apiCalls: 1,
+    });
 
     return res.json({ ok: true });
   } catch (e: any) {

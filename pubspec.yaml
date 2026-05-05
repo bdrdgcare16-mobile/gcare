@@ -2,7 +2,7 @@ name: serv_app
 description: "A new Flutter project."
 publish_to: "none"
 
-version: 0.1.1+2
+version: 1.1.0+2
 
 environment:
   sdk: ">=3.2.0 <4.0.0"
@@ -19,6 +19,7 @@ dependencies:
   image_picker_web: ^4.0.0
   file_picker: ^10.2.0
   open_filex: ^4.7.0
+  
 
   # --- FlutterFire ---
   firebase_core: ^4.0.0
@@ -46,6 +47,7 @@ dependencies:
   path: ^1.8.0
   jwt_decoder: ^2.0.1
   gal: ^2.3.2
+  flutter_secure_storage: ^9.2.2
 
   # Preferences & file generation
   shared_preferences: ^2.5.3
@@ -75,6 +77,8 @@ dependencies:
   internet_connection_checker_plus: ^2.3.0
   share_plus: ^12.0.0
 
+  local_auth_android: any
+  cross_file: any
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -304,10 +304,42 @@ class _HalfDayTimePageState extends State<HalfDayTimePage> {
       backgroundColor: Colors.transparent,
       appBar: widget.isPopup
           ? null
-          : AppBar(
-              title: const Text('Apply Half Day'),
-              backgroundColor: kAppBarColor,
-              foregroundColor: kTextColor,
+          : PreferredSize(
+              preferredSize: const Size.fromHeight(90),
+              child: AppBar(
+                automaticallyImplyLeading: false,
+                backgroundColor: kAppBarColor,
+                elevation: 0,
+                flexibleSpace: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      height: 90,
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.arrow_back, color: Colors.white),
+                              onPressed: () => Navigator.pop(context),
+                            ),
+                            const SizedBox(width: 8),
+                            const Text(
+                              "Apply Half Day",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
       body: gradientBackground,
     );

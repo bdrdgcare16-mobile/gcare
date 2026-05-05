@@ -2,11 +2,14 @@ import { Request, Response } from 'express';
 import { db } from '../config/firebase';
 import * as bcrypt from 'bcryptjs';
 import { Timestamp } from 'firebase-admin/firestore';
+import { trackUsage } from '../services/usageService';
 
 const EMPLOYEES = 'employees';
 
 interface Employee {
   id?: string;
+  companyId?: string;
+
   empid: string;
   name: string;
   email: string;
@@ -15,11 +18,11 @@ interface Employee {
   dept?: string;
   designation?: string;
   shiftGroup?: string | null;
-  role?: string; // optional role metadata stored with employee record
+  role?: string;
   status: 'active' | 'inactive';
-  // stored only if provided at creation/update (hashed)
+
   password?: string;
-  // denormalized helpers
+
   emailLower?: string;
   searchKeywords?: string[];
 
@@ -27,42 +30,36 @@ interface Employee {
   updatedAt: Timestamp;
   createdBy?: string;
   updatedBy?: string;
+};
+
+/* ============================== Usage Tracking Helper ============================== */
+
+async function trackEmployeeUsage(
+  req: Request,
+  updates: Record<string, number>
+) {
+  try {
+    const user = (req as any).user;
+    await trackUsage({
+      companyId: user?.companyId || '',
+      companyName: user?.companyName || '',
+      plan: user?.plan || '',
+      updates,
+    });
+  } catch (trackingError) {
+    console.error('Usage tracking failed in employee:', trackingError);
+  }
 }
-
-const stripPassword = (data: FirebaseFirestore.DocumentData) => {
-  const { password, ...rest } = data || {};
-  return rest;
-};
-
-const buildSearchKeywords = (e: {
-  empid?: string;
-  name?: string;
-  email?: string;
-  phone?: string;
-  dept?: string;
-  designation?: string;
-}) => {
-  const bag = new Set<string>();
-  const push = (v?: string) => {
-    if (!v) return;
-    const s = String(v).toLowerCase();
-    bag.add(s);
-    // split on space and add tokens
-    s.split(/[^\w]+/).forEach(t => t && bag.add(t));
-  };
-  push(e.empid);
-  push(e.name);
-  push(e.email);
-  push(e.phone);
-  push(e.dept);
-  push(e.designation);
-  return Array.from(bag);
-};
 
 // Create a new employee (Admin only)
 export const createEmployee = async (req: Request, res: Response): Promise<Response> => {
   try {
+
+    const tokenCompanyId = (req as any).user?.companyId;
+    const currentUserId = (req as any).user?.userId;
+
     const {
+      companyId,
       empid,
       name,
       email,
@@ -73,36 +70,77 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
       shiftGroup,
       role,
       status = 'active',
-      password, // optional – if provided, will be hashed and stored
-    } = req.body as Partial<Employee> & { password?: string };
+      password,
+    }: {
+      companyId?: string;
+      empid?: string;
+      name?: string;
+      email?: string;
+      phone?: string;
+      location?: string;
+      dept?: string;
+      designation?: string;
+      shiftGroup?: string;
+      role?: string;
+      status?: string;
+      password?: string;
+    } = req.body;
 
-    if (!empid || !email || !name) {
-      return res.status(400).json({ error: 'Missing required fields: empid, name, email' });
-    }
-
-    // Uniqueness checks
-    const byEmp = await db.collection(EMPLOYEES).where('empid', '==', empid).limit(1).get();
-    if (!byEmp.empty) {
-      return res.status(409).json({ error: 'Employee with this ID already exists' });
-    }
-
-    const emailLower = String(email).toLowerCase();
-    const byEmail = await db.collection(EMPLOYEES).where('emailLower', '==', emailLower).limit(1).get();
-    if (!byEmail.empty) {
-      return res.status(409).json({ error: 'Employee with this email already exists' });
-    }
-
-    const currentUserId = (req as any).user?.userId;
-    if (!currentUserId) {
+    if (!tokenCompanyId || !currentUserId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const now =Timestamp.now();
+    if (!companyId || !empid || !email || !name) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    if (companyId !== tokenCompanyId) {
+      return res.status(403).json({ error: 'Invalid companyId' });
+    }
+
+    // Normalize email and empid
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const normalizedEmpid = String(empid || '').trim();
+
+    // Add backend logs
+    console.log('[CREATE EMPLOYEE] companyId:', companyId);
+    console.log('[CREATE EMPLOYEE] email:', normalizedEmail);
+    console.log('[CREATE EMPLOYEE] empid:', normalizedEmpid);
+
+    // Check duplicate email with companyId filter
+    const emailSnap = await db.collection('employees')
+      .where('companyId', '==', companyId)
+      .where('email', '==', normalizedEmail)
+      .limit(1)
+      .get();
+
+    console.log('[CREATE EMPLOYEE] duplicate email count:', emailSnap.size);
+
+    if (!emailSnap.empty) {
+      return res.status(400).json({ error: 'Email already exists' });
+    }
+
+    // Check duplicate empid with companyId filter
+    const empidSnap = await db.collection('employees')
+      .where('companyId', '==', companyId)
+      .where('empid', '==', normalizedEmpid)
+      .limit(1)
+      .get();
+
+    console.log('[CREATE EMPLOYEE] duplicate empid count:', empidSnap.size);
+
+    if (!empidSnap.empty) {
+      return res.status(400).json({ error: 'Employee ID already exists' });
+    }
+
+    const now = Timestamp.now();
+
     const employeeData: Employee = {
-      empid,
+      companyId: tokenCompanyId,
+      empid: normalizedEmpid,
       name,
-      email: emailLower,
-      emailLower,
+      email: normalizedEmail,
+      emailLower: normalizedEmail,
       phone,
       location,
       dept,
@@ -110,166 +148,170 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
       shiftGroup: shiftGroup ?? null,
       role,
       status: status as 'active' | 'inactive',
+
       createdAt: now,
       updatedAt: now,
       createdBy: currentUserId,
       updatedBy: currentUserId,
-      searchKeywords: buildSearchKeywords({ empid, name, email, phone, dept, designation }),
     };
 
     if (password) {
-      employeeData.password = await bcrypt.hash(String(password), 10);
+      employeeData.password = await bcrypt.hash(password, 10);
     }
 
     const ref = await db.collection(EMPLOYEES).add(employeeData);
-    const created = await ref.get();
+    const doc = await ref.get();
 
-    return res.status(201).json({ id: ref.id, ...(stripPassword(created.data() || {})) });
+    // Track usage after successful employee creation
+    await trackEmployeeUsage(req, {
+      writeCount: 1,
+      apiCalls: 1,
+    });
+
+    return res.status(201).json({
+      id: ref.id,
+      ...doc.data()
+    });
+
   } catch (error) {
-    console.error('Error creating employee:', error);
+    console.error(error);
     return res.status(500).json({ error: 'Failed to create employee' });
   }
 };
 
-/// Get all employees (Admin; supports filters & pagination)
 export const getEmployees = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { status, search, limit = '20', lastDocId } = req.query;
 
-    const limitNum = Math.min(
-      Math.max(parseInt(limit as string, 10) || 10, 1),
-      100
-    );
+    const companyId = (req as any).user?.companyId;
 
-    let q: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> =
-      db.collection(EMPLOYEES);
-
-    if (status === 'active' || status === 'inactive') {
-      q = q.where('status', '==', status);
+    if (!companyId) {
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    if (search && String(search).trim()) {
-      q = q.where(
-        'searchKeywords',
-        'array-contains',
-        String(search).toLowerCase().trim()
-      );
-    }
+    const snap = await db
+      .collection(EMPLOYEES)
+      .where('companyId', '==', companyId) // 
+      .get();
 
-    q = q.orderBy('createdAt', 'desc');
-
-    // Cursor Pagination
-    if (lastDocId) {
-      const lastDoc = await db.collection(EMPLOYEES).doc(lastDocId as string).get();
-      if (lastDoc.exists) {
-        q = q.startAfter(lastDoc);
-      }
-    }
-
-    const listSnap = await q.limit(limitNum).get();
-
-    const data = listSnap.docs.map(d => ({
-      id: d.id,
-      ...(stripPassword(d.data()))
+    const data = snap.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
     }));
 
-    const lastVisible =
-      listSnap.docs.length > 0
-        ? listSnap.docs[listSnap.docs.length - 1].id
-        : null;
-
-    return res.status(200).json({
-      data,
-      lastDocId: lastVisible
+    // Track usage after successful employees read
+    await trackEmployeeUsage(req, {
+      readCount: 1,
+      apiCalls: 1,
     });
 
+    return res.status(200).json(data);
+
   } catch (error) {
-    console.error('Error fetching employees:', error);
+    console.error(error);
     return res.status(500).json({ error: 'Failed to fetch employees' });
   }
 };
 // Get employee by document ID
 export const getEmployeeById = async (req: Request, res: Response): Promise<Response> => {
   try {
+
+    const companyId = (req as any).user?.companyId;
     const { id } = req.params;
+
     const doc = await db.collection(EMPLOYEES).doc(id).get();
 
     if (!doc.exists) {
       return res.status(404).json({ error: 'Employee not found' });
     }
 
-    return res.status(200).json({ id: doc.id, ...(stripPassword(doc.data() || {})) });
+    const data = doc.data();
+
+    if (data?.companyId !== companyId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Track usage after successful employee read
+    await trackEmployeeUsage(req, {
+      readCount: 1,
+      apiCalls: 1,
+    });
+
+    return res.status(200).json({
+      id: doc.id,
+      ...data
+    });
+
   } catch (error) {
-    console.error('Error fetching employee:', error);
-    return res.status(500).json({ error: 'Failed to fetch employee' });
+    console.error(error);
+    return res.status(500).json({ error: 'Failed' });
   }
 };
-
 // Update employee (Admin only)
 export const updateEmployee = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { id } = req.params;
-    const updates = { ...(req.body || {}) } as Partial<Employee> & { password?: string };
 
-    const currentUserId = (req as any).user?.userId;
-    if (!currentUserId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    const companyId = (req as any).user?.companyId;
+    const { id } = req.params;
 
     const ref = db.collection(EMPLOYEES).doc(id);
     const doc = await ref.get();
+
     if (!doc.exists) {
       return res.status(404).json({ error: 'Employee not found' });
     }
 
-    if (updates.email) {
-      updates.emailLower = String(updates.email).toLowerCase();
+    if (doc.data()?.companyId !== companyId) {
+      return res.status(403).json({ error: 'Access denied' });
     }
 
-    if (updates.password) {
-      updates.password = await bcrypt.hash(String(updates.password), 10);
-    }
+    await ref.update({
+      ...req.body,
+      updatedAt: Timestamp.now()
+    });
 
-    // refresh search keywords if core fields change
-    const recomputeKeywords =
-      updates.empid || updates.name || updates.email || updates.phone || updates.dept || updates.designation;
+    // Track usage after successful employee update
+    await trackEmployeeUsage(req, {
+      writeCount: 1,
+      apiCalls: 1,
+    });
 
-    const patch: Partial<Employee> = {
-      ...updates,
-      ...(recomputeKeywords
-        ? {
-            searchKeywords: buildSearchKeywords({
-              empid: updates.empid ?? doc.get('empid'),
-              name: updates.name ?? doc.get('name'),
-              email: (updates.email ?? doc.get('email')) as string,
-              phone: updates.phone ?? doc.get('phone'),
-              dept: updates.dept ?? doc.get('dept'),
-              designation: updates.designation ?? doc.get('designation'),
-            }),
-          }
-        : {}),
-      updatedAt:Timestamp.now(),
-      updatedBy: currentUserId,
-    };
+    return res.status(200).json({ message: 'Updated successfully' });
 
-    await ref.update(patch);
-
-    const updated = await ref.get();
-    return res.status(200).json({ id: updated.id, ...(stripPassword(updated.data() || {})) });
   } catch (error) {
-    console.error('Error updating employee:', error);
-    return res.status(500).json({ error: 'Failed to update employee' });
+    console.error(error);
+    return res.status(500).json({ error: 'Failed' });
   }
 };
-
 // Delete employee (Admin only) — hard delete; switch to soft delete if needed
 export const deleteEmployee = async (req: Request, res: Response): Promise<Response> => {
   try {
+
+    const companyId = (req as any).user?.companyId;
     const { id } = req.params;
-    await db.collection(EMPLOYEES).doc(id).delete();
-    return res.status(200).json({ message: 'Employee deleted successfully' });
+
+    const ref = db.collection(EMPLOYEES).doc(id);
+    const doc = await ref.get();
+
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+
+    if (doc.data()?.companyId !== companyId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    await ref.delete();
+
+    // Track usage after successful employee deletion
+    await trackEmployeeUsage(req, {
+      deleteCount: 1,
+      apiCalls: 1,
+    });
+
+    return res.status(200).json({ message: 'Deleted successfully' });
+
   } catch (error) {
-    console.error('Error deleting employee:', error);
-    return res.status(500).json({ error: 'Failed to delete employee' });
+    console.error(error);
+    return res.status(500).json({ error: 'Failed' });
   }
 };

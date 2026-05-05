@@ -1,4 +1,3 @@
-// lib/services/tracking_service.dart
 import 'dart:async';
 import 'dart:convert';
 
@@ -18,7 +17,7 @@ class TrackingService {
 
   Timer? _periodic;
   bool _sending = false; // serialize ticks so they don't overlap
-  StreamSubscription<Position>? _positionStream; // For continuous tracking
+  StreamSubscription<Position>? _positionStream; // kept as-is
 
   // Cadence & thresholds
   static const Duration kInterval = Duration(minutes: 20);
@@ -36,6 +35,15 @@ class TrackingService {
   });
 
   Future<void> startAfterCheckIn() async {
+    // Prevent duplicate tracking sessions
+    if (_periodic != null || _positionStream != null) {
+      if (kDebugMode) {
+        print('[TrackingService] already started, skipping duplicate start');
+      }
+      return;
+    }
+
+    print('[TrackingService] LOG: Starting tracking service for empId: $empId');
     await _ensureLocationPermission();
 
     // (Optional) make sure a tracking doc/session exists server-side
@@ -45,75 +53,135 @@ class TrackingService {
         headers: _headers(),
         body: jsonEncode({'empid': empId}),
       );
-    } catch (_) {}
+      if (kDebugMode) {
+        print('[TrackingService] check-in session created for empId: $empId');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('[TrackingService] check-in session creation failed: $e');
+      }
+    }
 
+    // Immediate first capture after check-in
+    if (!_sending) {
+      _sending = true;
+      try {
+        await _captureBestFixAndSend();
+        if (kDebugMode) {
+          print('[TrackingService] initial location capture completed');
+        }
+      } finally {
+        _sending = false;
+      }
+    }
 
-
-    // Also keep the periodic capture for redundancy
+    // Only periodic capture is kept
     _periodic?.cancel();
     _periodic = Timer.periodic(kInterval, (_) async {
       if (_sending) return;
       _sending = true;
       try {
         await _captureBestFixAndSend();
+        if (kDebugMode) {
+          print('[TrackingService] periodic location capture completed');
+        }
       } finally {
         _sending = false;
       }
     });
 
     if (kDebugMode) {
-      // ignore: avoid_print
-      print('[TrackingService] started (every ${kInterval.inMinutes} min)');
+      print('[TrackingService] started (every ${kInterval.inMinutes} min) with periodic timer only');
     }
   }
 
   Future<void> stopAfterCheckOut() async {
-    _periodic?.cancel();
-    _periodic = null;
-    await _positionStream?.cancel();
-    _positionStream = null;
     if (kDebugMode) {
-      // ignore: avoid_print
-      print('[TrackingService] stopped');
+      print('[TrackingService] stopping tracking service...');
+    }
+
+    // Cancel periodic timer
+    if (_periodic != null) {
+      _periodic!.cancel();
+      _periodic = null;
+      if (kDebugMode) {
+        print('[TrackingService] periodic timer cancelled');
+      }
+    }
+
+    // Cancel position stream
+    if (_positionStream != null) {
+      await _positionStream!.cancel();
+      _positionStream = null;
+      if (kDebugMode) {
+        print('[TrackingService] position stream cancelled');
+      }
+    }
+
+    // Reset sending flag
+    _sending = false;
+
+    if (kDebugMode) {
+      print('[TrackingService] tracking service stopped completely');
     }
   }
 
   // Start continuous high-accuracy position tracking
+  // Kept unchanged, but no longer called from startAfterCheckIn()
   void _startContinuousTracking() {
-    _positionStream?.cancel();
+    // Cancel any existing stream first
+    if (_positionStream != null) {
+      if (kDebugMode) {
+        print('[TrackingService] canceling existing continuous stream');
+      }
+      _positionStream?.cancel();
+      _positionStream = null;
+    }
 
     const locationSettings = LocationSettings(
       accuracy: LocationAccuracy.bestForNavigation,
-      distanceFilter: 5, // Reduced from 10m to 5m for more precise tracking
+      distanceFilter: 5,
       timeLimit: Duration(seconds: 30),
     );
 
-    _positionStream = Geolocator.getPositionStream(
-      locationSettings: locationSettings,
-    ).listen(
-      (Position position) async {
-        if (position.accuracy <= kTargetAccuracyMeters) {
-          await _postPos(position, tag: 'continuous');
-        }
-      },
-      onError: (e) {
-        if (kDebugMode) {
-          print('[TrackingService] Position stream error: $e');
-        }
-        // Attempt to restart the stream on error
-        if (!_sending) {
-          _sending = true;
-          Future.delayed(const Duration(seconds: 5), () {
-            _startContinuousTracking();
-            _sending = false;
-          });
-        }
-      },
-      cancelOnError: false,
-    );
+    try {
+      _positionStream = Geolocator.getPositionStream(
+        locationSettings: locationSettings,
+      ).listen(
+        (Position position) async {
+          if (position.accuracy <= kTargetAccuracyMeters) {
+            await _postPos(position, tag: 'continuous');
+          }
+        },
+        onError: (e) {
+          if (kDebugMode) {
+            print('[TrackingService] Position stream error: $e');
+          }
+          if (!_sending && _positionStream != null) {
+            _sending = true;
+            Future.delayed(const Duration(seconds: 5), () {
+              if (kDebugMode) {
+                print('[TrackingService] attempting to restart continuous stream');
+              }
+              _startContinuousTracking();
+              _sending = false;
+            });
+          }
+        },
+        cancelOnError: false,
+      );
+
+      if (kDebugMode) {
+        print('[TrackingService] continuous stream started successfully');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('[TrackingService] failed to start continuous stream: $e');
+      }
+    }
   }
 
-  // ---------- Core: capture best (≤5 m if possible) and POST ----------
+  // ---------- Core: capture best and POST ----------
   Future<void> _captureBestFixAndSend() async {
     Position? best;
     DateTime lastSampleAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -121,7 +189,6 @@ class TrackingService {
     // 1) Quick single-shot with the highest accuracy (foreground)
     try {
       final first = await Geolocator.getCurrentPosition(
-        // ⬇️ highest accuracy available
         desiredAccuracy: LocationAccuracy.bestForNavigation,
         timeLimit: const Duration(seconds: 15),
       );
@@ -134,15 +201,12 @@ class TrackingService {
       // keep going; we’ll try the stream burst next
     }
 
-    // 2) Burst sampling stream with bestForNavigation until we hit ≤5 m or timeout
+    // 2) Burst sampling stream with bestForNavigation until we hit target or timeout
     final completer = Completer<void>();
 
-    // Use platform-specific settings when possible (Android) to keep GPS "hot"
     final locationSettings = const LocationSettings(
-      accuracy: LocationAccuracy
-          .bestForNavigation, // Changed from best to bestForNavigation for better accuracy
-      distanceFilter:
-          5, // Added 5m filter to reduce noise while maintaining precision
+      accuracy: LocationAccuracy.bestForNavigation,
+      distanceFilter: 5,
     );
 
     final sub = Geolocator.getPositionStream(locationSettings: locationSettings)
@@ -151,7 +215,6 @@ class TrackingService {
       if (now.difference(lastSampleAt) < kStreamMinSampleGap) return;
       lastSampleAt = now;
 
-      // keep the best accuracy seen so far
       if (best == null || pos.accuracy < best!.accuracy) {
         best = pos;
       }
@@ -166,7 +229,6 @@ class TrackingService {
     });
 
     try {
-      // Wait until target met or timeout; on timeout send the best we have
       await completer.future.timeout(
         kBurstTimeout,
         onTimeout: () {
@@ -183,26 +245,27 @@ class TrackingService {
 
   Future<void> _postPos(Position p, {required String tag}) async {
     try {
-      await http.post(
+      final response = await http.post(
         Uri.parse('${ApiService.baseUrl}/tracking/pos'),
         headers: _headers(),
         body: jsonEncode({
           'empid': empId,
           'lat': p.latitude,
           'lng': p.longitude,
-          'accuracy': p.accuracy, // store accuracy for debugging/QA
-          'source': tag, // e.g. fg-oneshot / fg-burst / fg-timeout
+          'accuracy': p.accuracy,
+          'source': tag,
           'ts': DateTime.now().toIso8601String(),
         }),
       );
+
       if (kDebugMode) {
-        // ignore: avoid_print
         print(
-            '[TrackingService] posted lat=${p.latitude}, lng=${p.longitude}, acc=${p.accuracy}m ($tag)');
+          '[TrackingService] posted lat=${p.latitude}, lng=${p.longitude}, acc=${p.accuracy}m ($tag), status=${response.statusCode}',
+        );
+        print('[TrackingService] response body: ${response.body}');
       }
     } catch (e) {
       if (kDebugMode) {
-        // ignore: avoid_print
         print('[TrackingService] post error: $e');
       }
     }
@@ -216,7 +279,6 @@ class TrackingService {
 
   // ---------- Permissions ----------
   static Future<void> _ensureLocationPermission() async {
-    // Don’t fail hard if services are off; user might enable later.
     try {
       await Geolocator.isLocationServiceEnabled();
     } catch (_) {}
@@ -228,7 +290,5 @@ class TrackingService {
     if (perm == LocationPermission.deniedForever) {
       throw Exception('Location permission denied forever');
     }
-    // Tip for the app: after check-in, nudge users to set "Allow all the time"
-    // so background WorkManager pings are also reliable.
   }
 }

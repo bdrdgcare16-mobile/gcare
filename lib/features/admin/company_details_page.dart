@@ -3,12 +3,11 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:serv_app/features/admin/admin_dashboard_page.dart';
-import 'package:serv_app/features/admin/company_setup_page.dart';
 import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:serv_app/models/company_profile.dart';
 
 // Theme colors

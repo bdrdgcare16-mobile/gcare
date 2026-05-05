@@ -2,25 +2,32 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:http/http.dart' as http;
 
-// If you keep these in a config, you can remove them here.
-import 'package:serv_app/models/company_data.dart';
-import 'package:serv_app/html_stub.dart'
-    if (dart.library.html) 'package:serv_app/html_web.dart' as html;
-import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/services/api_service.dart';
 
 final String apiBase = ApiService.baseUrl;
 
-const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
-const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-const Color kAppBarColor = Color(0xFF8C6EAF);
-const Color kButtonColor = Color(0xFF655193);
-const Color kTextColor = Colors.white;
+// ── Colour tokens ──────────────────────────────────────────────────────────────
+const Color kAppBarBg          = Color(0xFF7C5FA0);
+const Color kBtnPrimary        = Color(0xFF7C5FA0);
+const Color kBtnBranch         = Color(0xFF5B9C7A);
+const Color kBtnReject         = Color(0xFFE35D6A);
+const Color kBtnApprove        = Color(0xFF87A963);
+const Color kPageBg            = Color(0xFFF4F1F8);
+const Color kCardBg            = Colors.white;
+const Color kFieldBg           = Color(0xFFF5F2F9);
+const Color kFieldBorder       = Color(0xFFEAE4F2);
+const Color kLabelColor        = Color(0xFF9E96AE);
+const Color kValueColor        = Color(0xFF1F1A2B);
+const Color kTitleColor        = Color(0xFF1F1A2B);
+const Color kBadgeYesBg        = Color(0xFFEAF3DE);
+const Color kBadgeYesText      = Color(0xFF3B6D11);
+const Color kBadgeNoBg         = Color(0xFFFCEBEB);
+const Color kBadgeNoText       = Color(0xFFA32D2D);
+const Color kMapLegendReq      = Color(0xFFE53935);
+const Color kMapLegendBranch   = Color(0xFF43A047);
 
 const double kDefaultRadiusMeters = 100;
 
@@ -38,13 +45,11 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
   LatLng? _pendingTarget;
   String? _pendingMarkerId;
 
-  /// Local merged copy of data (what UI reads from)
   late Map<String, dynamic> _data;
-
   bool _loadingDetails = false;
   String? _loadError;
 
-  /* -------------------- tolerant getters -------------------- */
+  /* ── tolerant getters ──────────────────────────────────────────────────────── */
 
   double? _toDouble(dynamic v) =>
       v == null ? null : double.tryParse(v.toString().trim());
@@ -76,7 +81,7 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
     return null;
   }
 
-  /* -------------------- lat/lng parsing helpers -------------------- */
+  /* ── lat/lng helpers ───────────────────────────────────────────────────────── */
 
   LatLng? _parseLatLngString(String s) {
     final parts =
@@ -90,30 +95,19 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
 
   LatLng? _latLngFromMap(Map m) {
     double? lat = _toDouble(
-      m['latitude'] ??
-          m['lat'] ??
-          m['Latitude'] ??
-          m['Lat'] ??
-          m['branchLat'] ??
-          m['branch_latitude'],
+      m['latitude'] ?? m['lat'] ?? m['Latitude'] ?? m['Lat'] ??
+          m['branchLat'] ?? m['branch_latitude'],
     );
     double? lng = _toDouble(
-      m['longitude'] ??
-          m['lng'] ??
-          m['lon'] ??
-          m['Longitude'] ??
-          m['Lng'] ??
-          m['branchLng'] ??
-          m['branch_longitude'],
+      m['longitude'] ?? m['lng'] ?? m['lon'] ?? m['Longitude'] ??
+          m['Lng'] ?? m['branchLng'] ?? m['branch_longitude'],
     );
     if (lat != null && lng != null) return LatLng(lat, lng);
-
     try {
       final lat2 = _toDouble(m['geo']?['lat'] ?? m['coords']?['lat']);
       final lng2 = _toDouble(m['geo']?['lng'] ?? m['coords']?['lng']);
       if (lat2 != null && lng2 != null) return LatLng(lat2, lng2);
     } catch (_) {}
-
     final locStr = m['location']?.toString();
     if (locStr != null && locStr.contains(',')) {
       final ll = _parseLatLngString(locStr);
@@ -135,28 +129,19 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
     return null;
   }
 
-  /* -------------------- lat/lng selection -------------------- */
-
   LatLng? _findRequestLatLng() {
     double? lat =
         _pickNum(['latitude', 'lat', 'requestLatitude', 'requestedLatitude']);
     double? lng = _pickNum(
         ['longitude', 'lng', 'lon', 'requestLongitude', 'requestedLongitude']);
     if (lat != null && lng != null) return LatLng(lat, lng);
-
     for (final key in [
-      'otherLocation',
-      'requestLocation',
-      'locationObj',
-      'requestedLocation',
-      'geo',
-      'coords'
+      'otherLocation', 'requestLocation', 'locationObj',
+      'requestedLocation', 'geo', 'coords'
     ]) {
-      final v = _data[key];
-      final ll = _latLngFrom(v);
+      final ll = _latLngFrom(_data[key]);
       if (ll != null) return ll;
     }
-
     for (final key in ['location', 'otherLocation']) {
       final s = _data[key]?.toString();
       if (s != null) {
@@ -164,50 +149,32 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
         if (ll != null) return ll;
       }
     }
-
     lat ??= _pickNum(['checkInLatitude', 'check_in_latitude']);
     lng ??= _pickNum(['checkInLongitude', 'check_in_longitude']);
     if (lat != null && lng != null) return LatLng(lat, lng);
-
     lat ??= _pickNum(['checkOutLatitude', 'check_out_latitude']);
     lng ??= _pickNum(['checkOutLongitude', 'check_out_longitude']);
     if (lat != null && lng != null) return LatLng(lat, lng);
-
     return null;
   }
 
   LatLng? _findBranchCenter() {
     double? lat = _pickNum([
-      'expectedLatitude',
-      'branchLatitude',
-      'officeLatitude',
-      'expected_latitude',
-      'branchLat',
-      'branch_latitude',
+      'expectedLatitude', 'branchLatitude', 'officeLatitude',
+      'expected_latitude', 'branchLat', 'branch_latitude',
     ]);
     double? lng = _pickNum([
-      'expectedLongitude',
-      'branchLongitude',
-      'officeLongitude',
-      'expected_longitude',
-      'branchLng',
-      'branch_longitude',
+      'expectedLongitude', 'branchLongitude', 'officeLongitude',
+      'expected_longitude', 'branchLng', 'branch_longitude',
     ]);
     if (lat != null && lng != null) return LatLng(lat, lng);
-
     for (final key in [
-      'branch',
-      'expected',
-      'expectedLocation',
-      'office',
-      'branchCenter',
-      'branchLocationObj'
+      'branch', 'expected', 'expectedLocation', 'office',
+      'branchCenter', 'branchLocationObj'
     ]) {
-      final v = _data[key];
-      final ll = _latLngFrom(v);
+      final ll = _latLngFrom(_data[key]);
       if (ll != null) return ll;
     }
-
     for (final key in ['branchLocation', 'expectedLocation']) {
       final s = _data[key]?.toString();
       if (s != null) {
@@ -215,11 +182,10 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
         if (ll != null) return ll;
       }
     }
-
     return null;
   }
 
-  /* -------------------- helpers -------------------- */
+  /* ── misc helpers ──────────────────────────────────────────────────────────── */
 
   double _haversineMeters(LatLng a, LatLng b) {
     const R = 6371000.0;
@@ -228,10 +194,8 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
     final lat1 = a.latitude * math.pi / 180.0;
     final lat2 = b.latitude * math.pi / 180.0;
     final h = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(lat1) *
-            math.cos(lat2) *
-            math.sin(dLng / 2) *
-            math.sin(dLng / 2);
+        math.cos(lat1) * math.cos(lat2) *
+            math.sin(dLng / 2) * math.sin(dLng / 2);
     return R * 2 * math.atan2(math.sqrt(h), math.sqrt(1 - h));
   }
 
@@ -279,27 +243,11 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
     }
   }
 
-  /* -------------------- API plumbing (local) -------------------- */
-
-  Future<Map<String, String>> _authHeaders({bool json = true}) async {
-    String? token = CompanyData.token;
-    if ((token!.isEmpty) && kIsWeb) {
-      try {
-        final t1 = html.window.localStorage['token'];
-        final t2 = html.window.sessionStorage['token'];
-        token = (t1 != null && t1.isNotEmpty) ? t1 : (t2 ?? token);
-      } catch (_) {}
-    }
-    return {
-      if (json) 'Content-Type': 'application/json',
-      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
-    };
-  }
+  /* ── API ───────────────────────────────────────────────────────────────────── */
 
   String _inferSrc(Map<String, dynamic> m) {
     final s = (m['source'] ?? m['src'] ?? '').toString().toLowerCase();
     if (s == 'attendance' || s == 'other_location') return s;
-
     final t = (m['type'] ?? m['category'] ?? '').toString().toLowerCase();
     if (t.contains('other') && t.contains('location')) return 'other_location';
     if (t.contains('late') || t.contains('early')) return 'attendance';
@@ -312,27 +260,19 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
   }
 
   Future<void> _fetchAndMergeDetails() async {
-    // Prepare query using whatever we have
-    String id = (_data['id'] ??
-                _data['requestId'] ??
-                _data['docId'] ??
-                _data['attendanceId'] ??
-                _data['otherLocId'])
-            ?.toString() ??
-        '';
+    String id = (_data['id'] ?? _data['requestId'] ?? _data['docId'] ??
+            _data['attendanceId'] ?? _data['otherLocId'])
+        ?.toString() ?? '';
     String empid =
-        (_data['empid'] ?? _data['empId'] ?? _data['employeeId'])?.toString() ??
-            '';
-    String date = (_data['requestDate'] ?? _data['date'] ?? _data['onDate'])
-            ?.toString() ??
-        '';
+        (_data['empid'] ?? _data['empId'] ?? _data['employeeId'])
+            ?.toString() ?? '';
+    String date =
+        (_data['requestDate'] ?? _data['date'] ?? _data['onDate'])
+            ?.toString() ?? '';
     if (date.length > 10) date = date.substring(0, 10);
     final src = _inferSrc(_data);
 
-    if (id.isEmpty && (empid.isEmpty || date.isEmpty)) {
-      // Nothing to query with; bail quietly.
-      return;
-    }
+    if (id.isEmpty && (empid.isEmpty || date.isEmpty)) return;
 
     setState(() {
       _loadingDetails = true;
@@ -346,8 +286,6 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
         if (id.isEmpty && empid.isNotEmpty) 'empid': empid,
         if (id.isEmpty && date.isNotEmpty) 'date': date,
       };
-      final uri = Uri.parse('${ApiService.baseUrl}/attendance/request-details')
-          .replace(queryParameters: qp);
 
       final res = await ApiService.get(
         '/attendance/request-details',
@@ -356,15 +294,11 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
       if (res.statusCode != 200) {
         throw Exception('HTTP ${res.statusCode}: ${res.body}');
       }
-
       final body = jsonDecode(res.body);
       if (body is Map<String, dynamic>) {
-        setState(() {
-          _data = {..._data, ...body};
-        });
+        setState(() => _data = {..._data, ...body});
       }
     } catch (e) {
-      // Keep for debugging / logs, but do not show in UI
       setState(() => _loadError = e.toString());
     } finally {
       if (mounted) setState(() => _loadingDetails = false);
@@ -375,79 +309,55 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
   void initState() {
     super.initState();
     _data = Map<String, dynamic>.from(widget.data);
-    // debug
-    // ignore: avoid_print
-    print('[RequestDetailsCard] keys = ${_data.keys.toList()}');
-
-    // Fetch server-normalized details to ensure we get branch + request coords
-    // (does nothing if we don't have enough identifiers)
-    // Errors are non-fatal; UI still shows local data.
     unawaited(_fetchAndMergeDetails());
   }
 
-  /* -------------------- UI -------------------- */
+  /* ── BUILD ─────────────────────────────────────────────────────────────────── */
 
   @override
   Widget build(BuildContext context) {
-    // Basic fields
-    final empId = _pickStr(['empid', 'employeeId', 'id', 'EmpID']);
-    final name = _pickStr(['name', 'employeeName']);
+    final empId     = _pickStr(['empid', 'employeeId', 'id', 'EmpID']);
+    final name      = _pickStr(['name', 'employeeName']);
+    final requestType = _pickStr(['type', 'category']);
     final requestTime = _pickStr([
-      'requestTime',
-      'time',
-      'createdAt',
-      'updatedAt',
-      'checkInTime',
-      'checkOutTime'
+      'requestTime', 'time', 'createdAt', 'updatedAt',
+      'checkInTime', 'checkOutTime'
     ]);
-    final requestDate =
-        _pickStr(['requestDate', 'date', 'onDate', 'startDate', 'selectDate']);
-    final branchName = _pickStr(['branchName', 'branchLocation', 'location']);
-    final freeTextReason =
-        _pickStr(['reason', 'otherLocation', 'note', 'remarks']);
+    final requestDate = _pickStr([
+      'requestDate', 'date', 'onDate', 'startDate', 'selectDate'
+    ]);
+    final branchName    = _pickStr(['branchName', 'branchLocation', 'location']);
+    final freeTextReason = _pickStr(['reason', 'otherLocation', 'note', 'remarks']);
     final rejectionRemarks = _pickStr(['rejectionRemarks']);
 
-    // Coordinates from payload (after merge)
-    final reqLL = _findRequestLatLng();
-    final centerLL = _findBranchCenter();
+    final reqLL     = _findRequestLatLng();
+    final centerLL  = _findBranchCenter();
     final expectedRadius = _pickNum(['expectedRadius', 'radius']);
     final distanceFromBranch =
         _pickNum(['distanceFromBranch', 'distance_from_branch', 'distance']);
-    final withinRadiusFlag = _toBool(_data['withinRadius'] ??
-        _data['within_radius'] ??
-        _data['isWithinRadius'] ??
-        _data['insideRadius'] ??
-        _data['within'] ??
-        _data['inRadius']);
+    final withinRadiusFlag = _toBool(
+      _data['withinRadius'] ?? _data['within_radius'] ??
+          _data['isWithinRadius'] ?? _data['insideRadius'] ??
+          _data['within'] ?? _data['inRadius'],
+    );
 
-    // Hidden explicit coordinates; show only generic labels on buttons
-    final withinRadiusText = _withinRadiusText(
-      req: reqLL,
-      center: centerLL,
+    final withinText = _withinRadiusText(
+      req: reqLL, center: centerLL,
       expectedRadius: expectedRadius,
       distanceFromBranch: distanceFromBranch,
       withinFlag: withinRadiusFlag,
     );
 
-    final distanceText = (distanceFromBranch != null)
+    final distanceText = distanceFromBranch != null
         ? distanceFromBranch.toStringAsFixed(0)
         : '-';
 
-    // Map target preference
     final LatLng initialTarget =
-        reqLL ?? centerLL ?? const LatLng(20.5937, 78.9629); // India center
-    final double initialZoom = (reqLL != null || centerLL != null) ? 17 : 4;
+        reqLL ?? centerLL ?? const LatLng(20.5937, 78.9629);
+    final double initialZoom =
+        (reqLL != null || centerLL != null) ? 17 : 4;
 
-    // Markers/circles
     final Set<Marker> markers = {
-      if (reqLL != null)
-        const Marker(
-          markerId: MarkerId('request'),
-          // position set below via copyWith for const safety not possible; rebuild directly:
-        ),
-    };
-
-    final Set<Marker> fullMarkers = {
       if (reqLL != null)
         Marker(
           markerId: const MarkerId('request'),
@@ -458,12 +368,11 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
         Marker(
           markerId: const MarkerId('branch'),
           position: centerLL,
-          // Show the real branch name on the marker, not on the button
           infoWindow: InfoWindow(
             title: branchName.isNotEmpty ? branchName : 'Branch location',
           ),
-          icon:
-              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueGreen),
         ),
     };
 
@@ -479,183 +388,502 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
         ),
     };
 
-    void focusRequest() {
-      if (reqLL != null) _focusOn(reqLL, markerId: 'request');
-    }
-
-    void focusExpected() {
-      if (centerLL != null) _focusOn(centerLL, markerId: 'branch');
-    }
-
     return Scaffold(
+      backgroundColor: kPageBg,
+      // ── App bar ──────────────────────────────────────────────────────────────
       appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(50),
+        preferredSize: const Size.fromHeight(62),
         child: AppBar(
-          backgroundColor: kAppBarColor,
-          elevation: 1,
+          backgroundColor: kAppBarBg,
+          elevation: 0,
           automaticallyImplyLeading: false,
-          title: Text('Employee ID: $empId',
-              style: const TextStyle(fontSize: 16, color: kTextColor)),
           leading: IconButton(
-              icon: const Icon(Icons.arrow_back, color: kTextColor),
-              onPressed: () => Navigator.pop(context)),
+            icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+            onPressed: () => Navigator.pop(context),
+          ),
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text(
+                'Request Details',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Employee ID: ${empId.isEmpty ? '—' : empId}',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xCCFFFFFF),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
       body: _loadError != null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Text(
-                  'Error: $_loadError',
-                  style: const TextStyle(color: Colors.red, fontSize: 16),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            )
-          : Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
-          ),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (_loadingDetails) const LinearProgressIndicator(minHeight: 2),
-            const SizedBox(height: 4),
-
-            // scrollable content
-            Expanded(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _row('Employee Name', name, 'Request Type',
-                        _pickStr(['type', 'category'])),
-                    _row('Requested Time', requestTime, 'Request Date',
-                        requestDate),
-                    _row(
-                      'Employee Reason',
-                      freeTextReason.isEmpty ? '-' : freeTextReason,
-                      'Rejection Remarks',
-                      rejectionRemarks.isEmpty ? '-' : rejectionRemarks,
-                    ),
-
-                    const SizedBox(height: 12),
-                    // ---- Buttons (generic labels) ----
-                    Row(
+          ? _buildError()
+          : Column(
+              children: [
+                // slim progress bar
+                if (_loadingDetails)
+                  const LinearProgressIndicator(
+                    minHeight: 3,
+                    backgroundColor: Colors.transparent,
+                    color: kAppBarBg,
+                  ),
+                Expanded(
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(14, 14, 14, 6),
+                    child: Column(
                       children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: reqLL != null ? focusRequest : null,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: kButtonColor,
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
+                        // ── Employee ──────────────────────────────────────────
+                        _card(
+                          title: 'EMPLOYEE',
+                          child: _fieldGrid([
+                            _field('Name', name),
+                            _field('Request type', requestType),
+                            _field('Requested time', requestTime),
+                            _field('Request date', requestDate),
+                          ]),
+                        ),
+                                                const SizedBox(height: 10),
+                        // ── Location ──────────────────────────────────────────
+                        _card(
+                          title: 'LOCATION',
+                          child: Column(
+                            children: [
+                              // focus buttons
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _locationButton(
+                                      label: 'Requested',
+                                      icon: Icons.my_location_rounded,
+                                      color: kBtnPrimary,
+                                      onPressed: reqLL != null
+                                          ? () => _focusOn(reqLL,
+                                                markerId: 'request')
+                                          : null,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: _locationButton(
+                                      label: 'Branch',
+                                      icon: Icons.home_work_rounded,
+                                      color: kBtnBranch,
+                                      onPressed: centerLL != null
+                                          ? () => _focusOn(centerLL,
+                                                markerId: 'branch')
+                                          : null,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 12),
-                            ),
-                            icon: const Icon(Icons.my_location),
-                            label: const Text('Requested location'),
+                              const SizedBox(height: 10),
+                              // within-radius + distance badges
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _radiusBadge(
+                                      label: 'Within radius',
+                                      value: withinText,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: _field(
+                                      'Distance from branch (m)',
+                                      distanceText,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: centerLL != null ? focusExpected : null,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF8C6EAF),
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 12),
-                            ),
-                            icon: const Icon(Icons.place),
-                            // 🔒 Always show a generic label here (not the actual branch name)
-                            label: const Text('Branch location'),
-                          ),
+                        const SizedBox(height: 10),
+                        // ── Map ───────────────────────────────────────────────
+                        _mapCard(
+                          initialTarget: initialTarget,
+                          initialZoom: initialZoom,
+                          markers: markers,
+                          circles: circles,
+                          branchName: branchName,
                         ),
+                        const SizedBox(height: 16),
                       ],
                     ),
+                  ),
+                ),
+                // ── Footer buttons ────────────────────────────────────────────
+                _footer(context),
+              ],
+            ),
+    );
+  }
 
-                    const SizedBox(height: 10),
-                    _row('Within radius', withinRadiusText,
-                        'Distance from branch (m)', distanceText),
+  /* ── Error view ──────────────────────────────────────────────────────────── */
 
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      height: 250,
-                      child: GoogleMap(
-                        onMapCreated: (c) async {
-                          if (!_mapCtrl.isCompleted) _mapCtrl.complete(c);
-                          if (_pendingTarget != null) {
-                            final t = _pendingTarget!;
-                            final id = _pendingMarkerId;
-                            _pendingTarget = null;
-                            _pendingMarkerId = null;
-                            await Future.microtask(
-                                () => _focusOn(t, markerId: id));
-                          }
-                        },
-                        initialCameraPosition: CameraPosition(
-                            target: initialTarget, zoom: initialZoom),
-                        markers: fullMarkers,
-                        circles: circles,
-                        myLocationEnabled: false,
-                        myLocationButtonEnabled: false,
-                        zoomControlsEnabled: false,
-                        compassEnabled: true,
-                      ),
+  Widget _buildError() => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: kCardBg,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFFFD8D8)),
+            ),
+            child: Text(
+              'Error: $_loadError',
+              style: const TextStyle(
+                  color: kBtnReject, fontSize: 14),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+
+  /* ── Section card ────────────────────────────────────────────────────────── */
+
+  Widget _card({required String title, required Widget child}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: kCardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFEAE4F2), width: 0.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              color: kLabelColor,
+              letterSpacing: 1.1,
+            ),
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
+
+  /* ── Field grid ─────────────────────────────────────────────────────────── */
+
+  Widget _fieldGrid(List<Widget> children) {
+    final rows = <Widget>[];
+    for (var i = 0; i < children.length; i += 2) {
+      final isLast = i + 1 >= children.length;
+      rows.add(
+        Row(
+          children: [
+            Expanded(child: children[i]),
+            if (!isLast) ...[
+              const SizedBox(width: 8),
+              Expanded(child: children[i + 1]),
+            ],
+          ],
+        ),
+      );
+      if (i + 2 < children.length) const SizedBox(height: 8);
+    }
+    return Column(
+      children: rows
+          .expand((w) => [w, const SizedBox(height: 8)])
+          .toList()
+        ..removeLast(),
+    );
+  }
+
+  /* ── Single field chip ───────────────────────────────────────────────────── */
+
+  Widget _field(String label, String value, {bool fullWidth = false}) {
+    final chip = Container(
+      width: fullWidth ? double.infinity : null,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: kFieldBg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: kFieldBorder, width: 0.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11,
+              color: kLabelColor,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            value.isEmpty ? '—' : value,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: kValueColor,
+            ),
+          ),
+        ],
+      ),
+    );
+    return fullWidth ? Row(children: [Expanded(child: chip)]) : chip;
+  }
+
+  /* ── Within-radius coloured badge ───────────────────────────────────────── */
+
+  Widget _radiusBadge({required String label, required String value}) {
+    final isYes = value == 'Yes';
+    final isDash = value == '-';
+    final bg   = isDash ? kFieldBg  : (isYes ? kBadgeYesBg  : kBadgeNoBg);
+    final fg   = isDash ? kValueColor : (isYes ? kBadgeYesText : kBadgeNoText);
+    final borderColor = isDash ? kFieldBorder
+        : (isYes ? const Color(0xFFC5E2A0) : const Color(0xFFF5C0C0));
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: borderColor, width: 0.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11,
+              color: kLabelColor,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: fg,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /* ── Location focus button ───────────────────────────────────────────────── */
+
+  Widget _locationButton({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required VoidCallback? onPressed,
+  }) {
+    return SizedBox(
+      height: 44,
+      child: ElevatedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 16),
+        label: Text(
+          label,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: color.withOpacity(0.3),
+          disabledForegroundColor: Colors.white60,
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10)),
+        ),
+      ),
+    );
+  }
+
+  /* ── Map card ────────────────────────────────────────────────────────────── */
+
+  Widget _mapCard({
+    required LatLng initialTarget,
+    required double initialZoom,
+    required Set<Marker> markers,
+    required Set<Circle> circles,
+    required String branchName,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: kCardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFEAE4F2), width: 0.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 14, 16, 10),
+            child: Text(
+              'MAP',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: kLabelColor,
+                letterSpacing: 1.1,
+              ),
+            ),
+          ),
+          ClipRRect(
+            borderRadius: const BorderRadius.only(
+              bottomLeft: Radius.circular(16),
+              bottomRight: Radius.circular(16),
+            ),
+            child: Column(
+              children: [
+                SizedBox(
+                  height: 220,
+                  child: GoogleMap(
+                    onMapCreated: (c) async {
+                      if (!_mapCtrl.isCompleted) _mapCtrl.complete(c);
+                      if (_pendingTarget != null) {
+                        final t  = _pendingTarget!;
+                        final id = _pendingMarkerId;
+                        _pendingTarget = null;
+                        _pendingMarkerId = null;
+                        await Future.microtask(
+                            () => _focusOn(t, markerId: id));
+                      }
+                    },
+                    initialCameraPosition: CameraPosition(
+                      target: initialTarget,
+                      zoom: initialZoom,
                     ),
-                    const SizedBox(height: 8),
-                  ],
+                    markers: markers,
+                    circles: circles,
+                    myLocationEnabled: false,
+                    myLocationButtonEnabled: false,
+                    zoomControlsEnabled: false,
+                    compassEnabled: true,
+                  ),
+                ),
+                // legend strip
+                Container(
+                  color: kCardBg,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 10),
+                  child: Row(
+                    children: [
+                      _legendDot(kMapLegendReq, 'Requested location'),
+                      const SizedBox(width: 16),
+                      _legendDot(kMapLegendBranch, 'Branch location'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _legendDot(Color color, String label) => Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration:
+                BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, color: kLabelColor),
+          ),
+        ],
+      );
+
+  /* ── Footer ──────────────────────────────────────────────────────────────── */
+
+  Widget _footer(BuildContext context) {
+    return Container(
+      color: kPageBg,
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 18),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => Navigator.pop(context),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: kBtnPrimary,
+                  side: const BorderSide(color: kBtnPrimary, width: 0.5),
+                  backgroundColor: kCardBg,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w500),
                 ),
               ),
             ),
-
-            // Bottom action buttons
-            SafeArea(
-              top: false,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  OutlinedButton(
-                    onPressed: () => Navigator.pop(context),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: kButtonColor),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 24, vertical: 12),
-                    ),
-                    child: const Text('Cancel',
-                        style: TextStyle(color: kButtonColor)),
-                  ),
-                  ElevatedButton(
-                    onPressed: () => Navigator.pop(context, 'rejected'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 24, vertical: 12),
-                    ),
-                    child: const Text('Reject'),
-                  ),
-                  ElevatedButton(
-                    onPressed: () => Navigator.pop(context, 'approved'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 24, vertical: 12),
-                    ),
-                    child: const Text('Approve'),
-                  ),
-                ],
+            const SizedBox(width: 8),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(context, 'rejected'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: kBtnReject,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text(
+                  'Reject',
+                  style: TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w500),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(context, 'approved'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: kBtnApprove,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text(
+                  'Approve',
+                  style: TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w500),
+                ),
               ),
             ),
           ],
@@ -663,24 +891,4 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
       ),
     );
   }
-
-  /* -------------------- small UI helpers -------------------- */
-
-  Widget _row(String l1, String v1, String l2, String v2) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Expanded(child: _col(l1, v1)),
-          Expanded(child: _col(l2, v2)),
-        ]),
-      );
-
-  Widget _col(String label, String value) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-          const SizedBox(height: 2),
-          Text(value.isEmpty ? '-' : value,
-              style: const TextStyle(color: Colors.black87)),
-        ],
-      );
 }

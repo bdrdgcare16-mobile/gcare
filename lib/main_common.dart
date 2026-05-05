@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'
     show kIsWeb;
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 import 'package:workmanager/workmanager.dart';
 import 'package:serv_app/features/auth/auth_guard.dart';
@@ -38,17 +37,7 @@ Future<void> startApp({
       options: firebaseOptions,
     );
     debugPrint('Firebase initialized for [$environmentName]: ${app.options.projectId}');
-    debugPrint('Using API key for [$environmentName]: ${app.options.apiKey}');
-
-    try {
-      if (FirebaseAuth.instance.currentUser == null) {
-        await FirebaseAuth.instance.signInAnonymously();
-        debugPrint('[FirebaseAuth][$environmentName] Anonymous sign-in OK');
-        debugPrint('[AUTH][$environmentName] user=${FirebaseAuth.instance.currentUser?.uid}');
-      }
-    } catch (e) {
-      debugPrint('Anonymous sign-in failed [$environmentName]: $e');
-    }
+    debugPrint('API key configured: ${app.options.apiKey.isNotEmpty ? 'YES' : 'NO'}');
   } catch (e) {
     debugPrint('Firebase initialization error [$environmentName]: $e');
   }

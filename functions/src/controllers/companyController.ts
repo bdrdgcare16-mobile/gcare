@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 const COMPANY_COLLECTION = 'companyProfile';
 import { Timestamp } from 'firebase-admin/firestore';
 import { db } from '../config/firebase';
+import { trackUsage } from '../services/usageService';
 
 
 type TS = Timestamp;
@@ -29,6 +30,25 @@ const normalizeEmail = (v: string | undefined | null) =>
 
 const computeFilled = (p: Partial<CompanyProfile>) =>
   Boolean(p.companyName && p.email && p.phone && p.adminName && p.designation);
+
+/* ============================== Usage Tracking Helper ============================== */
+
+async function trackCompanyUsage(
+  req: Request,
+  updates: Record<string, number>
+) {
+  try {
+    const user = (req as any).user;
+    await trackUsage({
+      companyId: user?.companyId || '',
+      companyName: user?.companyName || '',
+      plan: user?.plan || '',
+      updates,
+    });
+  } catch (trackingError) {
+    console.error('Usage tracking failed in company:', trackingError);
+  }
+}
 
 /** Try multiple ways to find a profile for a given admin email (lowercased). */
 async function findProfileDoc(adminEmailLower: string) {
@@ -116,6 +136,12 @@ export const saveCompanyProfile = async (req: Request, res: Response): Promise<R
     await docRef.set(data, { merge: true });
     const fresh = await docRef.get();
 
+    // Track usage after successful company profile save
+    await trackCompanyUsage(req, {
+      writeCount: 1,
+      apiCalls: 1,
+    });
+
     return res.status(200).json({
       success: true,
       message: 'Company profile saved successfully',
@@ -144,6 +170,12 @@ export const checkCompanyProfile = async (req: Request, res: Response): Promise<
     const raw = snap.data() || {};
     const filled = typeof raw.filled === 'boolean' ? raw.filled : computeFilled(raw);
 
+        // Track usage after successful company profile check
+    await trackCompanyUsage(req, {
+      readCount: 1,
+      apiCalls: 1,
+    });
+
     return res.status(200).json({
       success: true,
       filled,
@@ -167,6 +199,12 @@ export const getCompanyProfile = async (req: Request, res: Response): Promise<Re
     if (!snap) {
       return res.status(404).json({ success: false, message: 'Company profile not found' });
     }
+
+        // Track usage after successful company profile read
+    await trackCompanyUsage(req, {
+      readCount: 1,
+      apiCalls: 1,
+    });
 
     return res.status(200).json({ success: true, data: { id: snap.id, ...snap.data() } });
   } catch (e: any) {

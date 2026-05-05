@@ -1,24 +1,17 @@
-
 import { Request, Response } from 'express';
 import { db } from '../config/firebase';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
-
+import { trackUsage } from '../services/usageService';
 
 /* ============================== Types ============================== */
 
-type LeaveType =
-  | 'Casual Leave'
-  | 'Planned Leave'
-  | 'Sick Leave'
-  | 'Half-Day'
-  | 'Overtime'
-  | 'Permission Time'
-  | 'Comp Off';
+type LeaveType = string;
 
 type LeaveStatus = 'Pending' | 'Approved' | 'Rejected' | 'Cancelled';
 
 interface LeaveRequest {
   id?: string;
+  companyId: string;
   userId: string;
   empid: string;
   name: string;
@@ -33,7 +26,7 @@ interface LeaveRequest {
   documentUrl?: string;
   imageUrl?: string;
   selectShift?: string | null;
-  workedDate?: string;             // YYYY-MM-DD (reference day actually worked for Comp Off)
+  workedDate?: string;             // YYYY-MM-DD
   createdAt: Timestamp;
   updatedAt: Timestamp;
   requestedAt?: Timestamp;
@@ -43,15 +36,43 @@ interface LeaveRequest {
 
 /* ============================== Helpers ============================== */
 
-const VALID_TYPES: LeaveType[] = [
-  'Casual Leave',
-  'Planned Leave',
-  'Sick Leave',
-  'Half-Day',
-  'Overtime',
-  'Permission Time',
-  'Comp Off',
-];
+
+function getReqCompanyId(req: Request): string | null {
+  const companyId = String((req as any).user?.companyId || '').trim();
+  return companyId || null;
+}
+
+function getReqActorId(req: Request): string | null {
+  const user = (req as any).user || {};
+  return String(user.userId || user.uid || '').trim() || null;
+}
+
+function getReqRole(req: Request): string {
+  return String((req as any).user?.role || '').trim().toLowerCase();
+}
+
+function isAdmin(req: Request): boolean {
+  return getReqRole(req) === 'admin';
+}
+
+/* ============================== Usage Tracking Helper ============================== */
+
+async function trackLeaveUsage(
+  req: Request,
+  updates: Record<string, number>
+) {
+  try {
+    const user = (req as any).user;
+    await trackUsage({
+      companyId: user?.companyId || '',
+      companyName: user?.companyName || '',
+      plan: user?.plan || '',
+      updates,
+    });
+  } catch (trackingError) {
+    console.error('Usage tracking failed in leave:', trackingError);
+  }
+}
 
 const toYMD = (v: any): string => {
   if (!v) return '';
@@ -81,7 +102,8 @@ const clampRange = (start: string, end: string): { start: string; end: string } 
 function normalizeCreatePayload(
   currentUser: any,
   raw: any,
-  empName: string
+  empName: string,
+  companyId: string
 ): { data?: Omit<LeaveRequest, 'id'>; error?: string } {
   let {
     leaveType,
@@ -105,11 +127,24 @@ function normalizeCreatePayload(
   } = raw || {};
 
   if (!leaveType && type) leaveType = type;
-  if (!leaveType || !VALID_TYPES.includes(leaveType)) return { error: 'Invalid or missing leaveType' };
-  if (!reason) return { error: 'Missing reason' };
+  if (!leaveType || typeof leaveType !== 'string') {
+    return { error: 'Invalid or missing leaveType' };
+  }
+
+  // Trim whitespace and validate leaveType
+  const trimmedLeaveType = String(leaveType).trim();
+  if (!trimmedLeaveType) {
+    return { error: 'Invalid or missing leaveType' };
+  }
+
+  if (!reason) {
+    return { error: 'Missing reason' };
+  }
 
   const nowTs = Timestamp.now();
+
   const base: Omit<LeaveRequest, 'id'> = {
+    companyId,
     userId: currentUser.userId,
     empid: currentUser.empid,
     name: empName,
@@ -124,80 +159,102 @@ function normalizeCreatePayload(
   };
 
   if (attachmentUrl) base.attachmentUrl = String(attachmentUrl);
-  if (documentUrl)   base.documentUrl   = String(documentUrl);
-  if (imageUrl)      base.imageUrl      = String(imageUrl);
-  if (selectShift)   base.selectShift   = String(selectShift);
+  if (documentUrl) base.documentUrl = String(documentUrl);
+  if (imageUrl) base.imageUrl = String(imageUrl);
+  if (selectShift) base.selectShift = String(selectShift);
 
-  // ---------------- Overtime / Permission Time ----------------
+  // Overtime / Permission Time
   if (leaveType === 'Overtime' || leaveType === 'Permission Time') {
     const date = toYMD(selectDate || startDate);
-    if (!date) return { error: 'selectDate/startDate required for Overtime/Permission' };
+    if (!date) {
+      return { error: 'selectDate/startDate required for Overtime/Permission' };
+    }
 
     if (duration != null) {
       const d = Number(duration);
-      if (!(d > 0)) return { error: 'duration must be > 0 (hours)' };
+      if (!(d > 0)) {
+        return { error: 'duration must be > 0 (hours)' };
+      }
       base.duration = d;
     } else {
-      if (!startTime || !endTime) return { error: 'startTime and endTime are required (or provide duration)' };
+      if (!startTime || !endTime) {
+        return { error: 'startTime and endTime are required (or provide duration)' };
+      }
+
       const st = new Date(`${date}T${String(startTime).padStart(5, '0')}:00`);
-      const et = new Date(`${date}T${String(endTime ).padStart(5, '0')}:00`);
-      if (isNaN(st.getTime()) || isNaN(et.getTime()) || et <= st) return { error: 'Invalid startTime/endTime' };
+      const et = new Date(`${date}T${String(endTime).padStart(5, '0')}:00`);
+
+      if (isNaN(st.getTime()) || isNaN(et.getTime()) || et <= st) {
+        return { error: 'Invalid startTime/endTime' };
+      }
+
       base.duration = (et.getTime() - st.getTime()) / 3600000;
     }
 
     base.startDate = date;
-    base.endDate   = date;
+    base.endDate = date;
     return { data: base };
   }
 
-  // ---------------- Half-Day ----------------
+  // Half-Day
   if (leaveType === 'Half-Day') {
     const date = toYMD(selectDate || startDate || fromDate);
-    if (!date) return { error: 'selectDate/startDate/fromDate required for Half-Day' };
+    if (!date) {
+      return { error: 'selectDate/startDate/fromDate required for Half-Day' };
+    }
 
     const ses =
       'session' in (raw || {}) && session
         ? session
-        : (String(selectShift || '').toLowerCase().includes('morning')
-            ? 'Morning'
-            : (String(selectShift || '').toLowerCase().includes('afternoon') ? 'Afternoon' : undefined));
-    if (!ses) return { error: 'session is required for Half-Day (Morning/Afternoon)' };
+        : String(selectShift || '').toLowerCase().includes('morning')
+          ? 'Morning'
+          : String(selectShift || '').toLowerCase().includes('afternoon')
+            ? 'Afternoon'
+            : undefined;
+
+    if (!ses) {
+      return { error: 'session is required for Half-Day (Morning/Afternoon)' };
+    }
 
     base.startDate = date;
-    base.endDate   = date;
-    base.session   = ses as 'Morning' | 'Afternoon';
+    base.endDate = date;
+    base.session = ses as 'Morning' | 'Afternoon';
     return { data: base };
   }
 
-  // ---------------- Comp Off (single day on compensate date) ----------------
+  // Comp Off
   if (leaveType === 'Comp Off') {
-    const worked = toYMD(workedDate || startDate || fromDate); // past day worked
-    // compensate/off day: allow selectDate, endDate, toDate, or explicit startDate
-    const comp   = toYMD(endDate || toDate || selectDate || startDate);
-    if (!worked) return { error: 'workedDate is required for Comp Off' };
-    if (!comp)   return { error: 'compensate date is required for Comp Off' };
+    const worked = toYMD(workedDate || startDate || fromDate);
+    const comp = toYMD(endDate || toDate || selectDate || startDate);
+
+    if (!worked) {
+      return { error: 'workedDate is required for Comp Off' };
+    }
+
+    if (!comp) {
+      return { error: 'compensate date is required for Comp Off' };
+    }
 
     base.startDate = comp;
-    base.endDate   = comp; // single-day leave
+    base.endDate = comp;
     base.workedDate = worked;
     return { data: base };
   }
 
-  // ---------------- Multi-day (Casual/Planned/Sick) ----------------
+  // Casual / Planned / Sick
   const s = toYMD(startDate || fromDate);
-  const e = toYMD(endDate   || toDate);
+  const e = toYMD(endDate || toDate);
   const { start, end } = clampRange(s, e);
-  if (!start || !end) return { error: 'Invalid startDate/endDate' };
+
+  if (!start || !end) {
+    return { error: 'Invalid startDate/endDate' };
+  }
 
   base.startDate = start;
-  base.endDate   = end;
+  base.endDate = end;
   return { data: base };
 }
 
-/**
- * Map UI/API `type` query to a Firestore `leaveType` value.
- * Recognizes both your UI aliases and canonical names.
- */
 function mapTypeQueryToLeaveType(q?: string): LeaveType | null {
   if (!q) return null;
   const t = String(q).trim().toLowerCase();
@@ -214,64 +271,86 @@ function mapTypeQueryToLeaveType(q?: string): LeaveType | null {
   if (t === 'leave:compoff' || t === 'comp off' || t === 'comp-off' || t === 'compoff') {
     return 'Comp Off';
   }
-  // 'leave:any' or anything else → no specific filter
+
   return null;
 }
 
 /* ============================== Controllers ============================== */
 
-// CREATE — overlap check rewritten to avoid composite index
 export const createLeaveRequest = async (req: Request, res: Response): Promise<Response> => {
   try {
     const currentUser = (req as any).user;
+    const companyId = getReqCompanyId(req);
 
-    // Resolve display name
+    if (!currentUser?.userId || !currentUser?.empid || !companyId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     let empName = '';
-    const empSnap = await db.collection('employees').where('empid', '==', currentUser.empid).limit(1).get();
+
+    const empSnap = await db
+      .collection('employees')
+      .where('companyId', '==', companyId)
+      .where('empid', '==', currentUser.empid)
+      .limit(1)
+      .get();
+
     if (!empSnap.empty) {
       const e = empSnap.docs[0].data() as any;
       empName = [e.firstName, e.lastName].filter(Boolean).join(' ') || e.name || '';
     }
+
     if (!empName) {
       const usr = await db.collection('users').doc(currentUser.userId).get();
       if (usr.exists) {
         const u = usr.data() as any;
-        empName = u.name || `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim();
+        if (u?.companyId === companyId) {
+          empName = u.name || `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim();
+        }
       }
     }
 
-    const norm = normalizeCreatePayload(currentUser, req.body, empName || 'Employee');
-    if (norm.error) return res.status(400).json({ error: norm.error });
+    const norm = normalizeCreatePayload(currentUser, req.body, empName || 'Employee', companyId);
+    if (norm.error) {
+      return res.status(400).json({ error: norm.error });
+    }
+
     const payload = norm.data!;
 
-    // ---- Index-free overlap check (query by userId only; filter in memory) ----
     if (payload.leaveType !== 'Overtime' && payload.leaveType !== 'Permission Time') {
       const existing = await db.collection('leaves')
-       .where('userId', '==', currentUser.userId)
-       .where('status', 'in', ['Pending', 'Approved'])
-       .get();
+        .where('companyId', '==', companyId)
+        .where('userId', '==', currentUser.userId)
+        .where('status', 'in', ['Pending', 'Approved'])
+        .get();
 
       const overlaps = existing.docs.some((d) => {
         const v = d.data() as any;
         if (!['Pending', 'Approved'].includes(String(v.status))) return false;
         const s = String(v.startDate || '');
-        const e = String(v.endDate   || '');
+        const e = String(v.endDate || '');
         return s <= payload.endDate && e >= payload.startDate;
       });
 
       if (overlaps) {
-        const msg = payload.leaveType === 'Comp Off'
-          ? 'You have already applied for leave/comp-off on the selected date.'
-          : 'You already have a leave request for the selected date range.';
-
-        // Simple message without technical details
+        const msg =
+          payload.leaveType === 'Comp Off'
+            ? 'You have already applied for leave/comp-off on the selected date.'
+            : 'You already have a leave request for the selected date range.';
         return res.status(200).json({ message: msg });
       }
     }
-    // --------------------------------------------------------------------------
 
-    const ref  = await db.collection('leaves').add(payload);
+    const ref = await db.collection('leaves').add(payload);
     const snap = await ref.get();
+
+    // Track usage after successful leave creation
+    await trackLeaveUsage(req, {
+      writeCount: 1,
+      apiCalls: 1,
+      leaveCount: 1,
+    });
+
     return res.status(201).json({ id: ref.id, ...snap.data() });
   } catch (error) {
     console.error('Error creating leave request:', error);
@@ -279,48 +358,70 @@ export const createLeaveRequest = async (req: Request, res: Response): Promise<R
   }
 };
 
-// ADMIN: list with optional filters + naive pagination
 export const getAllLeaveRequests = async (req: Request, res: Response): Promise<Response> => {
   try {
     const currentUser = (req as any).user;
+    const companyId = getReqCompanyId(req);
     const { status, userId, startDate, endDate, page = '1', limit = '10', type } = req.query;
 
-    if (currentUser.role !== 'admin' && userId !== currentUser.userId) {
+    if (!companyId || !currentUser?.userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const requestedUserId = String(userId || '').trim();
+
+    if (!isAdmin(req) && requestedUserId && requestedUserId !== currentUser.userId) {
       return res.status(403).json({ error: 'Unauthorized to view these leave requests' });
     }
 
-    let q: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = db.collection('leaves');
+    let q: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = db
+      .collection('leaves')
+      .where('companyId', '==', companyId);
 
-    if (status) q = q.where('status', '==', String(status));
-    if (userId) q = q.where('userId', '==', String(userId));
+    if (status) {
+      q = q.where('status', '==', String(status));
+    }
+
+    if (isAdmin(req)) {
+      if (requestedUserId) {
+        q = q.where('userId', '==', requestedUserId);
+      }
+    } else {
+      q = q.where('userId', '==', currentUser.userId);
+    }
+
     if (startDate && endDate) {
       q = q
         .where('startDate', '<=', String(endDate))
         .where('endDate', '>=', String(startDate));
     }
 
-    // Filter by leave type if specified
     const leaveTypeFilter = mapTypeQueryToLeaveType(type as string | undefined);
     if (leaveTypeFilter) {
       q = q.where('leaveType', '==', leaveTypeFilter);
     }
 
-    // Get total count for pagination
-   const pageNum = Math.max(parseInt(String(page), 10) || 1, 1);
-   const limitNum = Math.min(Math.max(parseInt(String(limit), 10) || 10, 1), 100);
+    const pageNum = Math.max(parseInt(String(page), 10) || 1, 1);
+    const limitNum = Math.min(Math.max(parseInt(String(limit), 10) || 10, 1), 100);
 
-   const pageSnap = await q
-    .orderBy('createdAt','desc')
-    .limit(limitNum)
-    .get();
+    const pageSnap = await q
+      .orderBy('createdAt', 'desc')
+      .limit(limitNum)
+      .get();
+
+    // Track usage after successful leave read
+    await trackLeaveUsage(req, {
+      readCount: 1,
+      apiCalls: 1,
+    });
 
     return res.status(200).json({
-      data: pageSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+      data: pageSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
       pagination: {
         page: pageNum,
         limit: limitNum,
-        hasMore: pageSnap.size === limitNum
-      }
+        hasMore: pageSnap.size === limitNum,
+      },
     });
   } catch (error) {
     console.error('Error fetching leave requests:', error);
@@ -330,23 +431,41 @@ export const getAllLeaveRequests = async (req: Request, res: Response): Promise<
     });
   }
 };
+
 export const getPendingLeaves = async (req: Request, res: Response): Promise<Response> => {
   try {
+    const companyId = getReqCompanyId(req);
+    if (!companyId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     const t = req.query.type ? String(req.query.type) : undefined;
-    let q: FirebaseFirestore.Query = db.collection('leaves').where('status', '==', 'Pending');
+
+    let q: FirebaseFirestore.Query = db
+      .collection('leaves')
+      .where('companyId', '==', companyId)
+      .where('status', '==', 'Pending');
 
     if (t) {
-      q = q.where('leaveType', '==', t);
+      const mappedType = mapTypeQueryToLeaveType(t) || t;
+      q = q.where('leaveType', '==', mappedType);
     }
 
     const snapshot = await q
-      .orderBy('createdAt','desc')
+      .orderBy('createdAt', 'desc')
       .limit(100)
-      .get(); 
-    const pendingLeaves = snapshot.docs.map(doc => ({
+      .get();
+
+    const pendingLeaves = snapshot.docs.map((doc) => ({
       id: doc.id,
-      ...doc.data()
+      ...doc.data(),
     }));
+
+    // Track usage after successful pending leaves read
+    await trackLeaveUsage(req, {
+      readCount: 1,
+      apiCalls: 1,
+    });
 
     return res.status(200).json(pendingLeaves);
   } catch (error) {
@@ -361,14 +480,31 @@ export const getPendingLeaves = async (req: Request, res: Response): Promise<Res
 export const getLeaveBalance = async (req: Request, res: Response): Promise<Response> => {
   try {
     const currentUser = (req as any).user;
-    const empSnap = await db.collection('employees').where('empid', '==', currentUser.empid).limit(1).get();
-    
+    const companyId = getReqCompanyId(req);
+
+    if (!currentUser?.empid || !companyId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const empSnap = await db
+      .collection('employees')
+      .where('companyId', '==', companyId)
+      .where('empid', '==', currentUser.empid)
+      .limit(1)
+      .get();
+
     if (empSnap.empty) {
       return res.status(404).json({ error: 'Employee not found' });
     }
-    
-    const employee = empSnap.docs[0].data();
-    
+
+    const employee = empSnap.docs[0].data() as any;
+
+    // Track usage after successful leave balance read
+    await trackLeaveUsage(req, {
+      readCount: 1,
+      apiCalls: 1,
+    });
+
     return res.status(200).json({
       casualLeave: employee.casualLeave || 0,
       plannedLeave: employee.plannedLeave || 0,
@@ -386,94 +522,23 @@ export const getLeaveBalance = async (req: Request, res: Response): Promise<Resp
 export function getLeaveRequestById(id: string) {
   return db.collection('leaves').doc(id).get();
 }
-export const getLeaveTypes = async (req: Request, res: Response): Promise<Response> => {
-  try {
-    const snapshot = await db.collection('leaveTypes').orderBy('name').get();
-    const leaveTypes = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
-    return res.status(200).json(leaveTypes);
-  } catch (error) {
-    console.error('Error fetching leave types:', error);
-    return res.status(500).json({
-      error: 'Failed to fetch leave types',
-      details: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-};
-
-export const addLeaveType = async (req: Request, res: Response): Promise<Response> => {
-  try {
-    const { name, description = '', defaultDays = 0 } = req.body;
-    
-    if (!name) {
-      return res.status(400).json({ error: 'Leave type name is required' });
-    }
-
-    const docRef = await db.collection('leaveTypes').add({
-      name,
-      description,
-      defaultDays: Number(defaultDays) || 0,
-      isActive: true,
-      createdAt:FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp()
-    });
-
-    return res.status(201).json({
-      id: docRef.id,
-      name,
-      description,
-      defaultDays: Number(defaultDays) || 0,
-      isActive: true
-    });
-  } catch (error) {
-    console.error('Error adding leave type:', error);
-    return res.status(500).json({
-      error: 'Failed to add leave type',
-      details: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-};
-
-export const deleteLeaveType = async (req: Request, res: Response): Promise<Response> => {
-  try {
-    const { id } = req.body;
-    
-    if (!id) {
-      return res.status(400).json({ error: 'Leave type ID is required' });
-    }
-
-    // Check if any leaves are using this type
-    const leavesSnapshot = await db.collection('leaves')
-      .where('leaveTypeId', '==', id)
-      .limit(1)
-      .get();
-
-    if (!leavesSnapshot.empty) {
-      return res.status(400).json({
-        error: 'Cannot delete leave type as it is being used by existing leave requests'
-      });
-    }
-
-    await db.collection('leaveTypes').doc(id).delete();
-    return res.status(200).json({ success: true });
-  } catch (error) {
-    console.error('Error deleting leave type:', error);
-    return res.status(500).json({
-      error: 'Failed to delete leave type',
-      details: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-};
 
 export const updateLeaveStatus = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { id } = req.params;
     const { status, notes } = req.body;
-    const currentUser = (req as any).user;
+    const companyId = getReqCompanyId(req);
+    const actorId = getReqActorId(req);
 
-    if (!['Approved', 'Rejected', 'Cancelled'].includes(status)) {
+    if (!companyId || !actorId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    if (!isAdmin(req)) {
+      return res.status(403).json({ error: 'Only admin can update leave status' });
+    }
+
+    if (!['Approved', 'Rejected', 'Cancelled'].includes(String(status))) {
       return res.status(400).json({ error: 'Invalid status' });
     }
 
@@ -484,14 +549,25 @@ export const updateLeaveStatus = async (req: Request, res: Response): Promise<Re
       return res.status(404).json({ error: 'Leave request not found' });
     }
 
-    const updates: any = {
-      status,
-      approverId: currentUser.uid,
-      updatedAt:FieldValue.serverTimestamp(),
-      ...(notes && { approverNotes: notes })
-    };
+    const leaveData = leaveDoc.data() as any;
 
-    await leaveRef.update(updates);
+    if (leaveData?.companyId !== companyId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    await leaveRef.update({
+      status: String(status),
+      approverId: actorId,
+      approverNotes: notes ? String(notes) : '',
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    // Track usage after successful leave status update
+    await trackLeaveUsage(req, {
+      writeCount: 1,
+      apiCalls: 1,
+    });
+
     return res.status(200).json({ success: true });
   } catch (error) {
     console.error('Error updating leave status:', error);
@@ -506,7 +582,13 @@ export const cancelLeaveRequest = async (req: Request, res: Response): Promise<R
   try {
     const { id } = req.params;
     const currentUser = (req as any).user;
+    const companyId = getReqCompanyId(req);
+    const actorId = getReqActorId(req);
     const { reason } = req.body;
+
+    if (!companyId || !actorId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
 
     const leaveRef = db.collection('leaves').doc(id);
     const leaveDoc = await leaveRef.get();
@@ -515,14 +597,16 @@ export const cancelLeaveRequest = async (req: Request, res: Response): Promise<R
       return res.status(404).json({ error: 'Leave request not found' });
     }
 
-    const leaveData = leaveDoc.data();
-    
-    // Only allow cancellation if user is admin or the requester
-    if (currentUser.role !== 'admin' && leaveData?.userId !== currentUser.uid) {
+    const leaveData = leaveDoc.data() as any;
+
+    if (leaveData?.companyId !== companyId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    if (!isAdmin(req) && leaveData?.userId !== currentUser.userId) {
       return res.status(403).json({ error: 'Not authorized to cancel this leave' });
     }
 
-    // Only pending leaves can be cancelled
     if (leaveData?.status !== 'Pending') {
       return res.status(400).json({ error: 'Only pending leave requests can be cancelled' });
     }
@@ -530,9 +614,15 @@ export const cancelLeaveRequest = async (req: Request, res: Response): Promise<R
     await leaveRef.update({
       status: 'Cancelled',
       cancelledAt: FieldValue.serverTimestamp(),
-      cancelledBy: currentUser.uid,
-      cancelReason: reason,
-      updatedAt: FieldValue.serverTimestamp()
+      cancelledBy: actorId,
+      cancelReason: reason ? String(reason) : '',
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    // Track usage after successful leave cancellation
+    await trackLeaveUsage(req, {
+      writeCount: 1,
+      apiCalls: 1,
     });
 
     return res.status(200).json({ success: true });
@@ -548,13 +638,37 @@ export const cancelLeaveRequest = async (req: Request, res: Response): Promise<R
 export const deleteLeave = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { id } = req.params;
-    
-    const leaveDoc = await db.collection('leaves').doc(id).get();
+    const companyId = getReqCompanyId(req);
+
+    if (!companyId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    if (!isAdmin(req)) {
+      return res.status(403).json({ error: 'Only admin can delete leave requests' });
+    }
+
+    const leaveRef = db.collection('leaves').doc(id);
+    const leaveDoc = await leaveRef.get();
+
     if (!leaveDoc.exists) {
       return res.status(404).json({ error: 'Leave request not found' });
     }
 
-    await db.collection('leaves').doc(id).delete();
+    const leaveData = leaveDoc.data() as any;
+
+    if (leaveData?.companyId !== companyId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    await leaveRef.delete();
+
+    // Track usage after successful leave deletion
+    await trackLeaveUsage(req, {
+      deleteCount: 1,
+      apiCalls: 1,
+    });
+
     return res.status(200).json({ success: true });
   } catch (error) {
     console.error('Error deleting leave request:', error);

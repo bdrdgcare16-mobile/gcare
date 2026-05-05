@@ -1,20 +1,18 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:serv_app/services/api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 // Web localStorage (ignored on mobile/desktop)
 import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
-    // ---------- import your destination pages (so taps push correctly) ----------
+// ---------- import your destination pages (so taps push correctly) ----------
 import 'change_password_page.dart';
 import 'multi_language_page.dart';
-import 'privacy_policy_page.dart';
-import 'terms_and_conditions_page.dart';
 import 'permissions_page.dart';
 import 'feedback_page.dart';
 import 'log_out_page.dart';
-
-import 'package:serv_app/services/api_service.dart';
 
 /// ===== Service root (using centralized config) =====
 final String _host = ApiService.baseUrl.replaceFirst('/api', '');
@@ -25,7 +23,14 @@ Uri _u(String path) => Uri.parse('$_host$path'); // use like /api/auth/me
 class ProfilePage extends StatefulWidget {
   /// Kept for backward compatibility; not used.
   /// Do not remove unless you have updated all callers.
-  const ProfilePage({super.key, required Map userData});
+  const ProfilePage({
+    super.key, 
+    required this.userData,
+    this.preloadedProfile,
+  });
+
+  final Map userData;
+  final Map<String, dynamic>? preloadedProfile;
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -57,7 +62,15 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   void initState() {
     super.initState();
-    _loadProfile();
+    
+    // ✅ SAFETY: Use preloaded profile data when available, otherwise load normally
+    if (widget.preloadedProfile != null) {
+      debugPrint('[Profile] Using preloaded profile data from home page');
+      _applyPreloadedProfile(widget.preloadedProfile!);
+    } else {
+      debugPrint('[Profile] No preloaded profile data, loading auth/me API');
+      _loadProfile();
+    }
   }
 
   Future<String?> _getToken() async {
@@ -72,7 +85,61 @@ class _ProfilePageState extends State<ProfilePage> {
     return (t2 != null && t2.isNotEmpty) ? t2 : null;
   }
 
-  Future<void> _loadProfile() async {
+  // Extract employee ID with proper priority order
+  String _extractEmployeeId(Map<String, dynamic> data) {
+    return (data['empid'] as String?) ??
+           (data['empId'] as String?) ??
+           (data['employeeId'] as String?) ??
+           (data['employeeProfile']?['empid'] as String?) ??
+           '-';
+  }
+
+  // Extract phone number with proper priority order
+  String _extractPhone(Map<String, dynamic> data) {
+    // Check main fields first
+    final mainPhone = (data['phone'] as String?) ?? (data['mobile'] as String?);
+    if (mainPhone?.isNotEmpty == true) return mainPhone!;
+    
+    // Check employeeProfile fields
+    final empProfile = data['employeeProfile'] as Map<String, dynamic>?;
+    if (empProfile != null) {
+      final empPhone = (empProfile['phone'] as String?) ?? (empProfile['mobile'] as String?);
+      if (empPhone?.isNotEmpty == true) return empPhone!;
+    }
+    
+    return '-';
+  }
+
+  // ✅ SAFETY: Apply preloaded profile data without API calls
+void _applyPreloadedProfile(Map<String, dynamic> profileData) {
+  try {
+    setState(() {
+      _loading = true;
+      _error = null;
+      
+      // Apply preloaded data directly
+      _userData = {
+        "name": (profileData['name'] ?? "-") as String,
+        "id": _extractEmployeeId(profileData),
+        "role": (profileData['role'] ?? "-") as String,
+        "email": (profileData['email'] ?? "-") as String,
+        "phone": _extractPhone(profileData),
+      };
+      
+      _loading = false;
+    });
+    
+    debugPrint('[Profile] Applied preloaded profile data: ${_userData['name']}');
+  } catch (e) {
+    debugPrint('[Profile] Error applying preloaded profile: $e');
+    setState(() {
+      _loading = false;
+      _error = 'Failed to load profile';
+    });
+  }
+}
+
+Future<void> _loadProfile() async {
     setState(() {
       _loading = true;
       _error = null;
@@ -110,9 +177,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
       // Normalize keys coming from different backends
       String name = (payload['name'] ?? payload['fullName'] ?? '').toString();
-      String empid =
-          (payload['empid'] ?? payload['empId'] ?? payload['employeeId'] ?? '')
-              .toString();
+      String empid = _extractEmployeeId(payload);
       String role = (payload['role'] ?? '').toString();
       String email = (payload['email'] ?? '').toString();
       String phone = (payload['phone'] ?? payload['mobile'] ?? '').toString();
@@ -120,7 +185,7 @@ class _ProfilePageState extends State<ProfilePage> {
       if ((name.isEmpty || email.isEmpty) && payload.containsKey('employeeProfile')) {
         final u = (payload['employeeProfile'] as Map).cast<String, dynamic>();
         name = (u['name'] ?? u['fullName'] ?? name).toString();
-        empid = (u['empid'] ?? u['empId'] ?? u['employeeId'] ?? empid).toString();
+        empid = _extractEmployeeId(u);
         role = (payload['role'] ?? role).toString();
         email = (u['email'] ?? email).toString();
         phone = (u['phone'] ?? u['mobile'] ?? phone).toString();
@@ -152,7 +217,7 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  void _openSetting(String label) {
+  Future<void> _openSetting(String label) async {
     if (label == "Change Password") {
       Navigator.push(
         context,
@@ -164,15 +229,17 @@ class _ProfilePageState extends State<ProfilePage> {
         MaterialPageRoute(builder: (_) => const MultiLanguagePage()),
       );
     } else if (label == "Privacy Policy") {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const PrivacyPolicyPage()),
-      );
+      // final Uri privacyUri = Uri.parse('https://serv-dev-f2557.web.app/privacy-policy.html');
+      final Uri privacyUri2 = Uri.parse('https://servappbackend.web.app/privacy-policy.html');
+      if (await canLaunchUrl(privacyUri2)) {
+        await launchUrl(privacyUri2, mode: LaunchMode.externalApplication);
+      }
     } else if (label == "Terms & Conditions") {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const TermsAndConditionsPage()),
-      );
+      // final Uri termsUri = Uri.parse('https://serv-dev-f2557.web.app/terms.html');
+      final Uri termsUri2 = Uri.parse('https://servappbackend.web.app/terms.html');
+      if (await canLaunchUrl(termsUri2)) {
+        await launchUrl(termsUri2, mode: LaunchMode.externalApplication);
+      }
     } else if (label == "Permissions") {
       Navigator.push(
         context,
@@ -198,146 +265,219 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF5F3F8),
       body: SafeArea(
         child: Column(
           children: [
-            // 🔙 Back Button
-            Align(
-              alignment: Alignment.topLeft,
-              child: IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ),
-
-            // 🧑‍🎓 Profile Header (UI unchanged)
+            // Modern Header with Back Button
             Container(
-              color: const Color.fromARGB(255, 140, 110, 175),
-              padding: const EdgeInsets.all(20),
-              child: Row(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xFF8C6EAF),
+                    Color(0xFF655193),
+                  ],
+                ),
+              ),
+              child: Column(
                 children: [
-                  CircleAvatar(
-                    radius: 30,
-                    backgroundColor: Colors.pink[100],
-                    child: Text(
-                      _userData['name'] != null &&
-                              _userData['name']!.isNotEmpty &&
-                              _userData['name'] != '-'
-                          ? _userData['name']![0].toUpperCase()
-                          : '?',
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
+                  // Back Button and Title
+                  Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.arrow_back, color: Colors.white),
+                        onPressed: () => Navigator.pop(context),
                       ),
-                    ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Profile',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Name
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                _userData['name'] ?? '-',
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                  const SizedBox(height: 16),
+                  
+                  // Compact Profile Info
+                  Row(
+                    children: [
+                      // Avatar
+                      Container(
+                        width: 60,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withOpacity(0.2),
+                          border: Border.all(color: Colors.white, width: 2),
+                        ),
+                        child: Center(
+                          child: Text(
+                            _userData['name'] != null &&
+                                    _userData['name']!.isNotEmpty &&
+                                    _userData['name'] != '-'
+                                ? _userData['name']![0].toUpperCase()
+                                : '?',
+                            style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
                             ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      
+                      // User Info
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _userData['name'] ?? '-',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${_userData['id'] ?? '-'} | ${_userData['role'] ?? '-'}',
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.9),
+                                fontSize: 13,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _userData['email'] ?? '-',
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.8),
+                                fontSize: 12,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            if (_error != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                _error!,
+                                style: const TextStyle(
+                                  color: Color(0xFFFFB3BA),
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
                             if (_loading)
-                              const SizedBox(
-                                height: 16,
-                                width: 16,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
+                              const Padding(
+                                padding: EdgeInsets.only(top: 4),
+                                child: SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                  ),
+                                ),
                               ),
                           ],
                         ),
-                        // ID | Role
-                        Text(
-                          '${_userData['id'] ?? '-'} | ${_userData['role'] ?? '-'}',
-                          style: const TextStyle(fontSize: 14),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        // Email
-                        Text(
-                          _userData['email'] ?? '-',
-                          style: const TextStyle(fontSize: 14),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        // Phone
-                        Text(
-                          _userData['phone'] ?? '-',
-                          style: const TextStyle(fontSize: 14),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        if (_error != null) ...[
-                          const SizedBox(height: 6),
-                          Text(
-                            _error!,
-                            style: const TextStyle(
-                                color: Colors.red, fontSize: 12),
-                          ),
-                        ],
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
 
-            const Divider(height: 1),
-
-            // ⚙️ Settings List
+            // Settings List
             Expanded(
               child: ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 itemCount: settings.length,
                 itemBuilder: (context, index) {
                   final item = settings[index];
                   final String label = item['label'];
-                  return Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    child: Material( // ensures ripple + tap works over decorated Container
+                  final bool isLogout = label == "Log Out";
+                  
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: Material(
                       color: Colors.transparent,
                       child: InkWell(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(16),
                         onTap: () => _openSetting(label),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                           decoration: BoxDecoration(
-                            color: Colors.grey[100],
-                            borderRadius: BorderRadius.circular(12),
+                            color: isLogout 
+                                ? Colors.white 
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            border: isLogout
+                                ? Border.all(color: const Color(0xFFFFE5E5), width: 1)
+                                : null,
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.05),
-                                blurRadius: 4,
+                                color: Colors.black.withOpacity(0.04),
+                                blurRadius: 8,
                                 offset: const Offset(0, 2),
-                              )
+                              ),
                             ],
                           ),
-                          child: ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: Icon(item['icon'],
-                                color: item['color'] ?? Colors.black),
-                            title: Text(
-                              label,
-                              style: TextStyle(
-                                color: item['color'] ?? Colors.black,
-                                fontWeight: label == "Log Out"
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
+                          child: Row(
+                            children: [
+                              // Icon
+                              Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  color: isLogout
+                                      ? const Color(0xFFFFE5E5)
+                                      : const Color(0xFFF5F3F8),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Icon(
+                                  item['icon'],
+                                  color: isLogout
+                                      ? const Color(0xFFD32F2F)
+                                      : const Color(0xFF8C6EAF),
+                                  size: 20,
+                                ),
                               ),
-                            ),
-                            trailing:
-                                const Icon(Icons.arrow_forward_ios, size: 14),
+                              const SizedBox(width: 16),
+                              
+                              // Label
+                              Expanded(
+                                child: Text(
+                                  label,
+                                  style: TextStyle(
+                                    color: isLogout
+                                        ? const Color(0xFFD32F2F)
+                                        : const Color(0xFF2D2D2D),
+                                    fontSize: 15,
+                                    fontWeight: isLogout
+                                        ? FontWeight.w600
+                                        : FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                              
+                              // Arrow
+                              Icon(
+                                Icons.arrow_forward_ios,
+                                color: isLogout
+                                    ? const Color(0xFFD32F2F).withOpacity(0.6)
+                                    : const Color(0xFF8C6EAF).withOpacity(0.6),
+                                size: 16,
+                              ),
+                            ],
                           ),
                         ),
                       ),

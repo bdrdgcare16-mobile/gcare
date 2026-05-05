@@ -1,5 +1,6 @@
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
+import { generalRateLimit, authRateLimit, attendanceRateLimit, trackingRateLimit, uploadRateLimit } from "./middlewares/rateLimitMiddleware";
 
 // Routes
 import authRoutes from "./routes/authRoutes";
@@ -23,14 +24,62 @@ import overtimeRoutes from "./routes/overtimeRoutes";
 import adminRoutes from "./routes/adminRoutes";
 import leaveRoutes from './routes/leaveRoutes';
 
+
+
 import * as authController from "./controllers/authController";
 import { db } from "./config/firebase";
+import router from "./routes/authRoutes";
+import billingRoutes from "./routes/billingRoutes";
 
 const app = express();
+
+// Trust proxy for proper IP detection behind Firebase/Cloud Run
+app.set('trust proxy', 1);
+
 // ---------------- Middleware ----------------
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
-app.use(cors());
+app.use(cors({
+  origin: (origin, callback) => {
+    // Environment-based CORS logic
+    const isDevelopment = process.env.NODE_ENV === 'development' || process.env.FUNCTIONS_EMULATOR === 'true';
+    
+    const allowedOrigins = isDevelopment ? [
+      "http://localhost:3000",
+      "http://127.0.0.1:3000", 
+      "http://localhost:8080",
+      "http://127.0.0.1:8080",
+      "https://servappbackend.web.app",
+      "https://api-zmj7dqloiq-uc.a.run.app"
+    ] : [
+      "https://servappbackend.web.app",
+      "https://api-zmj7dqloiq-uc.a.run.app"
+    ];
+    
+    // Allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    } else {
+      return callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization", 
+    "x-auth-token",
+    "x-empid",
+    "companyid",
+    "x-company-id",
+    "Cache-Control",
+    "Pragma",
+    "Expires"
+  ]
+}));
+
+app.options("*", cors());
 
 // Logger
 app.use((req, _res, next) => {
@@ -44,32 +93,34 @@ app.get("/health", (_req: Request, res: Response) => {
   res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+// ---------------- Rate Limiting ----------------
+app.use(generalRateLimit);
+
 // ---------------- Routes ----------------
-app.use("/auth", authRoutes);
-app.use("/company", companyRoutes);
-app.use("/employees", employeeRoutes);
-app.use("/attendance", attendanceRoutes);
-app.use("/employee-details", employeeDetailsRoutes);
-app.use("/leaves", leaveRoutes);
-app.use("/leave-types", leaveTypeRoutes);
-app.use("/office", officeLocationRoutes);
-app.use("/uploads", uploadRoutes);
-app.use("/reports", reportRoutes);
-app.use("/rewards", rewardRoutes);
-app.use("/events", eventRoutes(db));
-app.use("/feedback", feedbackRoutes(db));
-app.use("/shifts", shiftRoutes);
-app.use("/tasks", taskRoutes);
-app.use("/tracking", trackingRoutes);
-app.use("/liveEmployeeDetails", liveEmployeeDetailsRouter);
-app.use("/reasons", reasonsRouter);
-app.use("/overtime", overtimeRoutes);
-app.use("/admin", adminRoutes);
-app.use('/leaves', leaveRoutes);
+app.use("/api/auth", authRateLimit, authRoutes);
+app.use("/api/company", generalRateLimit, companyRoutes);
+app.use("/api/employees", generalRateLimit, employeeRoutes);
+app.use("/api/attendance", attendanceRateLimit, attendanceRoutes);
+app.use("/api/employee-details", generalRateLimit, employeeDetailsRoutes);
+app.use("/api/leaves", generalRateLimit, leaveRoutes);
+app.use("/api/leave-types", generalRateLimit, leaveTypeRoutes);
+app.use("/api/office", generalRateLimit, officeLocationRoutes);
+app.use("/api/uploads", uploadRateLimit, uploadRoutes);
+app.use("/api/reports", generalRateLimit, reportRoutes);
+app.use("/api/rewards", generalRateLimit, rewardRoutes);
+app.use("/api/events", generalRateLimit, eventRoutes(db));
+app.use("/api/feedback", generalRateLimit, feedbackRoutes(db));
+app.use("/api/shifts", generalRateLimit, shiftRoutes);
+app.use("/api/tasks", generalRateLimit, taskRoutes);
+app.use("/api/tracking", trackingRateLimit, trackingRoutes);
+app.use("/api/liveEmployeeDetails", generalRateLimit, liveEmployeeDetailsRouter);
+app.use("/api/reasons", generalRateLimit, reasonsRouter);
+app.use("/api/overtime", generalRateLimit, overtimeRoutes);
+app.use("/api/admin", generalRateLimit, adminRoutes);
+app.get("/api/me", authController.getMe);
+app.get("/api/profile", authController.getMe);
+router.use('/api/billing', billingRoutes);
 
-
-app.get("/me", authController.getMe);
-app.get("/profile", authController.getMe);
 
 // ---------------- 404 ----------------
 app.use((req, res) => {

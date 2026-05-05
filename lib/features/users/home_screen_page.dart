@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:serv_app/models/company_data.dart';
+import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/utils/button_helpers.dart';
+import 'package:serv_app/utils/location_permission_dialog.dart';
 import 'attendance_page.dart';
 import 'profile_page.dart';
 import 'package:serv_app/features/users/myserv_page.dart';
@@ -35,170 +40,44 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_permissionChecked) {
         _permissionChecked = true;
-        _showLocationPermissionDialog();
+        _checkAndShowLocationPermissionDialog();
       }
     });
   }
 
-  Future<void> _showLocationPermissionDialog() async {
-    final status = await Permission.location.status;
-    if (status.isDenied) {
-      if (!mounted) return;
+  Future<void> _checkAndShowLocationPermissionDialog() async {
+    await LocationPermissionDialog.showIfNeeded(context);
+  }
+
+  // ✅ SAFETY: Preload auth/me data before navigation to prevent delays
+  Future<Map<String, dynamic>?> _preloadUserInfo() async {
+    try {
+      final token = CompanyData.token;
+      if (token.isEmpty) {
+        debugPrint('[Home] No token available for auth/me preload');
+        return null;
+      }
+
+      final url = Uri.parse('${ApiService.baseUrl}/auth/me');
+      final res = await http.get(url, headers: {'Authorization': 'Bearer $token'});
       
-      await showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16.0),
-          ),
-          title: const Text(
-            'We need your permission',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-              color: Colors.black87,
-            ),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'To provide the best experience, we need the following permissions:',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.black54,
-                  height: 1.4,
-                ),
-              ),
-              const SizedBox(height: 20),
-              _buildPermissionItem(
-                icon: Icons.location_on_outlined,
-                title: 'Location',
-                description: 'To track your attendance and location during work hours',
-                color: const Color(0xFF4CAF50),
-              ),
-              const SizedBox(height: 12),
-              _buildPermissionItem(
-                icon: Icons.camera_alt_outlined,
-                title: 'Camera',
-                description: 'To take photos for attendance and documentation',
-                color: const Color(0xFF2196F3),
-              ),
-              const SizedBox(height: 12),
-              _buildPermissionItem(
-                icon: Icons.storage_outlined,
-                title: 'Storage',
-                description: 'To store and retrieve photos and documents',
-                color: const Color(0xFFFF9800),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              ),
-              child: const Text(
-                'Not Now',
-                style: TextStyle(
-                  color: Colors.black54,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                Navigator.pop(context);
-                await _requestPermissions();
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: kButtonColor,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8.0),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                elevation: 0,
-              ),
-              child: const Text(
-                'Allow All',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
+      debugPrint('[Home] Auth/me preload response status: ${res.statusCode}');
+      
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        debugPrint('[Home] Auth/me preload successful: ${data['name']}');
+        return data;
+      } else {
+        debugPrint('[Home] Auth/me preload failed: ${res.statusCode}');
+        return null;
+      }
+    } catch (e) {
+      debugPrint('[Home] Auth/me preload error: $e');
+      return null;
     }
   }
 
-  Future<void> _requestPermissions() async {
-    await [
-      Permission.location,
-      Permission.camera,
-      Permission.storage,
-    ].request();
-  }
-
-  Widget _buildPermissionItem({
-    required IconData icon,
-    required String title,
-    required String description,
-    required Color color,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF5F5F5),
-        borderRadius: BorderRadius.circular(8.0),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, color: color, size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black87,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  description,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.black54,
-                    height: 1.4,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
+  
   @override
   Widget build(BuildContext context) {
     final overlay = SystemUiOverlayStyle(
@@ -349,13 +228,18 @@ class _HomeScreenState extends State<HomeScreen> {
                                 _HomeTile(
                                   icon: Icons.calendar_month,
                                   label: 'Attendance',
-                                  onTap: () {
+                                  onTap: () async {
                                     if (!mounted) return;
+                                    
+                                    // SAFETY: Preload auth/me data before navigation
+                                    final preloadedUserInfo = await _preloadUserInfo();
+                                    
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
                                         builder: (_) => AttendanceScreen(
                                           employeeDocId: widget.employeeDocId,
+                                          preloadedUserInfo: preloadedUserInfo,
                                         ),
                                       ),
                                     );
@@ -403,14 +287,28 @@ class _HomeScreenState extends State<HomeScreen> {
                 BottomNavItem(
                   icon: Icons.person,
                   label: 'Profile',
-                  onTap: () {
+                  onTap: () async {
+                    if (!mounted) return;
+                    
+                    // SAFETY: Preload auth/me profile data before navigation
+                    final preloadedProfile = await _preloadUserInfo();
+                    
+                    // Extract empid from preloaded data, fallback to '-' if not available
+                    final empid = preloadedProfile?['empid'] ?? 
+                                  preloadedProfile?['empId'] ?? 
+                                  preloadedProfile?['employeeId'] ?? 
+                                  preloadedProfile?['employeeProfile']?['empid'] ?? '-';
+                    
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => ProfilePage(userData: {
-                          'name': widget.userName,
-                          'id': widget.employeeDocId,
-                        }),
+                        builder: (_) => ProfilePage(
+                          userData: {
+                            'name': widget.userName,
+                            'id': empid,
+                          },
+                          preloadedProfile: preloadedProfile,
+                        ),
                       ),
                     );
                   },
@@ -526,9 +424,9 @@ class _HomeTile extends StatelessWidget {
 
     return Material(
       color: Colors.transparent,
-      child: InkWell(
+      child: DebouncedInkWell(
+        key: ValueKey('home_tile_$label'),
         onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
         splashColor: kAppBarColor.withValues(alpha: 0.15),
         highlightColor: kButtonColor.withValues(alpha: 0.10),
         child: Ink(
@@ -588,10 +486,11 @@ class BottomNavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
+    return DebouncedGestureDetector(
+        key: ValueKey('bottom_nav_$label'),
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: SizedBox(
         width: 86,
         height: 50,
         child: Column(

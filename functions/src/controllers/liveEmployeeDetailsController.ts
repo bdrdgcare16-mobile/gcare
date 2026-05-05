@@ -5,8 +5,11 @@ import { distanceMeters } from '../utils/geo';
 type AttDoc = {
   empid: string;
   name?: string;
-  date: string;                 // "YYYY-MM-DD"
+  date: string;
   shift?: string;
+  shiftGroup?: string;
+  dept?: string;
+  department?: string;
   branchName?: string;
   checkIn?: string | null;
   checkOut?: string | null;
@@ -14,7 +17,7 @@ type AttDoc = {
   checkInLongitude?: number | null;
   expectedLatitude?: number | null;
   expectedLongitude?: number | null;
-  expectedRadius?: number | null; // meters
+  expectedRadius?: number | null;
   status?: string;
 };
 
@@ -39,22 +42,36 @@ export async function liveEmployeeDetails(req: Request, res: Response) {
 
     const dateIso = pickDate(req);
 
-    const snap = await db
+    const attendanceSnap = await db
       .collection('attendance')
       .where('empid', '==', empid)
       .where('date', '==', dateIso)
       .limit(1)
       .get();
 
-    if (snap.empty) {
+    const employeeSnap = await db
+      .collection('employees')
+      .where('empid', '==', empid)
+      .limit(1)
+      .get();
+
+    const employeeData = !employeeSnap.empty ? employeeSnap.docs[0].data() : null;
+
+    if (attendanceSnap.empty) {
       return res.json({
         ok: true,
         data: {
           id: empid,
-          name: '-',
+          name: employeeData?.name ?? '-',
           date: dateIso,
-          shift: '-',
-          location: '-',
+          shift: employeeData?.shiftGroup ?? '-',
+          shiftGroup: employeeData?.shiftGroup ?? '-',
+          dept: employeeData?.dept ?? '-',
+          department: employeeData?.dept ?? '-',
+          branchName:
+              employeeData?.branchName ?? employeeData?.location ?? '-',
+          location:
+              employeeData?.branchName ?? employeeData?.location ?? '-',
           checkIn: null,
           checkOut: null,
           geofenceMeters: null,
@@ -68,7 +85,7 @@ export async function liveEmployeeDetails(req: Request, res: Response) {
       });
     }
 
-    const d = snap.docs[0].data() as AttDoc;
+    const d = attendanceSnap.docs[0].data() as AttDoc;
 
     const lat = Number(d.checkInLatitude ?? NaN);
     const lng = Number(d.checkInLongitude ?? NaN);
@@ -88,6 +105,24 @@ export async function liveEmployeeDetails(req: Request, res: Response) {
       );
     }
 
+    const resolvedShift =
+      d.shift ||
+      d.shiftGroup ||
+      employeeData?.shiftGroup ||
+      '-';
+
+    const resolvedDept =
+      d.dept ||
+      d.department ||
+      employeeData?.dept ||
+      '-';
+
+    const resolvedBranch =
+      d.branchName ||
+      employeeData?.branchName ||
+      employeeData?.location ||
+      '-';
+
     const status =
       d.checkIn && String(d.checkIn).trim().length > 0
         ? 'Present'
@@ -97,23 +132,27 @@ export async function liveEmployeeDetails(req: Request, res: Response) {
       ok: true,
       data: {
         id: d.empid,
-        name: d.name ?? '-',
+        name: d.name ?? employeeData?.name ?? '-',
         date: d.date,
-        shift: d.shift ?? '-',
-        location: d.branchName ?? '-',
+        shift: resolvedShift,
+        shiftGroup: employeeData?.shiftGroup ?? d.shiftGroup ?? resolvedShift,
+        dept: resolvedDept,
+        department: resolvedDept,
+        branchName: resolvedBranch,
+        location: resolvedBranch,
         checkIn: d.checkIn ?? null,
         checkOut: d.checkOut ?? null,
         geofenceMeters: geoMeters,
         geofence: radius ? `${radius} m` : '-',
         latitude: Number.isFinite(lat) ? lat : null,
         longitude: Number.isFinite(lng) ? lng : null,
-        expectedLatitude: Number.isFinite(expLat) ? expLat : null,   // 👈 added
-        expectedLongitude: Number.isFinite(expLng) ? expLng : null,  // 👈 added
+        expectedLatitude: Number.isFinite(expLat) ? expLat : null,
+        expectedLongitude: Number.isFinite(expLng) ? expLng : null,
         status,
       },
     });
   } catch (e: any) {
+    console.error('liveEmployeeDetails error:', e);
     return res.status(500).json({ error: e?.message || String(e) });
   }
 }
-

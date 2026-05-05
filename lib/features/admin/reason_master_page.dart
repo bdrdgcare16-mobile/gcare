@@ -2,13 +2,14 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:serv_app/config/api_config.dart';
+import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/services/api_service.dart';
 
 /* ===========================
    CONFIG
    =========================== */
-final String apiBase = ApiConfig.baseUrl; // adjust if needed
-const String kDefaultTypeName = 'General'; // hidden default type
+final String apiBase = ApiConfig.baseUrl;
+const String kDefaultTypeName = 'General';
 
 // Theme
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -18,14 +19,23 @@ const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
 /* ===========================
-   MODELS (minimal)
+   MODELS
    =========================== */
 class ReasonType {
   final String id;
   final String name;
-  ReasonType({required this.id, required this.name});
-  factory ReasonType.fromJson(Map<String, dynamic> j) =>
-      ReasonType(id: '${j["id"] ?? j["_id"] ?? ""}', name: '${j["name"] ?? ""}');
+
+  ReasonType({
+    required this.id,
+    required this.name,
+  });
+
+  factory ReasonType.fromJson(Map<String, dynamic> j) {
+    return ReasonType(
+      id: '${j["id"] ?? j["_id"] ?? ""}',
+      name: '${j["name"] ?? ""}',
+    );
+  }
 }
 
 class ReasonItem {
@@ -44,10 +54,13 @@ class ReasonItem {
   factory ReasonItem.fromJson(Map<String, dynamic> j) {
     DateTime? ts;
     final c = j['createdAt'];
-    if (c is String) ts = DateTime.tryParse(c);
-    if (c is Map && c['_seconds'] != null) {
+
+    if (c is String) {
+      ts = DateTime.tryParse(c);
+    } else if (c is Map && c['_seconds'] != null) {
       ts = DateTime.fromMillisecondsSinceEpoch((c['_seconds'] as int) * 1000);
     }
+
     return ReasonItem(
       id: '${j["id"] ?? j["_id"] ?? ""}',
       reason: '${j["reason"] ?? ""}',
@@ -62,6 +75,7 @@ class ReasonItem {
    =========================== */
 class ReasonMasterPage extends StatefulWidget {
   const ReasonMasterPage({super.key});
+
   @override
   State<ReasonMasterPage> createState() => _ReasonMasterPageState();
 }
@@ -74,8 +88,8 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
   List<ReasonItem> _filtered = [];
 
   bool _loading = true;
-  bool _booting = true; // while we ensure default type
-  String? _defaultTypeId; // hidden typeId used for POST
+  bool _booting = true;
+  String? _defaultTypeId;
 
   @override
   void initState() {
@@ -84,12 +98,36 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
     _bootstrap();
   }
 
+  /* ===========================
+     AUTH HELPERS
+     =========================== */
+  Future<String?> _getJwt() async {
+    final token = CompanyData.token;
+    if (token.isNotEmpty) return token;
+    return null;
+  }
+
+  Future<Map<String, String>> _authHeaders({bool json = true}) async {
+    final token = await _getJwt();
+    if (token == null || token.isEmpty) {
+      throw Exception('Missing auth token');
+    }
+
+    return {
+      if (json) 'Content-Type': 'application/json',
+      'Authorization': 'Bearer $token',
+    };
+  }
+
+  /* ===========================
+     BOOTSTRAP
+     =========================== */
   Future<void> _bootstrap() async {
-    // Ensure we have a default "General" typeId to use when creating reasons
     await _ensureDefaultType();
-    // Then load reasons
     await _loadReasons();
-    setState(() => _booting = false);
+    if (mounted) {
+      setState(() => _booting = false);
+    }
   }
 
   /* ===========================
@@ -97,37 +135,57 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
      =========================== */
   Future<void> _ensureDefaultType() async {
     try {
+      final headers = await _authHeaders();
+
       // 1) List types
-      final r = await http.get(Uri.parse('${ApiService.baseUrl}/reasons/types'));
+      final r = await http.get(
+        Uri.parse('${ApiService.baseUrl}/reasons/types'),
+        headers: headers,
+      );
+
       if (r.statusCode == 200) {
-        final List data = jsonDecode(r.body);
-        final types = data.map((e) => ReasonType.fromJson(e)).toList().cast<ReasonType>();
+        final decoded = jsonDecode(r.body);
+        final List data = decoded is List
+            ? decoded
+            : (decoded is Map<String, dynamic> && decoded['items'] is List)
+                ? decoded['items'] as List
+                : <dynamic>[];
+
+        final types = data
+            .map((e) => ReasonType.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList();
+
         final existing = types.firstWhere(
           (t) => t.name.trim().toLowerCase() == kDefaultTypeName.toLowerCase(),
           orElse: () => ReasonType(id: '', name: ''),
         );
+
         if (existing.id.isNotEmpty) {
           _defaultTypeId = existing.id;
           return;
         }
+      } else if (r.statusCode == 401) {
+        _toast('Unauthorized while loading reason types');
+        return;
       }
 
       // 2) If not found, create it
       final c = await http.post(
         Uri.parse('${ApiService.baseUrl}/reasons/types'),
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
         body: jsonEncode({'name': kDefaultTypeName}),
       );
 
       if (c.statusCode == 200 || c.statusCode == 201) {
         final m = jsonDecode(c.body) as Map<String, dynamic>;
         _defaultTypeId = '${m["id"] ?? m["_id"] ?? ""}';
+      } else if (c.statusCode == 401) {
+        _toast('Unauthorized while creating default type');
       } else {
-        // If creation failed, we still have a usable UI, but POSTs will fail.
         _toast('Could not ensure default type (${c.statusCode})');
       }
     } catch (e) {
-      _toast('Default type setup failed: $e');
+      _toast('Could not ensure default type: $e');
     }
   }
 
@@ -136,12 +194,28 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
      =========================== */
   Future<void> _loadReasons() async {
     setState(() => _loading = true);
+
     try {
-      final r = await http.get(Uri.parse('${ApiService.baseUrl}/reasons'));
+      final headers = await _authHeaders();
+
+      final r = await http.get(
+        Uri.parse('${ApiService.baseUrl}/reasons'),
+        headers: headers,
+      );
+
       if (r.statusCode == 200) {
         final body = jsonDecode(r.body);
-        final List items = (body is List) ? body : (body['items'] as List? ?? []);
-        _all = items.map((e) => ReasonItem.fromJson(e)).toList();
+        final List items = (body is List)
+            ? body
+            : (body is Map<String, dynamic> && body['items'] is List)
+                ? body['items'] as List
+                : <dynamic>[];
+
+        _all = items
+            .map((e) => ReasonItem.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList();
+      } else if (r.statusCode == 401) {
+        _toast('Failed to load reasons (401 Unauthorized)');
       } else {
         _toast('Failed to load reasons (${r.statusCode})');
       }
@@ -149,7 +223,9 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
       _toast('Failed to load reasons: $e');
     } finally {
       _applyFilter();
-      setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -158,19 +234,22 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
       _toast('No default type available; cannot create reason.');
       return;
     }
+
     try {
+      final headers = await _authHeaders();
+
       final r = await http.post(
         Uri.parse('${ApiService.baseUrl}/reasons'),
-        headers: {'Content-Type': 'application/json'},
+        headers: headers,
         body: jsonEncode({
-          'typeId': _defaultTypeId, // <-- hidden typeId
+          'typeId': _defaultTypeId,
           'reason': reason,
         }),
       );
+
       if (r.statusCode == 200 || r.statusCode == 201) {
         _toast('Reason created');
 
-        // Insert immediately if backend returned the created item
         try {
           final m = jsonDecode(r.body);
           if (m is Map<String, dynamic>) {
@@ -184,15 +263,20 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
             }
           }
         } catch (_) {}
-        // Otherwise just refresh
+
         await _loadReasons();
+      } else if (r.statusCode == 401) {
+        _toast('Create failed (401 Unauthorized)');
       } else {
-        // Show server error (400 “Field `typeId` is required”, etc.)
         String serverMsg = '';
         try {
           serverMsg = (jsonDecode(r.body)['message'] ?? '').toString();
         } catch (_) {}
-        _toast('Create failed (${r.statusCode}) ${serverMsg.isNotEmpty ? "- $serverMsg" : ""}');
+
+        _toast(
+          'Create failed (${r.statusCode})'
+          '${serverMsg.isNotEmpty ? " - $serverMsg" : ""}',
+        );
       }
     } catch (e) {
       _toast('Create failed: $e');
@@ -201,13 +285,21 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
 
   Future<void> _deleteReason(String id) async {
     try {
-      final r = await http.delete(Uri.parse('${ApiService.baseUrl}/reasons/$id'));
+      final headers = await _authHeaders(json: false);
+
+      final r = await http.delete(
+        Uri.parse('${ApiService.baseUrl}/reasons/$id'),
+        headers: headers,
+      );
+
       if (r.statusCode == 200) {
         setState(() {
           _all.removeWhere((x) => x.id == id);
           _applyFilter();
         });
         _toast('Deleted');
+      } else if (r.statusCode == 401) {
+        _toast('Delete failed (401 Unauthorized)');
       } else {
         _toast('Delete failed (${r.statusCode})');
       }
@@ -217,15 +309,18 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
   }
 
   /* ===========================
-     UI helpers
+     UI HELPERS
      =========================== */
   void _toast(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg)),
+    );
   }
 
   void _applyFilter() {
     final q = _searchController.text.toLowerCase();
+
     setState(() {
       _filtered = _all.where((r) {
         final d = _formatDate(r.createdAt);
@@ -239,8 +334,8 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
   String _formatDate(DateTime? d) {
     if (d == null) return '';
     return '${d.day.toString().padLeft(2, '0')}-'
-           '${d.month.toString().padLeft(2, '0')}-'
-           '${d.year}';
+        '${d.month.toString().padLeft(2, '0')}-'
+        '${d.year}';
   }
 
   /* ===========================
@@ -248,10 +343,14 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
      =========================== */
   Future<void> _openAddReasonDialog() async {
     _reasonInputController.clear();
+
     await showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Add New Reason', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Add New Reason',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         content: TextField(
           controller: _reasonInputController,
           autofocus: true,
@@ -261,7 +360,10 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             onPressed: () async {
               final text = _reasonInputController.text.trim();
@@ -283,13 +385,19 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
         title: const Text('Confirm Delete'),
         content: Text('Delete this reason?\n\n${r.reason}'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
               _deleteReason(r.id);
             },
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: Colors.red),
+            ),
           ),
         ],
       ),
@@ -307,7 +415,10 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: kAppBarColor,
-        title: const Text('Reason Master', style: TextStyle(fontSize: 16, color: kTextColor)),
+        title: const Text(
+          'Reason Master',
+          style: TextStyle(fontSize: 16, color: kTextColor),
+        ),
         actions: [
           IconButton(
             tooltip: 'Refresh',
@@ -327,7 +438,6 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
         padding: const EdgeInsets.all(12.0),
         child: Column(
           children: [
-            // Search + Create
             Row(
               children: [
                 Expanded(
@@ -336,8 +446,13 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
                     decoration: InputDecoration(
                       hintText: 'Search',
                       prefixIcon: const Icon(Icons.search),
-                      contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: 0,
+                        horizontal: 12,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
                   ),
                 ),
@@ -346,29 +461,72 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
                   onPressed: booting ? null : _openAddReasonDialog,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: kButtonColor,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
                   ),
-                  child: const Text('Create', style: TextStyle(color: kTextColor)),
+                  child: const Text(
+                    'Create',
+                    style: TextStyle(color: kTextColor),
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 16),
 
-            // Header (no Type column)
             Container(
               color: const Color(0xFF655193),
               padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
               child: const Row(
                 children: [
-                  Expanded(flex: 3, child: Text('Reason', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white))),
-                  Expanded(child: Text('Date',   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white))),
-                  Expanded(child: Text('Status', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white))),
-                  Expanded(child: Center(child: Text('Delete', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white)))),
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      'Reason',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      'Date',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      'Status',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Center(
+                      child: Text(
+                        'Delete',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
 
-            // List
             Expanded(
               child: booting || loading
                   ? const Center(child: CircularProgressIndicator())
@@ -376,7 +534,13 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
                       ? const Center(
                           child: Padding(
                             padding: EdgeInsets.all(32.0),
-                            child: Text('No results found', style: TextStyle(fontSize: 16, color: Colors.black)),
+                            child: Text(
+                              'No results found',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.black,
+                              ),
+                            ),
                           ),
                         )
                       : RefreshIndicator(
@@ -386,19 +550,45 @@ class _ReasonMasterPageState extends State<ReasonMasterPage> {
                             itemBuilder: (context, i) {
                               final r = _filtered[i];
                               return Container(
-                                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 8,
+                                  horizontal: 8,
+                                ),
                                 decoration: BoxDecoration(
-                                  border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
+                                  border: Border(
+                                    bottom: BorderSide(
+                                      color: Colors.grey.shade300,
+                                    ),
+                                  ),
                                 ),
                                 child: Row(
                                   children: [
-                                    Expanded(flex: 3, child: Text(r.reason, style: const TextStyle(fontSize: 13))),
-                                    Expanded(child: Text(_formatDate(r.createdAt), style: const TextStyle(fontSize: 13))),
-                                    Expanded(child: Text(r.status, style: const TextStyle(fontSize: 13))),
+                                    Expanded(
+                                      flex: 3,
+                                      child: Text(
+                                        r.reason,
+                                        style: const TextStyle(fontSize: 13),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Text(
+                                        _formatDate(r.createdAt),
+                                        style: const TextStyle(fontSize: 13),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Text(
+                                        r.status,
+                                        style: const TextStyle(fontSize: 13),
+                                      ),
+                                    ),
                                     Expanded(
                                       child: Center(
                                         child: IconButton(
-                                          icon: const Icon(Icons.delete_outline, size: 18),
+                                          icon: const Icon(
+                                            Icons.delete_outline,
+                                            size: 18,
+                                          ),
                                           onPressed: () => _confirmDelete(r),
                                         ),
                                       ),

@@ -1,6 +1,6 @@
 // lib/models/company_data.dart
 
-import 'package:image_picker/image_picker.dart';
+import 'package:cross_file/cross_file.dart';
 
 class CompanyData {
   static String companyName  = '';
@@ -9,9 +9,12 @@ class CompanyData {
   static String website      = '';
   static String adminName    = '';
   static String adminRole    = '';
+  static String role = '';
+  static String token = '';
+  static String empid = '';
+  static String companyId = '';
   static XFile? logoFile;
 
-  static var token;
 
   static var profile;
 
@@ -21,5 +24,5 @@ class CompanyData {
 
   static var employeeProfile;
 
-  static var empid;
+  
 }

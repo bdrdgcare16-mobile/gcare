@@ -75,6 +75,7 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
   late String dateIso;
   String name = '-';
   String shift = '-';
+  String department = '-';
   String branchName = '-'; // attendance.branchName
   String status = '-';
   String? checkIn; // HH:mm:ss
@@ -233,7 +234,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
 
       setState(() {
         name = (data['name'] ?? '-') as String;
-        shift = (data['shift'] ?? '-') as String;
+        shift = (data['shiftGroup'] ?? data['shift'] ?? '-') as String;
+        department = (data['dept'] ?? data['department'] ?? '-') as String;
         branchName =
             (data['location'] ?? '-') as String; // server sends branchName as 'location'
         status = (data['status'] ?? '-') as String;
@@ -463,6 +465,7 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
 
                       // Details
                       _DetailRow(label: 'Date', value: dateIso),
+                      _DetailRow(label: 'Department', value: _fmt(department)),
                       _DetailRow(label: 'Shift', value: _fmt(shift)),
                       _DetailRow(label: 'Location', value: _fmt(branchName)),
                       _DetailRow(label: 'Check-in', value: _fmt(checkIn)),

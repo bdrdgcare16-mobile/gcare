@@ -9,7 +9,7 @@ import 'package:serv_app/features/admin/office_location_page.dart';
 const Color kPrimaryBackgroundTop    = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
 const Color kAppBarColor             = Color(0xFF8C6EAF);
-const Color kButtonColor             = Color(0xFF655193);
+const Color kButtonColor             = Colors.white;
 const Color kTextColor               = Colors.white;
 
 class SettingsPage extends StatelessWidget {
@@ -45,54 +45,53 @@ class SettingsPage extends StatelessWidget {
             colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
           ),
         ),
-        child: Center(
-          child: Container(
-            width: 380,
-            margin: const EdgeInsets.symmetric(vertical: 40, horizontal: 16),
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: kAppBarColor,
-              borderRadius: BorderRadius.circular(24),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: MediaQuery.of(context).size.height - 40, // Account for padding
             ),
-            child: SingleChildScrollView(
+            child: IntrinsicHeight(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Center(
-                    child: Text(
-                      'Settings',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: kTextColor,
-                        letterSpacing: 1,
-                      ),
-                    ),
+              RichText(
+                text: const TextSpan(
+                  style: TextStyle(
+                    fontSize: 25,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
+                    height: 1.15,
                   ),
-                  const SizedBox(height: 6),
-                  Divider(color: kTextColor.withOpacity(0.3), thickness: 1),
-                  const SizedBox(height: 16),
+                  children: [
+                    TextSpan(
+                      text: 'Settings',
+                      style: TextStyle(color: Colors.black),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
 
-                  sectionTitle("Work Schedule"),
-                  _menuItem(context, "Workdays & Shift Permission", Icons.calendar_today),
-                  _menuItem(context, "Leave Holiday", Icons.beach_access),
+              // Work Schedule tiles
+              settingsTile(context, "Workdays & Shift Permission", Icons.calendar_today),
+              const SizedBox(height: 8),
+              settingsTile(context, "Leave Holiday", Icons.beach_access),
 
-                  const SizedBox(height: 20),
-                  sectionTitle("Corporate"),
-                  _menuItem(context, "Profile", Icons.business_center),
-                  _menuItem(context, "Office Location", Icons.location_on),
+              const SizedBox(height: 20),
 
-                  const SizedBox(height: 20),
-                  sectionTitle("Admin"),
-                  _menuItem(context, "Reason Master", Icons.edit_note),
-                ],
+              // Corporate tiles
+              settingsTile(context, "Profile", Icons.person_outline),
+              const SizedBox(height: 8),
+              settingsTile(context, "Office Location", Icons.location_on),
+
+              const SizedBox(height: 20),
+
+              // Admin tile
+              settingsTile(context, "Reason Master", Icons.edit_note),
+
+              const SizedBox(height: 40),
+            ],
               ),
             ),
           ),
@@ -101,41 +100,56 @@ class SettingsPage extends StatelessWidget {
     );
   }
 
-  /// Section title with **black** color
   Widget sectionTitle(String text) => Text(
-        text,
+        text.toUpperCase(),
         style: const TextStyle(
-          color: Colors.black, // Changed from kButtonColor to black
-          fontWeight: FontWeight.bold,
-          fontSize: 15,
+          color: Color(0xFF655193),
+          fontWeight: FontWeight.w600,
+          fontSize: 14,
+          letterSpacing: 0.5,
         ),
       );
 
-  /// Reusable menu item card
-  Widget _menuItem(BuildContext context, String title, IconData icon) => InkWell(
+  Widget settingsTile(BuildContext context, String title, IconData icon) => InkWell(
         onTap: () => _handleItemClick(context, title),
+        borderRadius: BorderRadius.circular(12),
         child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 6),
-          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: BoxDecoration(
-            color: kButtonColor.withOpacity(0.2),
-            borderRadius: BorderRadius.circular(14),
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.08),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
           child: Row(
             children: [
-              Icon(icon, size: 20, color: kTextColor),
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF655193).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, size: 18, color: const Color(0xFF655193)),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   title,
                   style: const TextStyle(
-                    color: kTextColor,
-                    fontSize: 15.5,
+                    color: Colors.black87,
+                    fontSize: 15,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
               ),
-              const Icon(Icons.arrow_forward_ios, size: 16, color: kTextColor),
+              const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
             ],
           ),
         ),

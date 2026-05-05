@@ -255,9 +255,42 @@ class _ApplyHalfDayFormState extends State<ApplyHalfDayForm> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: kPrimaryBackgroundBottom, // Ensure background color fills any white space
-      appBar: AppBar(
-        title: const Text("Apply CompOff"),
-        backgroundColor: kAppBarColor,
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(90),
+        child: AppBar(
+          automaticallyImplyLeading: false,
+          backgroundColor: kAppBarColor,
+          elevation: 0,
+          flexibleSpace: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                height: 90,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.arrow_back, color: Colors.white),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text(
+                        "Apply Leave",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
       body: Container(
         decoration: const BoxDecoration(

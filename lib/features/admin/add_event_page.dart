@@ -1,10 +1,17 @@
 import 'dart:convert';
 import 'dart:math'; // for UUID generator
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/models/company_data.dart';
+import 'package:serv_app/utils/button_helpers.dart';
+// Conditional import for web localStorage
+import 'package:serv_app/html_stub.dart'
+    if (dart.library.html) 'dart:html' as html;
 
 // ⬇️ Using centralized API config
 final String apiBase = ApiConfig.baseUrl;
@@ -84,6 +91,32 @@ class _EventUploadPageState extends State<EventUploadPage> {
       return;
     }
 
+    // Get token using same logic as ApiService for consistency
+    String? token = CompanyData.token;
+    
+    if ((token == null || token.isEmpty) && kIsWeb) {
+      try {
+        final t1 = html.window.localStorage['token'];
+        final t2 = html.window.sessionStorage['token'];
+        token = (t1 != null && t1.isNotEmpty) ? t1 : (t2 ?? token);
+      } catch (_) {}
+    }
+    
+    // For mobile, try SharedPreferences as fallback
+    if ((token == null || token.isEmpty) && !kIsWeb) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        token = prefs.getString('token');
+      } catch (_) {}
+    }
+
+    debugPrint('[EventUpload] Token retrieved: ${token != null && token.isNotEmpty}');
+
+    if (token == null || token.isEmpty) {
+      _toast('Unauthorized: token missing. Please login again.');
+      return;
+    }
+
     try {
       final payload = {
         "id": _uuidV4(),
@@ -94,12 +127,15 @@ class _EventUploadPageState extends State<EventUploadPage> {
         "toDate": toDateCtrl.text.trim(),
       };
 
+      final headers = <String, String>{
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $token',
+      };
+
       final resp = await http.post(
         Uri.parse('${ApiService.baseUrl}/events'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        headers: headers,
         body: jsonEncode(payload),
       );
 
@@ -131,45 +167,58 @@ class _EventUploadPageState extends State<EventUploadPage> {
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-              colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter),
+            colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter
+          ),
         ),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _tf(nameCtrl, label: 'Event Name *'),
-              const SizedBox(height: 10),
-              _tf(fromDateCtrl,
-                  label: 'From Date *',
-                  readOnly: true,
-                  onTap: () => _pickDate(fromDateCtrl)),
-              const SizedBox(height: 10),
-              _tf(toDateCtrl,
-                  label: 'To Date *',
-                  readOnly: true,
-                  onTap: () => _pickDate(toDateCtrl)),
-              const SizedBox(height: 10),
-              _tf(locationCtrl, label: 'Location *'),
-              const SizedBox(height: 10),
-              _tf(descCtrl, label: 'Description *', maxLines: 3),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: _submit,
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: kButtonColor,
-                      foregroundColor: Colors.white),
-                  child: const Text('Submit',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight,
+                ),
+                child: IntrinsicHeight(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _tf(nameCtrl, label: 'Event Name *'),
+                      const SizedBox(height: 10),
+                      _tf(fromDateCtrl,
+                          label: 'From Date *',
+                          readOnly: true,
+                          onTap: () => _pickDate(fromDateCtrl)),
+                      const SizedBox(height: 10),
+                      _tf(toDateCtrl,
+                          label: 'To Date *',
+                          readOnly: true,
+                          onTap: () => _pickDate(toDateCtrl)),
+                      const SizedBox(height: 10),
+                      _tf(locationCtrl, label: 'Location *'),
+                      const SizedBox(height: 10),
+                      _tf(descCtrl, label: 'Description *', maxLines: 3),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: GuardedElevatedButton(
+                          key: const ValueKey('event_submit_button'),
+                          onPressed: _submit,
+                          style: ElevatedButton.styleFrom(
+                              backgroundColor: kButtonColor,
+                              foregroundColor: Colors.white),
+                          child: const Text('Submit',
+                              style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );

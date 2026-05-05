@@ -1,0 +1,88 @@
+rules_version = '2';
+service cloud.firestore {
+match /databases/{database}/documents {
+
+function isSignedIn() {
+return request.auth != null;
+}
+
+function hasCompanyId() {
+return isSignedIn()
+&& request.auth.token.companyId != null
+&& request.auth.token.companyId != '';
+}
+
+function sameCompany(resourceData) {
+return hasCompanyId()
+&& resourceData.companyId == request.auth.token.companyId;
+}
+
+function sameCompanyOnCreate() {
+return hasCompanyId()
+&& request.resource.data.companyId == request.auth.token.companyId;
+}
+
+function isAdmin() {
+return isSignedIn()
+&& request.auth != null
+&& request.auth.token.role == 'admin';
+}
+
+function isEmployee() {
+return isSignedIn()
+&& request.auth != null
+&& request.auth.token.role == 'employee';
+}
+
+function sameEmployee(resourceData) {
+return isEmployee()
+&& resourceData.empid == request.auth.token.empid;
+}
+
+function sameEmployeeOnCreate() {
+return isEmployee()
+&& request.resource.data.empid == request.auth.token.empid;
+}
+
+match /employees/{docId} {
+allow read: if sameCompany(resource.data);
+allow create: if sameCompanyOnCreate();
+allow update, delete: if sameCompany(resource.data);
+}
+
+match /attendance/{docId} {
+allow read: if sameCompany(resource.data) && (isAdmin() || sameEmployee(resource.data));
+allow create: if sameCompanyOnCreate();
+allow update, delete: if sameCompany(resource.data) && (isAdmin() || sameEmployee(resource.data));
+}
+
+match /leaves/{docId} {
+allow read: if sameCompany(resource.data);
+allow create: if sameCompanyOnCreate();
+allow update, delete: if sameCompany(resource.data);
+}
+
+match /officeLocations/{docId} {
+allow read: if sameCompany(resource.data);
+allow create: if sameCompanyOnCreate();
+allow update, delete: if sameCompany(resource.data);
+}
+
+match /shifts/{docId} {
+allow read: if sameCompany(resource.data);
+allow create: if sameCompanyOnCreate();
+allow update, delete: if sameCompany(resource.data);
+}
+
+match /otherLocation/{docId} {
+allow read: if sameCompany(resource.data);
+allow create: if sameCompanyOnCreate();
+allow update, delete: if sameCompany(resource.data);
+}
+
+match /{document=**} {
+allow read, write: if false;
+}
+
+}
+}

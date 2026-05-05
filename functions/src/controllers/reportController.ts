@@ -2,8 +2,28 @@
 import { Request, Response } from 'express';
 import { db } from '../config/firebase';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { trackUsage } from '../services/usageService';
 
 const REPORTS = 'reports';
+
+/* ============================== Usage Tracking Helper ============================== */
+
+async function trackReportUsage(
+  req: Request,
+  updates: Record<string, number>
+) {
+  try {
+    const user = (req as any).user;
+    await trackUsage({
+      companyId: user?.companyId || '',
+      companyName: user?.companyName || '',
+      plan: user?.plan || '',
+      updates,
+    });
+  } catch (trackingError) {
+    console.error('Usage tracking failed in report:', trackingError);
+  }
+}
 
 type TS =   Timestamp;
 
@@ -36,6 +56,12 @@ export const createSchedule = async (req: Request, res: Response): Promise<Respo
       createdAt: FieldValue.serverTimestamp(),
     });
 
+    // Track usage after successful schedule creation
+    await trackReportUsage(req, {
+      writeCount: 1,
+      apiCalls: 1,
+    });
+
     return res.status(201).json({ id: docRef.id, message: 'Schedule created.' });
   } catch (err) {
     console.error('createSchedule error:', err);
@@ -44,7 +70,7 @@ export const createSchedule = async (req: Request, res: Response): Promise<Respo
 };
 
 /** List all schedules */
-export const listSchedules = async (_req: Request, res: Response): Promise<Response> => {
+export const listSchedules = async (req: Request, res: Response): Promise<Response> => {
   try {
     const snap = await db.collection(REPORTS).orderBy('createdAt', 'desc').get();
 
@@ -56,6 +82,12 @@ export const listSchedules = async (_req: Request, res: Response): Promise<Respo
           : new Date().toISOString();
 
       return { id: d.id, ...raw, createdAt: createdAtIso };
+    });
+
+        // Track usage after successful schedules read
+    await trackReportUsage(req, {
+      readCount: 1,
+      apiCalls: 1,
     });
 
     return res.status(200).json(data);
@@ -70,6 +102,13 @@ export const deleteSchedule = async (req: Request, res: Response): Promise<Respo
   try {
     const { id } = req.params;
     await db.collection(REPORTS).doc(id).delete();
+
+    // Track usage after successful schedule deletion
+    await trackReportUsage(req, {
+      deleteCount: 1,
+      apiCalls: 1,
+    });
+
     return res.status(200).json({ message: 'Schedule deleted.' });
   } catch (err) {
     console.error('deleteSchedule error:', err);
@@ -86,6 +125,12 @@ export const runNow = async (req: Request, res: Response): Promise<Response> => 
 
     // TODO: integrate with your report service if/when needed.
     // await reportService.runReport(doc.data());
+
+        // Track usage after successful manual report run
+    await trackReportUsage(req, {
+      readCount: 1,
+      apiCalls: 1,
+    });
 
     return res.status(200).json({ message: 'Report run manually.' });
   } catch (err) {

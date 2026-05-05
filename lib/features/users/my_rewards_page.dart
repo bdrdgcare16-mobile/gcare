@@ -21,6 +21,7 @@ class UserRewardsPage extends StatefulWidget {
 
 class _UserRewardsPageState extends State<UserRewardsPage> {
   late Future<List<Map<String, dynamic>>> _rewardsFuture;
+  bool _sessionExpired = false;
 
   @override
   void initState() {
@@ -195,22 +196,42 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
 
   Future<List<Map<String, dynamic>>> _fetchRewards() async {
     final empId = await _getEmpId();
+    debugPrint('[Rewards] empid value: $empId');
+    
     if (empId == null || empId.isEmpty) {
       debugPrint('[Rewards] Missing empid -> returning []');
       return [];
     }
 
+    final token = await _getJwt();
+    debugPrint('[Rewards] token exists: ${token != null && token.isNotEmpty}');
+    
+    if (token == null || token.isEmpty) {
+      debugPrint('[Rewards] No token found -> setting session expired flag');
+      if (mounted) {
+        setState(() {
+          _sessionExpired = true;
+        });
+      }
+      return <Map<String, dynamic>>[];
+    }
+
     final uri = Uri.parse(
       '${ApiService.baseUrl}/rewards',
     ).replace(queryParameters: {'empid': empId});
-    debugPrint('[Rewards] GET $uri');
+    debugPrint('[Rewards] request URL: $uri');
 
     try {
       final resp = await http.get(
         uri,
-        headers: const {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
       );
-      debugPrint('[Rewards] status=${resp.statusCode}');
+      debugPrint('[Rewards] status code: ${resp.statusCode}');
+      debugPrint('[Rewards] response body: ${resp.body}');
+      
       if (resp.statusCode == 200) {
         final decoded = jsonDecode(resp.body);
         if (decoded is List) {
@@ -222,6 +243,9 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
           return out;
         }
         debugPrint('[Rewards] Unexpected body: ${resp.body}');
+        return [];
+      } else if (resp.statusCode == 401) {
+        debugPrint('[Rewards] Unauthorized: ${resp.body}');
         return [];
       } else {
         debugPrint('[Rewards] Failed ${resp.statusCode}: ${resp.body}');
@@ -261,6 +285,14 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
             }
 
             final rewards = snapshot.data ?? const [];
+            if (_sessionExpired) {
+              return const Center(
+                child: Text(
+                  'Session expired. Please login again.',
+                  style: TextStyle(fontSize: 16, color: Colors.red),
+                ),
+              );
+            }
             if (rewards.isEmpty) {
               return const Center(child: Text('No rewards found.'));
             }
@@ -292,22 +324,22 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        "👩‍💼 Name: $name",
+                        "Name: $name",
                         style: const TextStyle(fontSize: 16),
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        "🆔 Employee ID: $emp",
+                        "Employee ID: $emp",
                         style: const TextStyle(fontSize: 16),
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        "🏢 Department: $dept",
+                        "Department: $dept",
                         style: const TextStyle(fontSize: 16),
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        "📝 Description: $desc",
+                        "Description: $desc",
                         style: const TextStyle(fontSize: 16),
                       ),
                     ],

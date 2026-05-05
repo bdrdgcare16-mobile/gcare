@@ -137,6 +137,12 @@ class _AttendanceReportState extends State<AttendanceReport> {
   }
 
   // ------- filtering -------
+  void _onCardTapped(String filter) {
+    setState(() {
+      _selectedFilter = _selectedFilter == filter ? '' : filter;
+    });
+  }
+
   bool _matchesFilter(AttendanceRecord record, String filter) {
     switch (filter) {
       case 'Present':
@@ -372,40 +378,30 @@ class _AttendanceReportState extends State<AttendanceReport> {
           // Header
           Container(
             width: double.infinity,
-            color: kPrimaryBackgroundBottom.withOpacity(0.3),
-            padding: EdgeInsets.all(isWeb ? 16 : 12),
-            child: Row(
+            height: MediaQuery.of(context).padding.top + 95,
+            padding: EdgeInsets.fromLTRB(16, MediaQuery.of(context).padding.top + 8, 16, 10),
+            color: const Color(0xFFE9EEF0),
+            child: const Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.chevron_right, color: kButtonColor),
-                const SizedBox(width: 4),
                 Text(
-                  'Attendance Reports',
+                  "Attendance",
                   style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: kButtonColor,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF161A4A),
                   ),
                 ),
-                if (_selectedFilter.isNotEmpty) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: kButtonColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      children: [
-                        const SizedBox(width: 4),
-                        GestureDetector(
-                          onTap: () => _filterByAttendanceType(_selectedFilter),
-                          child:
-                              Icon(Icons.close, size: 14, color: kButtonColor),
-                        ),
-                      ],
-                    ),
+                SizedBox(height: 1),
+                Text(
+                  "Reports",
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF8B5CF6),
                   ),
-                ],
+                ),
               ],
             ),
           ),
