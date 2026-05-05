@@ -1,31 +1,40 @@
+# =========================
 # Flutter / Dart
+# =========================
 .dart_tool/
 .packages
 .pub/
 .pub-cache/
 build/
-
-# Flutter generated
+.flutter-plugins
+.flutter-plugins-dependencies
 **/generated_plugin_registrant.*
 **/generated_plugins.cmake
 **/flutter_export_environment.sh
 **/Flutter/ephemeral/
 **/Generated.xcconfig
 
+# =========================
 # Android
+# =========================
 android/.gradle/
 android/app/build/
 **/local.properties
 **/key.properties
 
+# =========================
 # iOS / macOS
+# =========================
 ios/Pods/
 ios/.symlinks/
 ios/Flutter/ephemeral/
 macos/Pods/
 macos/Flutter/ephemeral/
+macos/Flutter/GeneratedPluginRegistrant.swift
 
+# =========================
 # Windows / Linux generated
+# =========================
 windows/flutter/generated_plugin_registrant.cc
 windows/flutter/generated_plugin_registrant.h
 windows/flutter/generated_plugins.cmake
@@ -33,16 +42,50 @@ linux/flutter/generated_plugin_registrant.cc
 linux/flutter/generated_plugin_registrant.h
 linux/flutter/generated_plugins.cmake
 
-# macOS generated
-macos/Flutter/GeneratedPluginRegistrant.swift
-
-# Node / Firebase Functions
+# =========================
+# Firebase / Node Functions
+# =========================
 functions/node_modules/
 functions/lib/
 functions/.firebase/
 .firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
 
-# Logs / misc
+# =========================
+# Environment / Secrets
+# =========================
+.env
+.env.*
+functions/.env
+functions/.env.*
+serviceAccountKey.json
+functions/serviceAccountKey.json
+*.jks
+*.keystore
+*.pem
+*.p12
+*.key
+
+# =========================
+# IDE / Editor
+# =========================
+.vscode/
+.idea/
+*.iml
+
+# =========================
+# Test / Coverage
+# =========================
+coverage/
+
+# =========================
+# Logs / System / Temp
+# =========================
 *.log
 .DS_Store
 Thumbs.db
+*.tmp
+*.temp
+*.swp
