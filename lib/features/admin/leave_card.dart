@@ -3,11 +3,13 @@ import 'package:flutter/material.dart';
 class LeaveCard extends StatelessWidget {
   final Map<String, dynamic> item;
   final Function(String) onStatusChange;
+  final Function(String) onPayrollStatusChange;
 
   const LeaveCard({
     super.key,
     required this.item,
     required this.onStatusChange,
+    required this.onPayrollStatusChange,
   });
 
   @override

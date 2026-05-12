@@ -472,7 +472,7 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
         int leave = 0;
         int late = 0;
         int early = 0;
-        int permission = 0;
+        num permission = 0;
 
         for (final item in data) {
           if (item is! Map) continue;
@@ -484,77 +484,56 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
 
           if (date == null || date.isEmpty) continue;
 
-          // Check for late check-in from API fields
-          final isLateFromApi = (item['isLate'] as bool?) ?? 
-                               (item['late'] as bool?) ??
-                               (item['lateCheckIn'] as bool?) ??
-                               (item['lateCheckin'] as bool?) ??
-                               (item['status']?.toString().toLowerCase() == 'late check-in') ??
-                               (item['attendanceStatus']?.toString().toLowerCase() == 'late check-in');
+          debugPrint('[MyAttendance] Processing item: $date');
+          debugPrint('[MyAttendance] Item keys: ${(item as Map).keys.toList()}');
+          debugPrint('[MyAttendance] Raw item data: $item');
 
-          // Time-based late calculation as fallback
-          bool isLateFromTime = false;
-          if (!isLateFromApi && checkIn != null && checkIn.isNotEmpty && checkIn != '-' && checkIn.toLowerCase() != 'null') {
-            // Default shift start time (can be enhanced to fetch from shift settings)
-            const shiftStart = '09:30'; // Default shift start time
-            const graceMinutes = 0; // No grace time
-            
-            try {
-              final checkInTime = DateFormat('HH:mm').parse(checkIn);
-              final shiftStartTime = DateFormat('HH:mm').parse(shiftStart);
-              
-              final lateThreshold = shiftStartTime.add(Duration(minutes: graceMinutes));
-              isLateFromTime = checkInTime.isAfter(lateThreshold);
-              
-              debugPrint('[MyAttendance] Time-based late check - checkIn: $checkIn, shiftStart: $shiftStart, lateThreshold: ${DateFormat('HH:mm').format(lateThreshold)}, isLate: $isLateFromTime');
-            } catch (e) {
-              debugPrint('[MyAttendance] Error parsing time for late calculation: $e');
-              isLateFromTime = false;
-            }
-          }
+          final bool isLate = item['isLate'] == true;
+          final bool isEarly = item['isEarly'] == true;
 
-          final isLate = isLateFromApi ?? isLateFromTime;
+          final num permissionCount =
+              item['permissionCount'] is num ? item['permissionCount'] as num : 0;
 
-          // Check for early checkout
-          final isEarly = (item['isEarly'] as bool?) ??
-                         (item['early'] as bool?) ??
-                         (item['earlyCheckOut'] as bool?) ??
-                         (item['earlyCheckout'] as bool?) ??
-                         (item['status']?.toString().toLowerCase() == 'early checkout') ??
-                         (item['attendanceStatus']?.toString().toLowerCase() == 'early checkout') ??
-                         false;
+          debugPrint(
+            '[MyAttendance] Date: ${item['date']} | isLate: $isLate | isEarly: $isEarly | permissionCount: $permissionCount',
+          );
 
-          // Check for permission
-          final isPermission = (item['isPermission'] as bool?) ??
-                              (item['permission'] as bool?) ??
-                              (item['hasPermission'] as bool?) ??
-                              (item['status']?.toString().toLowerCase() == 'permission') ??
-                              (item['attendanceStatus']?.toString().toLowerCase() == 'permission') ??
-                              false;
-
-          // Count late, early, permission
           if (isLate) late++;
           if (isEarly) early++;
-          if (isPermission) permission++;
 
-          debugPrint('[MyAttendance] Processing $date - checkIn: $checkIn, isLateFromApi: $isLateFromApi, isLateFromTime: $isLateFromTime, final isLate: $isLate, isEarly: $isEarly, isPermission: $isPermission');
+          permission += permissionCount;
 
-          // Priority Logic for calendar status
-          if (leaveStatus != null &&
-              leaveStatus.isNotEmpty &&
-              leaveStatus.toLowerCase() == 'approved') {
+          // Use API flags with correct priority order
+          final bool isAbsent = item['isAbsent'] == true || item['status']?.toString().toLowerCase() == 'absent';
+          final bool isLeave = item['isLeave'] == true || item['status']?.toString().toLowerCase() == 'leave';
+          final bool isPermission = item['isPermission'] == true;
+
+          final bool hasCheckIn =
+              item['checkIn'] != null &&
+              item['checkIn'].toString().isNotEmpty &&
+              item['checkIn'].toString() != '-' &&
+              item['checkIn'].toString().toLowerCase() != 'null';
+
+          debugPrint('[MyAttendance] Status determination - Date: $date, isAbsent: $isAbsent, isLeave: $isLeave, isPermission: $isPermission, isLate: $isLate, isEarly: $isEarly, hasCheckIn: $hasCheckIn, status: ${item['status']}');
+
+          // Counting priority: 1. Leave, 2. Absent, 3. Present
+          if (isLeave) {
             ds[date] = 'Leave';
             leave++;
-          } else if (checkIn != null &&
-              checkIn.isNotEmpty &&
-              checkIn != '-' &&
-              checkIn.toLowerCase() != 'null') {
-            ds[date] = 'Present';
-            present++;
-          } else {
+          } else if (isAbsent) {
             ds[date] = 'Absent';
             absent++;
+          } else if (hasCheckIn) {
+            ds[date] = 'Present';
+            present++;
           }
+
+          // Permission counted separately
+          permission += permissionCount;
+
+          // Late and early counted separately
+          if (isLate) late++;
+          if (isEarly) early++;
         }
 
         debugPrint('[MyAttendance] Monthly counts - Present: $present, Absent: $absent, Leave: $leave');
@@ -571,7 +550,7 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
           _leave = leave;
           _late = late;
           _early = early;
-          _permission = permission;
+          _permission = permission.toInt();
         });
       } else {
         setState(() {

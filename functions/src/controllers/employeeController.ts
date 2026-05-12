@@ -117,7 +117,7 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
     console.log('[CREATE EMPLOYEE] duplicate email count:', emailSnap.size);
 
     if (!emailSnap.empty) {
-      return res.status(400).json({ error: 'Email already exists' });
+      return res.status(409).json({ error: 'Email already exists for this company' });
     }
 
     // Check duplicate empid with companyId filter
@@ -130,7 +130,7 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
     console.log('[CREATE EMPLOYEE] duplicate empid count:', empidSnap.size);
 
     if (!empidSnap.empty) {
-      return res.status(400).json({ error: 'Employee ID already exists' });
+      return res.status(409).json({ error: 'Employee ID already exists for this company' });
     }
 
     const now = Timestamp.now();

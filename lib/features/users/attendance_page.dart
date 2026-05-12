@@ -837,46 +837,51 @@ Future<Position?> _getPositionUsingDemo({
   // High-accuracy location fetching with validation
   Future<Position?> _getHighAccuracyPosition({
     bool quiet = false,
-    double maxAccuracyMeters = 20.0,
+    double maxAccuracyMeters = 50.0, // Updated to 50 meters threshold
     int maxRetries = 3,
     Duration timeout = const Duration(seconds: 15),
   }) async {
     debugPrint('[GPS] Starting high-accuracy location fetch...');
+    debugPrint('[GPS] Required accuracy: ≤${maxAccuracyMeters}m');
     
+    // Step 1: Check location permission
     final hasPermission = await _ensurePermissionDemo(quiet: quiet);
     if (!hasPermission) {
-      debugPrint('[GPS] Permission denied');
-      return null;
-    }
-
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      debugPrint('[GPS] Location services disabled');
+      debugPrint('[GPS] ❌ Permission denied');
       if (!quiet && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Location services are disabled')),
-        );
+        _showLocationPermissionDialog();
       }
       return null;
     }
 
-    // Show improving accuracy message
-    if (!quiet && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Improving location accuracy, please wait...'),
-          duration: Duration(seconds: 2),
-        ),
-      );
+    // Step 2: Check if GPS/location service is enabled
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      debugPrint('[GPS] ❌ Location services disabled');
+      if (!quiet && mounted) {
+        _showLocationServiceDialog();
+      }
+      return null;
     }
 
     Position? bestPosition;
     int attempts = 0;
     final startTime = DateTime.now();
 
+    // Show improving message if not quiet
+    if (!quiet && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Getting accurate location, please wait...'),
+          duration: Duration(seconds: 3),
+          backgroundColor: Colors.blue,
+        ),
+      );
+    }
+
     while (attempts < maxRetries) {
       attempts++;
-      debugPrint('[GPS] Attempt $attempts/$maxRetries');
+      debugPrint('[GPS] 🔄 Attempt $attempts/$maxRetries');
 
       try {
         // Use best accuracy for navigation
@@ -886,33 +891,55 @@ Future<Position?> _getPositionUsingDemo({
           forceAndroidLocationManager: false,
         );
 
-        debugPrint('[GPS] Got position: lat=${pos.latitude}, lng=${pos.longitude}, accuracy=${pos.accuracy}m');
+        debugPrint('[GPS] 📍 Got position: lat=${pos.latitude.toStringAsFixed(6)}, lng=${pos.longitude.toStringAsFixed(6)}, accuracy=${pos.accuracy.toStringAsFixed(1)}m');
+
+        // What is location accuracy: 
+        // Location accuracy (in meters) represents the radius of uncertainty around the reported GPS position.
+        // A 20m accuracy means the actual location is somewhere within a 20-meter radius of the reported coordinates.
+        // Lower accuracy values = more precise location. Higher values = less precise location.
+        // For attendance check-in, we need good accuracy to ensure the employee is actually at the correct location.
 
         // Validate accuracy
         if (pos.accuracy <= maxAccuracyMeters) {
-          debugPrint('[GPS] ✅ Good accuracy (${pos.accuracy}m ≤ ${maxAccuracyMeters}m)');
+          debugPrint('[GPS] ✅ Good accuracy (${pos.accuracy.toStringAsFixed(1)}m ≤ ${maxAccuracyMeters}m)');
           bestPosition = pos;
           break;
         } else {
-          debugPrint('[GPS] ⚠️ Poor accuracy (${pos.accuracy}m > ${maxAccuracyMeters}m)');
+          debugPrint('[GPS] ⚠️ Poor accuracy (${pos.accuracy.toStringAsFixed(1)}m > ${maxAccuracyMeters}m)');
           
           // Keep the best position found so far
           if (bestPosition == null || pos.accuracy < bestPosition.accuracy) {
             bestPosition = pos;
-            debugPrint('[GPS] Updated best position: ${bestPosition!.accuracy}m');
+            debugPrint('[GPS] 📊 Best position so far: ${bestPosition!.accuracy.toStringAsFixed(1)}m');
           }
 
           // Check if we've exceeded total timeout
           if (DateTime.now().difference(startTime) > const Duration(seconds: 12)) {
-            debugPrint('[GPS] Total timeout reached, using best available');
+            debugPrint('[GPS] ⏰ Total timeout reached, using best available');
             break;
           }
 
           // Short delay before retry
           await Future.delayed(const Duration(milliseconds: 1000));
         }
+      } on TimeoutException catch (e) {
+        debugPrint('[GPS] ⏱️ Timeout on attempt $attempts: $e');
+        if (attempts >= maxRetries) break;
+        await Future.delayed(const Duration(milliseconds: 500));
+      } on LocationServiceDisabledException catch (e) {
+        debugPrint('[GPS] 📡 Location service disabled: $e');
+        if (!quiet && mounted) {
+          _showLocationServiceDialog();
+        }
+        return null;
+      } on PermissionDeniedException catch (e) {
+        debugPrint('[GPS] 🔒 Permission denied: $e');
+        if (!quiet && mounted) {
+          _showLocationPermissionDialog();
+        }
+        return null;
       } catch (e) {
-        debugPrint('[GPS] Error on attempt $attempts: $e');
+        debugPrint('[GPS] ❌ Error on attempt $attempts: $e');
         if (attempts >= maxRetries) break;
         await Future.delayed(const Duration(milliseconds: 500));
       }
@@ -921,14 +948,14 @@ Future<Position?> _getPositionUsingDemo({
     // Final decision
     if (bestPosition != null) {
       if (bestPosition.accuracy <= maxAccuracyMeters) {
-        debugPrint('[GPS] ✅ ACCEPTED: lat=${bestPosition.latitude}, lng=${bestPosition.longitude}, accuracy=${bestPosition.accuracy}m');
+        debugPrint('[GPS] ✅ ACCEPTED: lat=${bestPosition.latitude.toStringAsFixed(6)}, lng=${bestPosition.longitude.toStringAsFixed(6)}, accuracy=${bestPosition.accuracy.toStringAsFixed(1)}m');
         
         // Clear the improving message and show success
         if (!quiet && mounted) {
           ScaffoldMessenger.of(context).clearSnackBars();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Location accurate (${bestPosition.accuracy.toStringAsFixed(1)}m)'),
+              content: Text('✅ Location accurate (${bestPosition.accuracy.toStringAsFixed(1)}m) - Proceeding with check-in'),
               backgroundColor: Colors.green,
               duration: const Duration(seconds: 2),
             ),
@@ -937,12 +964,11 @@ Future<Position?> _getPositionUsingDemo({
         
         return bestPosition;
       } else {
-        debugPrint('[GPS] ❌ REJECTED: Best accuracy ${bestPosition.accuracy}m > ${maxAccuracyMeters}m');
+        debugPrint('[GPS] ❌ REJECTED: Best accuracy ${bestPosition.accuracy.toStringAsFixed(1)}m > ${maxAccuracyMeters}m');
         
-        // Show fallback message
+        // Show low accuracy warning
         if (!quiet && mounted) {
-          ScaffoldMessenger.of(context).clearSnackBars();
-          _showLowAccuracyDialog(bestPosition.accuracy);
+          _showLowAccuracyWarningDialog(bestPosition.accuracy);
         }
         
         return null;
@@ -954,8 +980,9 @@ Future<Position?> _getPositionUsingDemo({
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please retry your location accuracy is not accurate enough.'),
-          backgroundColor: Colors.orange,
+          content: Text('❌ Unable to get accurate location. Please move to open area and try again.'),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 4),
         ),
       );
     }
@@ -990,6 +1017,150 @@ Future<Position?> _getPositionUsingDemo({
               _retryLocationFetch();
             },
             child: const Text('Retry'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Show low accuracy warning dialog with detailed information
+  void _showLowAccuracyWarningDialog(double accuracy) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Location Accuracy Issue'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Your location accuracy is low (${accuracy.toStringAsFixed(1)}m).'),
+            const SizedBox(height: 8),
+            const Text('For accurate attendance check-in, we need location accuracy within 50 meters.'),
+            const SizedBox(height: 8),
+            const Text('Suggestions to improve accuracy:'),
+            const SizedBox(height: 4),
+            const Text('• Move to an open area with clear sky view'),
+            const Text('• Stay away from tall buildings or trees'),
+            const Text('• Wait a few seconds for GPS to stabilize'),
+            const Text('• Ensure GPS/location services are enabled'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+            },
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              // Retry location fetch
+              _retryLocationFetch();
+            },
+            child: const Text('Retry'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Show location permission dialog
+  void _showLocationPermissionDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Location Permission Required'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Location permission is required for attendance check-in.'),
+            SizedBox(height: 8),
+            Text('This helps us verify you are at the correct location.'),
+            SizedBox(height: 8),
+            Text('Please grant location permission to continue.'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+            },
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              // Request permission
+              final permission = await Geolocator.requestPermission();
+              if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Location permission denied. Please enable it in settings.'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              } else if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Location permission granted!'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+            },
+            child: const Text('Grant Permission'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Show location service dialog
+  void _showLocationServiceDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Location Services Disabled'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('GPS/Location services are turned off on your device.'),
+            SizedBox(height: 8),
+            Text('Please enable location services to use attendance check-in.'),
+            SizedBox(height: 8),
+            Text('This helps us verify your location for accurate attendance tracking.'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+            },
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              // Open location settings
+              await Geolocator.openLocationSettings();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Please enable location services and try again.'),
+                    backgroundColor: Colors.blue,
+                  ),
+                );
+              }
+            },
+            child: const Text('Open Settings'),
           ),
         ],
       ),
@@ -1480,8 +1651,9 @@ Future<bool> _canProceedWithCheckIn() async {
   return true;
 }
 
-// Check-in progress lock to prevent duplicate taps
-bool _checkInInProgress = false;
+// Check-in progress locks to prevent duplicate taps
+bool _isManualLoading = false;
+bool _isBiometricLoading = false;
 
 // Helper function to determine user-friendly error messages
 String _getUserFriendlyErrorMessage(dynamic error) {
@@ -1525,21 +1697,21 @@ String _getUserFriendlyErrorMessage(dynamic error) {
 
 // 3) Add this for manual button flow.
 Future<void> _handleManualCheckInTap() async {
-  if (_checkInInProgress) return;
+  if (_isManualLoading || _isBiometricLoading) return;
   
   final canProceed = await _canProceedWithCheckIn();
   if (!canProceed) return;
 
   if (!mounted) return;
   
-  _checkInInProgress = true;
+  _isManualLoading = true;
   setState(() {});
   
   try {
     await _performCheckIn('manual');
   } finally {
     if (mounted) {
-      _checkInInProgress = false;
+      _isManualLoading = false;
       setState(() {});
     }
   }
@@ -1547,12 +1719,12 @@ Future<void> _handleManualCheckInTap() async {
 
 // 4) UPDATE biometric flow so duplicate check is blocked BEFORE biometric auth starts.
 Future<void> _authenticateAndCheckIn() async {
-  if (_checkInInProgress) return;
+  if (_isManualLoading || _isBiometricLoading) return;
   
   final canProceed = await _canProceedWithCheckIn();
   if (!canProceed) return;
 
-  _checkInInProgress = true;
+  _isBiometricLoading = true;
   setState(() {});
 
   try {
@@ -1569,12 +1741,12 @@ Future<void> _authenticateAndCheckIn() async {
     
     if (!canBio || !supported) {
       if (!mounted) {
-        _checkInInProgress = false;
+        _isBiometricLoading = false;
         setState(() {});
         return;
       }
-      _showInfoDialog('Biometric authentication is not available on this device. Please use manual attendance.');
-      _checkInInProgress = false;
+      _showInfoDialog('Biometric authentication is not available on this device. Please use manual attendance or enable biometric authentication on your phone.');
+      _isBiometricLoading = false;
       setState(() {});
       return;
     }
@@ -1590,7 +1762,7 @@ Future<void> _authenticateAndCheckIn() async {
     );
 
     if (!mounted) {
-      _checkInInProgress = false;
+      _isBiometricLoading = false;
       setState(() {});
       return;
     }
@@ -1599,18 +1771,18 @@ Future<void> _authenticateAndCheckIn() async {
       await _performCheckIn('biometric');
     } else {
       _showErrorDialog('Biometric verification was not completed. Please try again or use manual attendance.');
-      _checkInInProgress = false;
+      _isBiometricLoading = false;
       setState(() {});
     }
   } catch (e) {
     if (!mounted) {
-      _checkInInProgress = false;
+      _isBiometricLoading = false;
       setState(() {});
       return;
     }
     debugPrint('[BIOMETRIC] Authentication error: $e');
     _showErrorDialog('Biometric verification was not completed. Please try again or use manual attendance.');
-    _checkInInProgress = false;
+    _isBiometricLoading = false;
     setState(() {});
   } finally {
     _authInProgress = false;
@@ -1884,7 +2056,7 @@ Future<void> _performCheckIn(String type) async {
       debugPrint('[BIOMETRIC] CheckOut - availableBiometrics: $availableBiometrics');
       
       if (!canBio || !supported) {
-        _showErrorDialog('Biometric authentication is not available on this device. Please use manual attendance.');
+        _showErrorDialog('Biometric authentication is not available on this device. Please use manual attendance or enable biometric authentication on your phone.');
         return;
       }
 
@@ -2493,24 +2665,26 @@ ShiftTimes? _getShiftTimes(String shift) {
                         // Biometric Button
                         SizedBox(
                           width: 140,
-                          child: SizedBox(
-                            height: 50,
-                            child: ElevatedButton(
-                              onPressed: _checkInInProgress ? null : () async {
-                                await _authenticateAndCheckIn();
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: kButtonColor,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
+                          child: Opacity(
+                            opacity: _isManualLoading ? 0.5 : 1.0,
+                            child: SizedBox(
+                              height: 50,
+                              child: ElevatedButton(
+                                onPressed: (_isManualLoading || _isBiometricLoading) ? null : () async {
+                                  await _authenticateAndCheckIn();
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: kButtonColor,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  elevation: 2,
                                 ),
-                                elevation: 2,
-                              ),
-                              child: FittedBox(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    _checkInInProgress
+                                child: FittedBox(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      _isBiometricLoading
                                         ? const SizedBox(
                                             width: 14,
                                             height: 14,
@@ -2525,7 +2699,7 @@ ShiftTimes? _getShiftTimes(String shift) {
                                             color: kTextColor, size: 14),
                                     const SizedBox(height: 2),
                                     Text(
-                                      _checkInInProgress
+                                      _isBiometricLoading
                                           ? 'Checking...'
                                           : 'Biometric',
                                       style: const TextStyle(
@@ -2541,28 +2715,31 @@ ShiftTimes? _getShiftTimes(String shift) {
                             ),
                           ),
                         ),
+                        ),
                         const SizedBox(width: 20),
                         // Manual Button
                         SizedBox(
                           width: 140,
-                          child: SizedBox(
-                            height: 50,
-                            child: ElevatedButton(
-                              onPressed: _checkInInProgress ? null : () async {
-                                await _handleManualCheckInTap();
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: kButtonColor,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
+                          child: Opacity(
+                            opacity: _isBiometricLoading ? 0.5 : 1.0,
+                            child: SizedBox(
+                              height: 50,
+                              child: ElevatedButton(
+                                onPressed: (_isManualLoading || _isBiometricLoading) ? null : () async {
+                                  await _handleManualCheckInTap();
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: kButtonColor,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  elevation: 2,
                                 ),
-                                elevation: 2,
-                              ),
-                              child: FittedBox(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    _checkInInProgress
+                                child: FittedBox(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      _isManualLoading
                                         ? const SizedBox(
                                             width: 14,
                                             height: 14,
@@ -2577,7 +2754,7 @@ ShiftTimes? _getShiftTimes(String shift) {
                                             color: kTextColor, size: 14),
                                     const SizedBox(height: 2),
                                     Text(
-                                      _checkInInProgress
+                                      _isManualLoading
                                           ? 'Checking...'
                                           : 'Manual',
                                       style: const TextStyle(
@@ -2592,6 +2769,7 @@ ShiftTimes? _getShiftTimes(String shift) {
                               ),
                             ),
                           ),
+                        ),
                         ),
                       ],
                     ),

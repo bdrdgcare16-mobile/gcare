@@ -418,41 +418,24 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
   }
 
   Future<void> _openCreateEmployee() async {
-    final result = await Navigator.push<Employee>(
+    final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => const CreateEmployeeScreen(),
       ),
     );
 
-    if (result == null) return;
+    if (result != true) return;
 
-    try {
-      final response = await EmployeeService.createEmployee(result);
+    // Employee was created successfully in CreateEmployeeScreen
+    // Just reload the employee list and show success message
+    await _loadEmployees();
 
-      if (!mounted) return;
+    if (!mounted) return;
 
-      if (response.contains('exists')) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(response)),
-        );
-        return;
-      }
-
-      await _loadEmployees();
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Employee created')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Create failed: $e')),
-      );
-    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Employee created')),
+    );
   }
 
   Future<void> _deleteEmployee(Employee e) async {
@@ -885,6 +868,7 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
   bool _shiftsLoading = false;
   String? _shiftsError;
   String? _emailError;
+  String? _empidError;
 
   @override
   void initState() {
@@ -965,6 +949,11 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
             if (_emailError != null) {
               return _emailError;
             }
+          }
+
+          // Show employee ID error if exists
+          if (label == 'Employee ID' && _empidError != null) {
+            return _empidError;
           }
 
           return null;
@@ -1115,8 +1104,15 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
       final response = await EmployeeService.createEmployee(newEmp);
       
       // Handle backend duplicate email response
-      if (response.contains('Email already exists')) {
+      if (response.contains('Email already exists for this company')) {
         setState(() => _emailError = 'Email already exists for this company');
+        _formKey.currentState?.validate(); // Revalidate to show error
+        return;
+      }
+      
+      // Handle backend duplicate employee ID response
+      if (response.contains('Employee ID already exists for this company')) {
+        setState(() => _empidError = 'Employee ID already exists for this company');
         _formKey.currentState?.validate(); // Revalidate to show error
         return;
       }
@@ -1130,9 +1126,9 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
         return;
       }
       
-      // Success - navigate back
+      // Success - navigate back with success flag
       if (!mounted) return;
-      Navigator.pop(context, newEmp);
+      Navigator.pop(context, true);
       
     } catch (e) {
       if (!mounted) return;

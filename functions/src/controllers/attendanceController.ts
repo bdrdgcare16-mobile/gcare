@@ -2212,51 +2212,436 @@ export const getRequestDetails = async (req: Request, res: Response) => {
 
 /** GET /api/attendance/monthly/:empid/:year/:month */
 export const getMonthlySummary = async (req: Request, res: Response) => {
-  // Add logs
   console.log("[MONTHLY] params:", req.params);
   console.log("[MONTHLY] user:", req.user);
 
-  // Safely get companyId
   const companyId = req.user?.companyId;
+
   if (!companyId) {
-    return res.status(401).json({ error: "Unauthorized: companyId missing" });
+    return res.status(401).json({
+      error: "Unauthorized: companyId missing",
+    });
   }
 
-  // Ensure controller safely reads params
   const { empid, year, month } = req.params as any;
 
-  // Validate required parameters
   if (!empid || !year || !month) {
-    return res.status(400).json({ error: "empid, year and month required" });
+    return res.status(400).json({
+      error: "empid, year and month required",
+    });
   }
 
-  // Build safe date range - FIXED: Use String(month).padStart(2, '0') instead of month.pad2(2)
-  const safeMonth = String(month).padStart(2, '0');
-  const startDate = `${year}-${safeMonth}-01`;
-  const endDate = `${year}-${safeMonth}-31`;
+  const yearNumber = Number(year);
+  const monthNumber = Number(month);
+
+  if (
+    Number.isNaN(yearNumber) ||
+    Number.isNaN(monthNumber) ||
+    monthNumber < 1 ||
+    monthNumber > 12
+  ) {
+    return res.status(400).json({
+      error: "Invalid year or month",
+    });
+  }
+
+  const safeMonth = String(monthNumber).padStart(2, "0");
+  const lastDayOfMonth = new Date(yearNumber, monthNumber, 0).getDate();
+
+  const startDate = `${yearNumber}-${safeMonth}-01`;
+  const endDate = `${yearNumber}-${safeMonth}-${String(lastDayOfMonth).padStart(
+    2,
+    "0"
+  )}`;
+
+  // Update absent generation date range to only generate up to today's date for current month
+  const today = new Date();
+  const todayYear = today.getFullYear();
+  const todayMonth = today.getMonth() + 1;
+  const todayDate = today.getDate();
+
+  let absentGenerationEndDate = endDate;
+
+  if (yearNumber === todayYear && monthNumber === todayMonth) {
+    absentGenerationEndDate = `${yearNumber}-${safeMonth}-${String(todayDate).padStart(
+      2,
+      "0"
+    )}`;
+  }
+
+  if (
+    yearNumber > todayYear ||
+    (yearNumber === todayYear && monthNumber > todayMonth)
+  ) {
+    absentGenerationEndDate = "";
+  }
 
   console.log("[MONTHLY] date range:", startDate, endDate);
 
+  const normalizeTime = (time?: string | null): string | null => {
+    if (!time || typeof time !== "string") {
+      return null;
+    }
+
+    const trimmedTime = time.trim();
+
+    if (
+      trimmedTime === "" ||
+      trimmedTime === "-" ||
+      trimmedTime.toLowerCase() === "null"
+    ) {
+      return null;
+    }
+
+    const parts = trimmedTime.split(":");
+
+    if (parts.length < 2) {
+      return null;
+    }
+
+    const hour = parts[0].padStart(2, "0");
+    const minute = parts[1].padStart(2, "0");
+
+    return `${hour}:${minute}`;
+  };
+
+  const buildDateTime = (date: string, time: string): Date | null => {
+    if (!date || !time) {
+      return null;
+    }
+
+    const dateTime = new Date(`${date}T${time}:00`);
+
+    if (Number.isNaN(dateTime.getTime())) {
+      return null;
+    }
+
+    return dateTime;
+  };
+
+  const getNormalizedString = (value: any): string => {
+    return value?.toString().toLowerCase().trim() || "";
+  };
+
+  const isPermissionLeaveType = (leaveType: any): boolean => {
+    const normalizedLeaveType = getNormalizedString(leaveType);
+
+    return (
+      normalizedLeaveType === "permission" ||
+      normalizedLeaveType === "permission time" ||
+      normalizedLeaveType.includes("permission")
+    );
+  };
+
   try {
-    // Query Firestore safely
-    const snap = await db.collection("attendance")
+    const attendanceSnap = await db
+      .collection("attendance")
       .where("companyId", "==", companyId)
       .where("empid", "==", empid)
       .where("date", ">=", startDate)
       .where("date", "<=", endDate)
       .get();
 
-    // Return array safely
-    const data = snap.docs.map(doc => ({ 
-      id: doc.id, 
-      ...doc.data() 
-    }));
-    
+    const leavesSnap = await db
+      .collection("leaves")
+      .where("companyId", "==", companyId)
+      .where("empid", "==", empid)
+      .where("startDate", ">=", startDate)
+      .where("startDate", "<=", endDate)
+      .get();
+
+    const approvedPermissionByDate: Record<string, number> = {};
+    const permissionLeaveDetailsByDate: Record<string, any[]> = {};
+    const approvedLeaveByDate: Record<string, any[]> = {};
+
+    leavesSnap.docs.forEach((leaveDoc) => {
+      const leave = leaveDoc.data() as any;
+
+      const leaveStartDate = leave.startDate;
+      const leaveEndDate = leave.endDate || leave.startDate;
+      const leaveType = leave.leaveType;
+      const approvalStatus = getNormalizedString(leave.approvalStatus);
+      const status = getNormalizedString(leave.status);
+
+      const isApproved =
+        approvalStatus === "approved" || status === "approved";
+
+      const isPermission = isPermissionLeaveType(leaveType);
+      const isRegularLeave = !isPermission && isApproved;
+
+      // Process permission leaves
+      if (leaveStartDate && isPermission && isApproved) {
+        const duration =
+          typeof leave.duration === "number" && leave.duration > 0
+            ? leave.duration
+            : 1;
+
+        approvedPermissionByDate[leaveStartDate] =
+          (approvedPermissionByDate[leaveStartDate] || 0) + duration;
+
+        if (!permissionLeaveDetailsByDate[leaveStartDate]) {
+          permissionLeaveDetailsByDate[leaveStartDate] = [];
+        }
+
+        permissionLeaveDetailsByDate[leaveStartDate].push({
+          id: leaveDoc.id,
+          leaveType: leave.leaveType,
+          approvalStatus: leave.approvalStatus,
+          duration,
+          startDate: leave.startDate,
+          endDate: leave.endDate,
+          reason: leave.reason || null,
+        });
+
+        console.log(
+          `[MONTHLY PERMISSION] Employee: ${empid}, Date: ${leaveStartDate}, LeaveType: ${leave.leaveType}, ApprovalStatus: ${leave.approvalStatus}, Duration: ${duration}` 
+        );
+      }
+
+      // Process regular leaves (Casual, Sick, Planned, etc.)
+      if (isRegularLeave) {
+        // Handle multi-day leaves
+        const start = new Date(leaveStartDate);
+        const end = new Date(leaveEndDate);
+        
+        for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
+          const dateStr = date.toISOString().split('T')[0];
+          
+          if (!approvedLeaveByDate[dateStr]) {
+            approvedLeaveByDate[dateStr] = [];
+          }
+
+          approvedLeaveByDate[dateStr].push({
+            id: leaveDoc.id,
+            leaveType: leave.leaveType,
+            approvalStatus: leave.approvalStatus,
+            duration: 1, // Count as 1 day per date
+            startDate: leave.startDate,
+            endDate: leave.endDate,
+            reason: leave.reason || null,
+          });
+
+          console.log(
+            `[MONTHLY LEAVE] Employee: ${empid}, Date: ${dateStr}, LeaveType: ${leave.leaveType}, ApprovalStatus: ${leave.approvalStatus}` 
+          );
+        }
+      }
+    });
+
+    const attendanceDates = new Set<string>();
+
+    const data = attendanceSnap.docs.map((doc) => {
+      const attendanceDoc = doc.data() as any;
+
+      let isLate = false;
+      let isEarly = false;
+
+      const date = attendanceDoc.date;
+      attendanceDates.add(date);
+
+      const checkIn = normalizeTime(attendanceDoc.checkIn);
+      const checkOut = normalizeTime(attendanceDoc.checkOut);
+
+      const shiftStart = normalizeTime(
+        attendanceDoc.shiftStartTime ||
+          attendanceDoc.shiftGroup?.startTime ||
+          attendanceDoc.shift?.startTime ||
+          "09:00"
+      );
+
+      const shiftEnd = normalizeTime(
+        attendanceDoc.shiftEndTime ||
+          attendanceDoc.shiftGroup?.endTime ||
+          attendanceDoc.shift?.endTime ||
+          "18:00"
+      );
+
+      if (date && checkIn && shiftStart) {
+        const checkInTime = buildDateTime(date, checkIn);
+        const shiftStartTime = buildDateTime(date, shiftStart);
+
+        if (checkInTime && shiftStartTime) {
+          const gracePeriod = 5 * 60 * 1000;
+
+          isLate =
+            checkInTime.getTime() > shiftStartTime.getTime() + gracePeriod;
+        }
+      }
+
+      if (date && checkOut && shiftEnd) {
+        const checkOutTime = buildDateTime(date, checkOut);
+        const shiftEndTime = buildDateTime(date, shiftEnd);
+
+        if (checkOutTime && shiftEndTime) {
+          isEarly = checkOutTime.getTime() < shiftEndTime.getTime();
+        }
+      }
+
+      const permissionCount = approvedPermissionByDate[date] || 0;
+      const isPermission = permissionCount > 0;
+      
+      const leaveDetails = approvedLeaveByDate[date] || [];
+      const isLeave = leaveDetails.length > 0;
+      const leaveCount = leaveDetails.length;
+      
+      const isAbsent = !isPermission && !isLeave && (!checkIn || checkIn === 'null');
+
+      return {
+        id: doc.id,
+        ...attendanceDoc,
+        isLate,
+        isEarly,
+        isAbsent,
+        isLeave,
+        isPermission,
+        permissionCount,
+        leaveCount,
+        leaveType: isLeave ? leaveDetails[0]?.leaveType : null,
+        permissionLeaves: permissionLeaveDetailsByDate[date] || [],
+        leaveDetails: leaveDetails,
+      };
+    });
+
+    // Add permission-only records
+    Object.keys(approvedPermissionByDate).forEach((permissionDate) => {
+      if (!attendanceDates.has(permissionDate)) {
+        data.push({
+          id: `permission-${empid}-${permissionDate}`,
+          empid,
+          companyId,
+          date: permissionDate,
+          status: "Permission",
+          attendanceStatus: "Permission",
+          checkIn: null,
+          checkOut: null,
+          isLate: false,
+          isEarly: false,
+          isAbsent: false,
+          isLeave: false,
+          isPermission: true,
+          permissionCount: approvedPermissionByDate[permissionDate],
+          leaveCount: 0,
+          leaveType: null,
+          permissionLeaves: permissionLeaveDetailsByDate[permissionDate] || [],
+          leaveDetails: [],
+        });
+
+        console.log(
+          `[MONTHLY PERMISSION ONLY] Employee: ${empid}, Date: ${permissionDate}, PermissionCount: ${approvedPermissionByDate[permissionDate]}` 
+        );
+      }
+    });
+
+    // Add leave-only records
+    Object.keys(approvedLeaveByDate).forEach((leaveDate) => {
+      if (!attendanceDates.has(leaveDate) && !approvedPermissionByDate[leaveDate]) {
+        const leaveDetails = approvedLeaveByDate[leaveDate];
+        data.push({
+          id: `leave-${empid}-${leaveDate}`,
+          empid,
+          companyId,
+          date: leaveDate,
+          status: "Leave",
+          attendanceStatus: "Leave",
+          checkIn: null,
+          checkOut: null,
+          isLate: false,
+          isEarly: false,
+          isAbsent: false,
+          isLeave: true,
+          isPermission: false,
+          permissionCount: 0,
+          leaveCount: leaveDetails.length,
+          leaveType: leaveDetails[0]?.leaveType || "Leave",
+          permissionLeaves: [],
+          leaveDetails: leaveDetails,
+        });
+
+        console.log(
+          `[MONTHLY LEAVE ONLY] Employee: ${empid}, Date: ${leaveDate}, LeaveType: ${leaveDetails[0]?.leaveType}, LeaveCount: ${leaveDetails.length}` 
+        );
+      }
+    });
+
+    // Generate working days and create absent records
+    const generateWorkingDays = (start: string, end: string): string[] => {
+      const workingDays: string[] = [];
+      const startDate = new Date(start);
+      const endDate = new Date(end);
+      
+      for (let date = new Date(startDate); date <= endDate; date.setDate(date.getDate() + 1)) {
+        const dayOfWeek = date.getDay();
+        // Skip Sundays (day 0)
+        if (dayOfWeek !== 0) {
+          workingDays.push(date.toISOString().split('T')[0]);
+        }
+      }
+      
+      return workingDays;
+    };
+
+    const allWorkingDays = absentGenerationEndDate
+  ? generateWorkingDays(startDate, absentGenerationEndDate)
+  : [];
+    const totalWorkingDays = allWorkingDays.length;
+
+    // Create absent records for working days with no attendance, leave, or permission
+    allWorkingDays.forEach(workingDate => {
+      if (!attendanceDates.has(workingDate) && 
+          !approvedLeaveByDate[workingDate] && 
+          !approvedPermissionByDate[workingDate]) {
+        data.push({
+          id: `absent-${empid}-${workingDate}`,
+          empid,
+          companyId,
+          date: workingDate,
+          status: "Absent",
+          attendanceStatus: "Absent",
+          checkIn: null,
+          checkOut: null,
+          isLate: false,
+          isEarly: false,
+          isAbsent: true,
+          isLeave: false,
+          isPermission: false,
+          permissionCount: 0,
+          leaveCount: 0,
+          leaveType: null,
+          permissionLeaves: [],
+          leaveDetails: [],
+        });
+
+        console.log(
+          `[MONTHLY ABSENT] Employee: ${empid}, Date: ${workingDate}, Status: Absent` 
+        );
+      }
+    });
+
+    data.sort((a: any, b: any) => {
+      return a.date.localeCompare(b.date);
+    });
+
+    const totalLate = data.filter((item: any) => item.isLate).length;
+    const totalEarly = data.filter((item: any) => item.isEarly).length;
+    const totalPermission = data.reduce(
+      (total: number, item: any) => total + (item.permissionCount || 0),
+      0
+    );
+    const totalLeave = data.filter((item: any) => item.isLeave).length;
+    const totalAbsent = data.filter((item: any) => item.isAbsent).length;
+    const totalPresent = data.filter((item: any) => !item.isAbsent && !item.isLeave && !item.isPermission).length;
+
+    console.log(
+      `[MONTHLY] Employee: ${empid}, Total Working Days: ${totalWorkingDays}, Records: ${data.length}, Present: ${totalPresent}, Absent: ${totalAbsent}, Leave: ${totalLeave}, Late: ${totalLate}, Early: ${totalEarly}, Permission: ${totalPermission}` 
+    );
+
     return res.status(200).json(data);
   } catch (error: any) {
     console.error("[MONTHLY] ERROR:", error);
-    // Return empty result instead of crashing
-    return res.status(200).json([]);
+
+    return res.status(500).json({
+      error: "Failed to fetch monthly attendance",
+      message: error?.message || "Unknown error",
+    });
   }
 };
-  
