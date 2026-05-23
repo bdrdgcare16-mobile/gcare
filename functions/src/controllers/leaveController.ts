@@ -555,11 +555,17 @@ export const updateLeaveStatus = async (req: Request, res: Response): Promise<Re
       return res.status(403).json({ error: 'Access denied' });
     }
 
+     const cleanStatus = String(status) as LeaveStatus;
+
     await leaveRef.update({
-      status: String(status),
-      approverId: actorId,
-      approverNotes: notes ? String(notes) : '',
-      updatedAt: FieldValue.serverTimestamp(),
+       status: cleanStatus,
+       approvalStatus: cleanStatus,
+       approverId: actorId,
+       approverNotes: notes ? String(notes) : '',
+       decisionBy: actorId,
+       decisionAt: FieldValue.serverTimestamp(),
+       decisionRemarks: notes ? String(notes) : null,
+       updatedAt: FieldValue.serverTimestamp(),
     });
 
     // Track usage after successful leave status update

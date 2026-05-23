@@ -26,27 +26,34 @@ export const attendanceTrackingTrigger = onDocumentWritten(
     const hadCheckOut = !!(before?.checkOut === true || (typeof before?.checkOut === "string" && before.checkOut));
     const hasCheckOut = !!(after.checkOut === true || (typeof after.checkOut === "string" && after.checkOut));
 
-    const dayRef = db.collection("tracking").doc(empId).collection("days").doc(dateIso);
+    const dayRef = db.collection("tracking").doc(`${empId}_${dateIso}`);
 
     // 1) When check-in first appears -> start tracking (do NOT clear pathMap)
     if (!hadCheckIn && hasCheckIn) {
       await dayRef.set(
         {
+          id: `${empId}_${dateIso}`,
+          empid: empId,
+          dateIso: dateIso,
+          pathMap: [],
+          startedAt: FieldValue.serverTimestamp(),
+          endedAt: null,
+          lastUpdateAt: FieldValue.serverTimestamp(),
           active: true,
           fieldworkEnabled: true,
-          startedAt: FieldValue.serverTimestamp(),
         },
         { merge: true }
       );
       return;
     }
 
-    // 2) When check-out appears -> stop tracking
+    // 2) When check-out appears -> stop tracking (do NOT delete pathMap)
     if (!hadCheckOut && hasCheckOut) {
       await dayRef.set(
         {
-          active: false,
           endedAt: FieldValue.serverTimestamp(),
+          lastUpdateAt: FieldValue.serverTimestamp(),
+          active: false,
         },
         { merge: true }
       );

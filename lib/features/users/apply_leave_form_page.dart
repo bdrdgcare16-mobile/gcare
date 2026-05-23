@@ -101,22 +101,31 @@ class _ApplyHalfDayFormState extends State<ApplyHalfDayForm> {
   }
 
   Future<void> _pickDate(bool isFromDate) async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime.now(),
-      lastDate: DateTime(2101),
-    );
-    if (picked != null) {
-      setState(() {
-        if (isFromDate) {
-          fromDate = picked;
-        } else {
-          replaceWorkDate = picked;
-        }
-      });
-    }
+  final today = DateTime.now();
+  final firstAllowedDate = DateTime(today.year, today.month, today.day);
+
+  final currentSelectedDate = isFromDate ? fromDate : replaceWorkDate;
+
+  final picked = await showDatePicker(
+    context: context,
+    initialDate: currentSelectedDate != null &&
+            !currentSelectedDate.isBefore(firstAllowedDate)
+        ? currentSelectedDate
+        : firstAllowedDate,
+    firstDate: firstAllowedDate,
+    lastDate: DateTime(2101),
+  );
+
+  if (picked != null) {
+    setState(() {
+      if (isFromDate) {
+        fromDate = picked;
+      } else {
+        replaceWorkDate = picked;
+      }
+    });
   }
+}
 
   Future<void> _submitForm() async {
     if (_formKey.currentState?.validate() != true) return;

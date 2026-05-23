@@ -259,79 +259,123 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
   }
 
   Future<void> pickDate(BuildContext context, bool isFrom) async {
-    if (_currentRule == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select leave type first')),
-      );
-      return;
-    }
-    final rule = _currentRule!;
-    final int? allowed = _getAllowedDaysFromSelection();
+  if (_currentRule == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Select leave type first')),
+    );
+    return;
+  }
 
-    final DateTime startClamp = rule.fromDate ?? DateTime.now();
-    final DateTime endClamp = rule.toDate ?? DateTime(2100);
+  final rule = _currentRule!;
+  final int? allowed = _getAllowedDaysFromSelection();
 
-    DateTime firstDate = isFrom ? startClamp : (fromDate ?? startClamp);
-    DateTime lastDate;
-    if (isFrom) {
-      lastDate = endClamp;
-    } else {
-      final start = fromDate ?? startClamp;
-      lastDate = endClamp;
-      if (allowed != null && allowed > 0) {
-        final maxByAllowed = start.add(Duration(days: allowed - 1));
-        if (maxByAllowed.isBefore(lastDate)) {
-          lastDate = maxByAllowed;
-        }
+  final today = DateTime.now();
+  final todayOnly = DateTime(today.year, today.month, today.day);
+
+  final ruleStartDate = rule.fromDate != null
+      ? DateTime(
+          rule.fromDate!.year,
+          rule.fromDate!.month,
+          rule.fromDate!.day,
+        )
+      : todayOnly;
+
+  final ruleEndDate = rule.toDate != null
+      ? DateTime(
+          rule.toDate!.year,
+          rule.toDate!.month,
+          rule.toDate!.day,
+        )
+      : DateTime(2100);
+
+  // Do not allow past dates.
+  final DateTime validStartDate =
+      ruleStartDate.isBefore(todayOnly) ? todayOnly : ruleStartDate;
+
+  DateTime firstDate = isFrom ? validStartDate : (fromDate ?? validStartDate);
+
+  DateTime lastDate;
+
+  if (isFrom) {
+    lastDate = ruleEndDate;
+  } else {
+    final start = fromDate ?? validStartDate;
+    lastDate = ruleEndDate;
+
+    if (allowed != null && allowed > 0) {
+      final maxByAllowed = start.add(Duration(days: allowed - 1));
+      if (maxByAllowed.isBefore(lastDate)) {
+        lastDate = maxByAllowed;
       }
     }
-
-    final DateTime initialDate =
-        isFrom ? (fromDate ?? firstDate) : (toDate ?? fromDate ?? firstDate);
-
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: initialDate.isBefore(firstDate) ? firstDate : initialDate,
-      firstDate: firstDate,
-      lastDate: lastDate,
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: kAppBarColor,
-              onPrimary: Colors.white,
-              onSurface: Colors.black,
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-
-    if (picked != null) {
-      setState(() {
-        if (isFrom) {
-          fromDate = picked;
-          if (allowed != null && allowed > 0) {
-            toDate = fromDate!.add(Duration(days: allowed - 1));
-            if (rule.toDate != null && toDate!.isAfter(rule.toDate!)) {
-              toDate = rule.toDate;
-            }
-          } else {
-            toDate = null;
-          }
-          errorMessage = null;
-        } else {
-          if (fromDate != null && picked.isBefore(fromDate!)) {
-            errorMessage = "To Date cannot be before From Date";
-          } else {
-            toDate = picked;
-            errorMessage = null;
-          }
-        }
-      });
-    }
   }
+
+  if (firstDate.isAfter(lastDate)) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('No valid dates are available for this leave type'),
+      ),
+    );
+    return;
+  }
+
+  DateTime initialDate =
+      isFrom ? (fromDate ?? firstDate) : (toDate ?? fromDate ?? firstDate);
+
+  if (initialDate.isBefore(firstDate)) {
+    initialDate = firstDate;
+  }
+
+  if (initialDate.isAfter(lastDate)) {
+    initialDate = lastDate;
+  }
+
+  final picked = await showDatePicker(
+    context: context,
+    initialDate: initialDate,
+    firstDate: firstDate,
+    lastDate: lastDate,
+    builder: (context, child) {
+      return Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: const ColorScheme.light(
+            primary: kAppBarColor,
+            onPrimary: Colors.white,
+            onSurface: Colors.black,
+          ),
+        ),
+        child: child!,
+      );
+    },
+  );
+
+  if (picked != null) {
+    setState(() {
+      if (isFrom) {
+        fromDate = picked;
+
+        if (allowed != null && allowed > 0) {
+          toDate = fromDate!.add(Duration(days: allowed - 1));
+
+          if (rule.toDate != null && toDate!.isAfter(ruleEndDate)) {
+            toDate = ruleEndDate;
+          }
+        } else {
+          toDate = null;
+        }
+
+        errorMessage = null;
+      } else {
+        if (fromDate != null && picked.isBefore(fromDate!)) {
+          errorMessage = "To Date cannot be before From Date";
+        } else {
+          toDate = picked;
+          errorMessage = null;
+        }
+      }
+    });
+  }
+}
 
   String _fmt(DateTime? date) =>
       (date == null) ? '' : DateFormat('yyyy-MM-dd').format(date);

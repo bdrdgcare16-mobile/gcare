@@ -20,7 +20,8 @@ class LeaveApprovalsScreen extends StatefulWidget {
   State<LeaveApprovalsScreen> createState() => _LeaveApprovalsScreenState();
 }
 
-class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
+class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen>
+    with TickerProviderStateMixin {
   String selectedTab = 'All';
   String selectedStatusFilter = 'Pending';
   final TextEditingController searchController = TextEditingController();
@@ -28,11 +29,39 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
   List<Map<String, dynamic>> _rows = [];
   int _cPending = 0, _cApproved = 0, _cRejected = 0;
   bool _loading = false;
+  bool _isFetching = false;
+  final Set<String> _processingRequestIds = <String>{};
+
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
 
   @override
   void initState() {
     super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
+    _pulseAnimation = Tween<double>(begin: 0.4, end: 1.0).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
     _loadAll(adjustForType: true);
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  void _recalculateCountsFromAllData(List<Map<String, dynamic>> allData) {
+    String rowStatus(Map<String, dynamic> e) {
+      return (e['status'] ?? e['approvalStatus'] ?? '').toString().trim();
+    }
+
+    _cPending = allData.where((e) => rowStatus(e) == 'Pending').length;
+    _cApproved = allData.where((e) => rowStatus(e) == 'Approved').length;
+    _cRejected = allData.where((e) => rowStatus(e) == 'Rejected').length;
   }
 
   bool _isOtherLocationTab(String label) {
@@ -85,7 +114,8 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
       return s;
     }
 
-    if ((item['leaveType'] ?? item['leave type'] ?? item['leave_type']) != null) {
+    if ((item['leaveType'] ?? item['leave type'] ?? item['leave_type']) !=
+        null) {
       return 'leaves';
     }
 
@@ -129,8 +159,9 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
         (item['type'] ?? item['category'] ?? '').toString().toLowerCase();
     final isLateIn =
         type.contains('late') && type.contains('check') && type.contains('in');
-    final isEarlyOut =
-        type.contains('early') && type.contains('check') && type.contains('out');
+    final isEarlyOut = type.contains('early') &&
+        type.contains('check') &&
+        type.contains('out');
 
     return isLateIn || isEarlyOut;
   }
@@ -156,7 +187,8 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     if (leaveType.isNotEmpty) {
       _log('Found leave type: "$leaveType" in item: ${it.toString()}');
     } else {
-      _log('No leave type found in item, available keys: ${it.keys.toList()}');
+      _log(
+          'No leave type found in item, available keys: ${it.keys.toList()}');
     }
     return leaveType;
   }
@@ -300,7 +332,8 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
 
         final isGenericLeave = !isSpecialType && backendType == 'leave type';
         if (isGenericLeave) {
-          _log('Found generic leave request - Source: $source, Backend Type: "$backendType"');
+          _log(
+              'Found generic leave request - Source: $source, Backend Type: "$backendType"');
         }
         return isGenericLeave;
       }).toList();
@@ -319,7 +352,8 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
       }).toList();
     }
 
-    _log('No specific filter for tab "$t", returning all ${items.length} items');
+    _log(
+        'No specific filter for tab "$t", returning all ${items.length} items');
     if (kDebugMode) {
       _log('=== FILTERING DEBUG END ===');
     }
@@ -332,45 +366,76 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     _log('Fetching data for tab: $tab, status: $status');
 
     List<Map<String, dynamic>> result;
+
     try {
       if (_isOtherLocationTab(tab)) {
-        final data = await ApiService.fetchOtherLocationApprovals(status: status);
-        result = data.map((item) => {
-          ...item,
-          'source': 'other_location',
-          'type': 'Other Location',
-        }).toList();
+        final data = await ApiService.fetchOtherLocationApprovals(
+          status: status,
+        );
+
+        result = data
+            .map(
+              (item) => {
+                ...item,
+                'source': 'other_location',
+                'type': 'Other Location',
+              },
+            )
+            .toList();
       } else {
         final t = tab.trim().toLowerCase();
 
         if (t == 'all') {
-          _log('Fetching merged data for "All" tab');
-          // OPTIMIZATION: Fetch attendance and leave data in parallel
-          final futures = await Future.wait([
-            ApiService.fetchAttendanceApprovals(status: status),
-            ApiService.fetchLeaveApprovals(status: status),
-          ]);
+          _log('Fetching all approvals without duplicate merge');
 
-          final List<Map<String, dynamic>> attendanceData = futures[0];
-          final List<Map<String, dynamic>> leaveData = futures[1];
+          final data = await ApiService.fetchApprovals(
+            type: 'All',
+            status: status,
+          );
 
-          if (kDebugMode) {
-            _log('Fetched ${attendanceData.length} attendance items');
-            _log('Fetched ${leaveData.length} leave items');
-            _log('Total merged items: ${attendanceData.length + leaveData.length}');
+          final uniqueMap = <String, Map<String, dynamic>>{};
+
+          for (final item in data) {
+            final id = _pickAnyId(item);
+            final source = (item['source'] ?? '').toString();
+            final empid =
+                (item['empid'] ?? item['empId'] ?? item['employeeId'] ?? '')
+                    .toString();
+            final date =
+                (item['requestDate'] ?? item['date'] ?? item['startDate'] ?? '')
+                    .toString();
+            final type =
+                (item['type'] ?? item['category'] ?? item['leaveType'] ?? '')
+                    .toString();
+
+            final key = id.isNotEmpty
+                ? '$source-$id'
+                : '$source-$empid-$date-$type';
+
+            uniqueMap[key] = item;
           }
 
-          final mergedData = [...attendanceData, ...leaveData];
           result = _filterByTabSmart(
-            List<Map<String, dynamic>>.from(mergedData),
+            uniqueMap.values.toList(),
             tab,
           );
+
+          if (kDebugMode) {
+            _log('Fetched all approvals: ${data.length}');
+            _log(
+                'Unique approvals after removing duplicates: ${result.length}');
+          }
         } else if (t == 'late check in' || t == 'early check out') {
           _log('Fetching attendance data for tab: $tab');
-          final data = await ApiService.fetchAttendanceApprovals(status: status);
+
+          final data = await ApiService.fetchAttendanceApprovals(
+            status: status,
+          );
+
           if (kDebugMode) {
             _log('Fetched ${data.length} attendance items');
           }
+
           result = _filterByTabSmart(data, tab);
         } else if (t == 'permission' ||
             t == 'over time' ||
@@ -378,24 +443,35 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
             t == 'comp off' ||
             t == 'leave type') {
           _log('Fetching leave data for tab: $tab');
-          final data = await ApiService.fetchLeaveApprovals(status: status);
+
+          final data = await ApiService.fetchLeaveApprovals(
+            status: status,
+          );
+
           if (kDebugMode) {
             _log('Fetched ${data.length} leave items');
           }
+
           result = _filterByTabSmart(data, tab);
         } else {
           final apiType = _apiTypeForTab(tab);
           _log('API type for tab "$tab": $apiType');
 
-          final data = await ApiService.fetchApprovals(type: apiType, status: status);
+          final data = await ApiService.fetchApprovals(
+            type: apiType,
+            status: status,
+          );
+
           if (kDebugMode) {
             _log('Fetched ${data.length} items from API');
           }
+
           result = _filterByTabSmart(data, tab);
         }
       }
 
       final endTime = DateTime.now();
+
       PerformanceLogger.logApiCall(
         screen: 'LeaveApprovalsScreen',
         endpoint: 'approvals/$tab',
@@ -408,6 +484,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
       return result;
     } catch (e) {
       final endTime = DateTime.now();
+
       PerformanceLogger.logApiCall(
         screen: 'LeaveApprovalsScreen',
         endpoint: 'approvals/$tab',
@@ -416,12 +493,22 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
         statusCode: 0,
         error: e.toString(),
       );
+
       rethrow;
     }
   }
 
   Future<void> _loadAll({bool adjustForType = false}) async {
-    setState(() => _loading = true);
+    if (_isFetching) {
+      _log('Approval fetch already running. Duplicate call skipped.');
+      return;
+    }
+
+    _isFetching = true;
+
+    if (mounted) {
+      setState(() => _loading = true);
+    }
 
     try {
       final allData = await _fetchByTabAndStatus(selectedTab, 'All');
@@ -430,9 +517,12 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
         return (e['status'] ?? e['approvalStatus'] ?? '').toString().trim();
       }
 
-      final pending = allData.where((e) => rowStatus(e) == 'Pending').toList();
-      final approved = allData.where((e) => rowStatus(e) == 'Approved').toList();
-      final rejected = allData.where((e) => rowStatus(e) == 'Rejected').toList();
+      final pending =
+          allData.where((e) => rowStatus(e) == 'Pending').toList();
+      final approved =
+          allData.where((e) => rowStatus(e) == 'Approved').toList();
+      final rejected =
+          allData.where((e) => rowStatus(e) == 'Rejected').toList();
 
       final newPendingCount = pending.length;
       final newApprovedCount = approved.length;
@@ -480,17 +570,18 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
         _rows = current;
       });
     } catch (e) {
-      _snack('Failed to fetch approvals: $e');
+      _log('Failed to fetch approvals without clearing old data: $e');
 
-      if (!mounted) return;
-
-      setState(() {
-        _rows = [];
-        _cPending = 0;
-        _cApproved = 0;
-        _cRejected = 0;
-      });
+      if (mounted) {
+        _snack(
+          e.toString().contains('429')
+              ? 'Too many requests. Please wait and try again.'
+              : 'Failed to fetch approvals. Existing data is kept.',
+        );
+      }
     } finally {
+      _isFetching = false;
+
       if (mounted) {
         setState(() => _loading = false);
       }
@@ -500,12 +591,21 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
   void _snack(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(msg),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: const Color(0xFF4A3B67),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+        content: Text(
+          msg,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+          ),
         ),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: const Color(0xFF2D1B5E),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        margin: const EdgeInsets.all(16),
+        elevation: 8,
       ),
     );
   }
@@ -519,9 +619,11 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
       return fallback;
     }
 
-    final requestTime = pickStr(['requestTime', 'time', 'checkIn', 'checkOut']);
-    final requestDate =
-        pickStr(['requestDate', 'date', 'startDate', 'selectDate'], fallback: '');
+    final requestTime =
+        pickStr(['requestTime', 'time', 'checkIn', 'checkOut']);
+    final requestDate = pickStr(
+        ['requestDate', 'date', 'startDate', 'selectDate'],
+        fallback: '');
 
     final typeLabel = _sourceFromItemOrTab(item) == 'leaves'
         ? _uiLabelForLeaveType(item)
@@ -570,16 +672,16 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
 
       if (src == 'attendance' || src == 'other_location') {
         final id = _pickAnyId(backendItem);
-        String empid =
-            (backendItem['empid'] ??
-                        backendItem['empId'] ??
-                        backendItem['employeeId'])
-                    ?.toString() ??
-                '';
-        String date =
-            (backendItem['requestDate'] ?? backendItem['date'] ?? backendItem['onDate'])
-                    ?.toString() ??
-                '';
+        String empid = (backendItem['empid'] ??
+                    backendItem['empId'] ??
+                    backendItem['employeeId'])
+                ?.toString() ??
+            '';
+        String date = (backendItem['requestDate'] ??
+                    backendItem['date'] ??
+                    backendItem['onDate'])
+                ?.toString() ??
+            '';
         if (date.length > 10) date = date.substring(0, 10);
 
         if (id.isNotEmpty) {
@@ -633,16 +735,21 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     }
   }
 
+  // ─── DESIGN TOKENS ────────────────────────────────────────────────────────
+  static const kGradientStart = Color(0xFFFF2D8B);   // hot pink
+  static const kGradientMid   = Color(0xFFBB22C9);   // vibrant purple
+  static const kGradientEnd   = Color(0xFF2B0E6B);   // deep indigo
+  static const kAccentPink    = Color(0xFFFF3CA0);
+  static const kAccentViolet  = Color(0xFFAB5CF7);
+  static const kAccentGold    = Color(0xFFF5C542);
+  static const kCardBg        = Color(0x26FFFFFF);   // white 15% alpha
+  static const kCardBorder    = Color(0x40FFFFFF);   // white 25% alpha
+  static const kTextPrimary   = Colors.white;
+  static const kTextSub       = Color(0xCCFFFFFF);   // white 80%
+  static const kTextMuted     = Color(0x99FFFFFF);   // white 60%
+
   @override
   Widget build(BuildContext context) {
-    const kAppBarColor = Color(0xFF7C63A8);
-    const kTextPrimary = Color(0xFF2D2438);
-    const kTextSecondary = Color(0xFF6E647D);
-    const kSurface = Colors.white;
-    const kBgTop = Color(0xFFFDFBFF);
-    const kBgBottom = Color(0xFFF1EAF9);
-    const kBorder = Color(0xFFE4DDF0);
-
     final today = DateFormat('dd MMM yyyy').format(DateTime.now());
 
     final displayList = _rows.map(_toDisplay).toList();
@@ -661,361 +768,644 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     }
 
     return Scaffold(
-      backgroundColor: kBgTop,
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [kBgTop, kBgBottom],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
+            colors: [kGradientStart, kGradientMid, kGradientEnd],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            stops: [0.0, 0.45, 1.0],
           ),
         ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  RichText(
-                    text: const TextSpan(
-                      style: TextStyle(
-                        fontSize: 25,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.5,
-                        height: 1.15,
-                      ),
-                      children: [
-                        TextSpan(
-                          text: 'Leave\n',
-                          style: TextStyle(color: Color(0xFF1E1B4B)),
-                        ),
-                        TextSpan(
-                          text: 'Approvals',
-                          style: TextStyle(color: Color(0xFF8B5CF6)),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Row(
-                    children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF4CAF50),
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      const Text(
-                        'Live  ·  ',
-                        style: TextStyle(
-                          color: Color(0xFF8B7AA8),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                      Text(
-                        today,
-                        style: const TextStyle(
-                          color: Color(0xFF8B7AA8),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
+        child: Stack(
+          children: [
+            // Decorative blobs in background
+            Positioned(
+              top: -60,
+              right: -60,
+              child: Container(
+                width: 220,
+                height: 220,
                 decoration: BoxDecoration(
-                  color: kSurface.withOpacity(0.92),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: kBorder),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x12000000),
-                      blurRadius: 16,
-                      offset: Offset(0, 8),
-                    ),
-                  ],
+                  shape: BoxShape.circle,
+                  color: Colors.white.withOpacity(0.06),
                 ),
+              ),
+            ),
+            Positioned(
+              bottom: 120,
+              left: -80,
+              child: Container(
+                width: 300,
+                height: 300,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withOpacity(0.04),
+                ),
+              ),
+            ),
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 10, 18, 0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Request Filters',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: kTextPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          Container(
-                            height: 42,
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: 12),
-                            margin: const EdgeInsets.only(right: 8),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF7F3FC),
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: kBorder),
-                            ),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                value: selectedTab,
-                                onChanged: (val) async {
-                                  setState(() => selectedTab = val!);
-                                  await _loadAll(adjustForType: true);
-                                },
-                                icon: const Icon(
-                                  Icons.keyboard_arrow_down_rounded,
-                                  color: kTextPrimary,
-                                ),
-                                style: const TextStyle(
-                                  color: kTextPrimary,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                                dropdownColor: Colors.white,
-                                borderRadius: BorderRadius.circular(14),
-                                items: const [
-                                  'All',
-                                  'Late check in',
-                                  'Early check out',
-                                  'Leave Type',
-                                  'Permission',
-                                  'Over Time',
-                                  'Half Day Leave',
-                                  'Comp Off',
-                                  'Other Location',
-                                ]
-                                    .map(
-                                      (t) => DropdownMenuItem(
-                                        value: t,
-                                        child: Text(t),
-                                      ),
-                                    )
-                                    .toList(),
-                              ),
-                            ),
-                          ),
-                          _buildStatusButton("Pending", _cPending),
-                          const SizedBox(width: 8),
-                          _buildStatusButton("Approved", _cApproved),
-                          const SizedBox(width: 8),
-                          _buildStatusButton("Rejected", _cRejected),
-                        ],
-                      ),
+                    _buildHeader(today),
+                    const SizedBox(height: 20),
+                    _buildStatsRow(),
+                    const SizedBox(height: 16),
+                    _buildFilterCard(),
+                    const SizedBox(height: 14),
+                    _buildSearchBar(),
+                    const SizedBox(height: 14),
+                    Expanded(
+                      child: _loading
+                          ? _buildLoadingState()
+                          : filteredDisplay.isEmpty
+                              ? _buildEmptyState()
+                              : _buildList(filteredIndices, filteredDisplay),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 14),
-              Container(
-                decoration: BoxDecoration(
-                  color: kSurface,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: kBorder),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x0E000000),
-                      blurRadius: 10,
-                      offset: Offset(0, 4),
-                    ),
-                  ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(String today) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ShaderMask(
+              shaderCallback: (bounds) => const LinearGradient(
+                colors: [Colors.white, Color(0xFFFFCCE8)],
+              ).createShader(bounds),
+              child: const Text(
+                'Leave',
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                  height: 1.0,
+                  letterSpacing: -1,
                 ),
-                child: TextField(
-                  controller: searchController,
-                  onChanged: (_) => setState(() {}),
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: kTextPrimary,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  decoration: InputDecoration(
-                    hintText: 'Search by employee, type, department...',
-                    hintStyle: const TextStyle(
-                      color: kTextSecondary,
-                      fontSize: 13,
-                    ),
-                    prefixIcon: const Icon(
-                      Icons.search_rounded,
-                      color: kTextSecondary,
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide.none,
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide.none,
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: const BorderSide(
-                        color: Color(0xFFBDA9DD),
-                        width: 1.2,
+              ),
+            ),
+            ShaderMask(
+              shaderCallback: (bounds) => const LinearGradient(
+                colors: [Color(0xFFFFCCE8), Color(0xFFE8B4FF)],
+              ).createShader(bounds),
+              child: const Text(
+                'Approvals',
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                  height: 1.05,
+                  letterSpacing: -1,
+                ),
+              ),
+            ),
+          ],
+        ),
+        // Live badge
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: kCardBg,
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(color: kCardBorder, width: 1),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AnimatedBuilder(
+                animation: _pulseAnimation,
+                builder: (context, child) => Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0xFF4ADE80)
+                        .withOpacity(_pulseAnimation.value),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF4ADE80)
+                            .withOpacity(_pulseAnimation.value * 0.6),
+                        blurRadius: 6,
+                        spreadRadius: 2,
                       ),
-                    ),
-                    filled: true,
-                    fillColor: kSurface,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 14,
-                    ),
+                    ],
                   ),
                 ),
               ),
-              const SizedBox(height: 14),
-              Expanded(
-                child: _loading
-                    ? const Center(child: CircularProgressIndicator())
-                    : filteredDisplay.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: const [
-                                Icon(
-                                  Icons.inbox_outlined,
-                                  size: 42,
-                                  color: kTextSecondary,
-                                ),
-                                SizedBox(height: 10),
-                                Text(
-                                  'No requests found',
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                    color: kTextPrimary,
-                                  ),
-                                ),
-                                SizedBox(height: 4),
-                                Text(
-                                  'Try changing the filter or search text.',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: kTextSecondary,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )
-                        : ListView.separated(
-                            padding: const EdgeInsets.symmetric(horizontal: 10),
-                            physics: const BouncingScrollPhysics(),
-                            itemCount: filteredDisplay.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 10),
-                            itemBuilder: (context, viewIdx) {
-                              final backendIdx = filteredIndices[viewIdx];
-                              final backendItem = _rows[backendIdx];
-                              final viewItem = filteredDisplay[viewIdx];
-
-                              final tappable = _isRowTappable(backendItem);
-
-                              final card = Material(
-                                color: Colors.transparent,
-                                borderRadius: BorderRadius.circular(18),
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(18),
-                                  onTap: tappable
-                                      ? () => _openDetails(
-                                            backendItem,
-                                            viewItem,
-                                          )
-                                      : null,
-                                  child: AnimatedContainer(
-                                    duration: const Duration(milliseconds: 180),
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(18),
-                                      color: Colors.transparent,
-                                    ),
-                                    child: LeaveCard(
-                                      item: viewItem,
-                                      onStatusChange: (status) async {
-                                        try {
-                                          final normalized = _normalizeDecision(status);
-                                          if (normalized != 'Approved' &&
-                                              normalized != 'Rejected') {
-                                            throw 'Invalid status "$status"';
-                                          }
-                                          final src =
-                                              _sourceFromItemOrTab(backendItem);
-
-                                          if (src == 'other_location') {
-                                            final id =
-                                                _pickAnyId(backendItem);
-                                            if (id.isEmpty) {
-                                              throw 'Missing id for other-location';
-                                            }
-                                            await ApiService.decideOtherLocation(
-                                              id: id,
-                                              status: normalized,
-                                              remarks: backendItem['decisionRemarks'],
-                                            );
-                                          } else {
-                                            final payloadItem =
-                                                Map<String, dynamic>.from(backendItem)
-                                                  ..['status'] = normalized;
-                                            await ApiService.decideApproval(
-                                              item: payloadItem,
-                                              status: normalized,
-                                              sourceHint: src,
-                                            );
-                                          }
-
-                                          _snack('Updated: $normalized');
-                                          await _loadAll(adjustForType: true);
-                                        } catch (e) {
-                                          _snack('Update failed: $e');
-                                        }
-                                      },
-                                    ),
-                                  ),
-                                ),
-                              );
-
-                              return card;
-                            },
-                          ),
+              const SizedBox(width: 6),
+              Text(
+                'Live',
+                style: TextStyle(
+                  color: kTextSub,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.5,
+                ),
               ),
             ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatsRow() {
+    return Row(
+      children: [
+        _buildStatChip(
+          label: 'Pending',
+          count: _cPending,
+          color: const Color(0xFFFFD700),
+          icon: Icons.hourglass_top_rounded,
+        ),
+        const SizedBox(width: 10),
+        _buildStatChip(
+          label: 'Approved',
+          count: _cApproved,
+          color: const Color(0xFF4ADE80),
+          icon: Icons.check_circle_rounded,
+        ),
+        const SizedBox(width: 10),
+        _buildStatChip(
+          label: 'Rejected',
+          count: _cRejected,
+          color: const Color(0xFFFF6B6B),
+          icon: Icons.cancel_rounded,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatChip({
+    required String label,
+    required int count,
+    required Color color,
+    required IconData icon,
+  }) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.15),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withOpacity(0.35), width: 1),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 16),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$count',
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      height: 1.0,
+                    ),
+                  ),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: color.withOpacity(0.8),
+                      fontSize: 9,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilterCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: kCardBg,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: kCardBorder, width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 3,
+                height: 16,
+                decoration: BoxDecoration(
+                  color: kAccentPink,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Request Filters',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: kTextPrimary,
+                  letterSpacing: 0.2,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildDropdown(),
+                const SizedBox(width: 8),
+                _buildStatusButton('Pending', _cPending),
+                const SizedBox(width: 8),
+                _buildStatusButton('Approved', _cApproved),
+                const SizedBox(width: 8),
+                _buildStatusButton('Rejected', _cRejected),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDropdown() {
+    return Container(
+      height: 40,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.25), width: 1),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: selectedTab,
+          onChanged: (val) async {
+            setState(() => selectedTab = val!);
+            await _loadAll(adjustForType: true);
+          },
+          icon: const Icon(
+            Icons.keyboard_arrow_down_rounded,
+            color: Colors.white,
+            size: 18,
+          ),
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+          dropdownColor: const Color(0xFF3D1B7A),
+          borderRadius: BorderRadius.circular(16),
+          items: const [
+            'All',
+            'Late check in',
+            'Early check out',
+            'Leave Type',
+            'Permission',
+            'Over Time',
+            'Half Day Leave',
+            'Comp Off',
+            'Other Location',
+          ]
+              .map(
+                (t) => DropdownMenuItem(
+                  value: t,
+                  child: Text(
+                    t,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              )
+              .toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchBar() {
+    return Container(
+      decoration: BoxDecoration(
+        color: kCardBg,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: kCardBorder, width: 1),
+      ),
+      child: TextField(
+        controller: searchController,
+        onChanged: (_) => setState(() {}),
+        style: const TextStyle(
+          fontSize: 13,
+          color: Colors.white,
+          fontWeight: FontWeight.w500,
+        ),
+        decoration: InputDecoration(
+          hintText: 'Search by employee, type, department...',
+          hintStyle: TextStyle(
+            color: Colors.white.withOpacity(0.45),
+            fontSize: 12,
+          ),
+          prefixIcon: Icon(
+            Icons.search_rounded,
+            color: Colors.white.withOpacity(0.6),
+            size: 20,
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide.none,
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: BorderSide(
+              color: Colors.white.withOpacity(0.5),
+              width: 1.2,
+            ),
+          ),
+          filled: true,
+          fillColor: Colors.transparent,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 14,
           ),
         ),
       ),
     );
   }
 
+  Widget _buildLoadingState() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 44,
+            height: 44,
+            child: CircularProgressIndicator(
+              valueColor:
+                  const AlwaysStoppedAnimation<Color>(Colors.white),
+              strokeWidth: 3,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Loading requests...',
+            style: TextStyle(
+              color: kTextSub,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.1),
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Colors.white.withOpacity(0.2),
+                width: 1,
+              ),
+            ),
+            child: Icon(
+              Icons.inbox_outlined,
+              size: 34,
+              color: Colors.white.withOpacity(0.6),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'No requests found',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Try changing the filter or search text.',
+            style: TextStyle(
+              fontSize: 12,
+              color: kTextMuted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildList(
+      List<int> filteredIndices, List<Map<String, dynamic>> filteredDisplay) {
+    return ListView.separated(
+      padding: const EdgeInsets.only(bottom: 24),
+      physics: const BouncingScrollPhysics(),
+      itemCount: filteredDisplay.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (context, viewIdx) {
+        final backendIdx = filteredIndices[viewIdx];
+        final backendItem = _rows[backendIdx];
+        final viewItem = filteredDisplay[viewIdx];
+
+        final tappable = _isRowTappable(backendItem);
+
+        final requestKey = _pickAnyId(backendItem).isNotEmpty
+            ? _pickAnyId(backendItem)
+            : '${backendItem['empid']}_${backendItem['requestDate']}_${backendItem['type']}';
+
+        return Container(
+          decoration: BoxDecoration(
+            color: kCardBg,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: kCardBorder, width: 1),
+          ),
+          child: Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(20),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(20),
+              splashColor: Colors.white.withOpacity(0.08),
+              highlightColor: Colors.white.withOpacity(0.04),
+              onTap: tappable
+                  ? () => _openDetails(backendItem, viewItem)
+                  : null,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  color: Colors.transparent,
+                ),
+                child: LeaveCard(
+                  item: viewItem,
+                  isProcessing: _processingRequestIds.contains(requestKey),
+                  onStatusChange: (status) async {
+                    if (_processingRequestIds.contains(requestKey)) return;
+
+                    setState(() {
+                      _processingRequestIds.add(requestKey);
+                    });
+
+                    try {
+                      final normalized = _normalizeDecision(status);
+
+                      if (normalized != 'Approved' &&
+                          normalized != 'Rejected') {
+                        throw 'Invalid status "$status"';
+                      }
+
+                      final src = _sourceFromItemOrTab(backendItem);
+
+                      if (src == 'other_location') {
+                        final id = _pickAnyId(backendItem);
+                        if (id.isEmpty) throw 'Missing id for other-location';
+
+                        await ApiService.decideOtherLocation(
+                          id: id,
+                          status: normalized,
+                          remarks: backendItem['decisionRemarks'],
+                        );
+                      } else {
+                        final payloadItem =
+                            Map<String, dynamic>.from(backendItem)
+                              ..['status'] = normalized;
+
+                        await ApiService.decideApproval(
+                          item: payloadItem,
+                          status: normalized,
+                          sourceHint: src,
+                        );
+                      }
+
+                      if (!mounted) return;
+
+                      setState(() {
+                        final oldStatus = (backendItem['status'] ??
+                                backendItem['approvalStatus'] ??
+                                'Pending')
+                            .toString()
+                            .trim();
+
+                        backendItem['status'] = normalized;
+                        backendItem['approvalStatus'] = normalized;
+                        viewItem['status'] = normalized.toLowerCase();
+
+                        if (oldStatus == 'Pending' && _cPending > 0) {
+                          _cPending--;
+                        } else if (oldStatus == 'Approved' &&
+                            _cApproved > 0) {
+                          _cApproved--;
+                        } else if (oldStatus == 'Rejected' &&
+                            _cRejected > 0) {
+                          _cRejected--;
+                        }
+
+                        if (normalized == 'Approved') {
+                          _cApproved++;
+                        } else if (normalized == 'Rejected') {
+                          _cRejected++;
+                        }
+
+                        if (selectedStatusFilter == 'Pending') {
+                          _rows.removeAt(backendIdx);
+                        } else {
+                          _rows[backendIdx] = backendItem;
+                        }
+                      });
+
+                      _snack('Updated: $normalized');
+                    } catch (e) {
+                      _snack('Update failed: $e');
+                    } finally {
+                      if (mounted) {
+                        setState(() {
+                          _processingRequestIds.remove(requestKey);
+                        });
+                      }
+                    }
+                  },
+                  onPayrollStatusChange: (payrollStatus) async {
+                    try {
+                      if (payrollStatus != 'paid' &&
+                          payrollStatus != 'unpaid') {
+                        throw 'Invalid payroll status "$payrollStatus"';
+                      }
+
+                      final requestId = _pickAnyId(backendItem);
+                      final source = _sourceFromItemOrTab(backendItem);
+
+                      if (requestId.isEmpty) throw 'Missing request ID';
+
+                      await ApiService.updateLeavePayrollStatus(
+                        requestId: requestId,
+                        payrollStatus: payrollStatus,
+                        source: source,
+                      );
+
+                      _snack(
+                        'Marked as ${payrollStatus == 'paid' ? 'Paid' : 'Unpaid'}',
+                      );
+                      await _loadAll(adjustForType: true);
+                    } catch (e) {
+                      _snack('Payroll status update failed: $e');
+                    }
+                  },
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildStatusButton(String label, int count) {
     final isSelected = selectedStatusFilter == label;
 
-    final Color bgColor = label == 'Pending'
-        ? const Color(0xFFFFE4EF)
+    final Color activeColor = label == 'Pending'
+        ? const Color(0xFFFFD700)
         : label == 'Approved'
-            ? const Color(0xFFE2F7EA)
-            : const Color(0xFFFFE4E4);
-
-    final Color selectedColor = label == 'Pending'
-        ? const Color(0xFFE85C9E)
-        : label == 'Approved'
-            ? const Color(0xFF33A96B)
-            : const Color(0xFFD95C5C);
-
-    final Color textColor = isSelected ? Colors.white : const Color(0xFF3D3150);
+            ? const Color(0xFF4ADE80)
+            : const Color(0xFFFF6B6B);
 
     return GestureDetector(
       onTap: () async {
@@ -1023,30 +1413,36 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
         await _loadAll();
       },
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
         decoration: BoxDecoration(
-          color: isSelected ? selectedColor : bgColor,
-          borderRadius: BorderRadius.circular(14),
+          color: isSelected
+              ? activeColor.withOpacity(0.22)
+              : Colors.white.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? selectedColor : const Color(0xFFE4DDF0),
+            color: isSelected
+                ? activeColor.withOpacity(0.6)
+                : Colors.white.withOpacity(0.15),
+            width: 1,
           ),
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: selectedColor.withOpacity(0.20),
-                    blurRadius: 10,
+                    color: activeColor.withOpacity(0.25),
+                    blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
                 ]
-              : const [],
+              : [],
         ),
         child: Text(
           '$label ($count)',
           style: TextStyle(
             fontWeight: FontWeight.w700,
-            fontSize: 12,
-            color: textColor,
+            fontSize: 11,
+            color: isSelected ? activeColor : Colors.white.withOpacity(0.65),
+            letterSpacing: 0.2,
           ),
         ),
       ),

@@ -134,7 +134,7 @@ class MyApp extends StatelessWidget {
           child: wrapped,
         );
       },
-      home: const AuthGuard(),
+      home: AuthGuard(),
       routes: {
         '/login': (context) => const LoginPage(),
         '/leave': (context) => const LeavePage(),

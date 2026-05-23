@@ -2,12 +2,11 @@ import { Router } from 'express';
 
 import * as shiftController from '../controllers/shiftController';
 
-import { verifyToken, isAdmin} from '../middlewares/authMiddleware';
-
+import { verifyToken, isAdmin, roleMiddleware } from '../middlewares/authMiddleware';
 
 
 const router = Router();
-
+const isUserOrAdmin = roleMiddleware(['admin', 'employee']);
 
 
 /**
@@ -26,9 +25,9 @@ const router = Router();
 
 router.post('/', verifyToken, isAdmin, shiftController.createShift);
 
-router.get('/', verifyToken, isAdmin, shiftController.getAllShifts);
+router.get('/', verifyToken, isUserOrAdmin, shiftController.getAllShifts);
 
-router.get('/:id', verifyToken, isAdmin, shiftController.getShiftById);
+router.get('/:id', verifyToken, isUserOrAdmin, shiftController.getShiftById);
 
 router.put('/:id', verifyToken, isAdmin, shiftController.updateShift);
 

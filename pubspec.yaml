@@ -19,7 +19,6 @@ dependencies:
   image_picker_web: ^4.0.0
   file_picker: ^10.2.0
   open_filex: ^4.7.0
-  
 
   # --- FlutterFire ---
   firebase_core: ^4.0.0
@@ -41,7 +40,6 @@ dependencies:
   url_launcher: ^6.2.1
   google_fonts: ^6.2.1
 
-
   # Storage/paths/JWT
   path_provider: ^2.0.12
   path: ^1.8.0
@@ -61,17 +59,16 @@ dependencies:
   local_auth_ios: ^1.1.7
   google_maps_flutter_web: ^0.5.14+2
 
-  # ✅ Backgrounds
+  # Background services
   workmanager: ^0.9.0+3
   geocoding: ^4.0.0
 
-  # ✅ NEW: real foreground service + battery settings + Android 13 notif permission
+  # Foreground service + battery settings + Android notification permission
   flutter_background_service: ^5.0.6
   flutter_background_service_android: ^6.2.2
-  # For opening Battery Optimization / Settings screens
   android_intent_plus: ^5.0.2
 
-  # Status-bar notification for the foreground service (Android 13+ permission too)
+  # Status-bar notification for the foreground service
   flutter_local_notifications: ^19.4.2
   connectivity_plus: ^6.0.5
   internet_connection_checker_plus: ^2.3.0
@@ -79,6 +76,7 @@ dependencies:
 
   local_auth_android: any
   cross_file: any
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -87,42 +85,31 @@ dev_dependencies:
   flutter_native_splash: ^2.4.1
 
 flutter_launcher_icons:
-  # Generate icons for both platforms
   android: "ic_launcher"
-  ios: true
+  ios: false
 
   min_sdk_android: 21
 
-  # Base image used by iOS and as a fallback
-  image_path: "assets/images/splash_logo.png"
+  image_path: "assets/icons/serv_app_icon.png"
 
-  # Adaptive icons (Android 8+)
-  adaptive_icon_foreground: "assets/images/splash2.jpg"
+  adaptive_icon_foreground: "assets/icons/serv_app_icon.png"
   adaptive_icon_background: "#FFFFFF"
 
-# Splash screen configuration
 flutter_native_splash:
-  # Basic settings
-  color: "#FFFFFF"            # BLACK background (changed)
-  color_dark: "#FFFFFF"       # BLACK in dark mode (changed)
-  
-  # Image settings
-  image: assets/images/splash_logo.png
+  color: "#FFFFFF"
+  color_dark: "#FFFFFF"
+
+  image: assets/images/native_splash_logo.png
   android: true
   android_gravity: center
-  fullscreen: false
-  
-  # Android 12+ specific settings
+  fullscreen: true
+
   android_12:
-    image: assets/images/splash_logo.png
-    icon_background_color: "#FFFFFF"   # BLACK behind icon (changed)
-    android_gravity: center
-    
-  # iOS settings
-  ios: true
-  ios_content_mode: center
-  
-  # Web settings (disable if not needed)
+    color: "#FFFFFF"
+    image: assets/images/native_splash_logo.png
+    icon_background_color: "#FFFFFF"
+
+  ios: false
   web: false
 
 flutter:

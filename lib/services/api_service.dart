@@ -636,39 +636,92 @@ static Future<Map<String, String>> _authHeaders({bool json = true}) async {
     return <String, dynamic>{};
   }
 
-  static Future<List<Map<String, dynamic>>> fetchAttendanceApprovals({String? status}) async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/attendance/approvals?status=${status ?? ""}'),
-      headers: await _authHeaders(),
-    );
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return List<Map<String, dynamic>>.from(data);
+  static String _extractErrorMessage(http.Response response) {
+  try {
+    final decoded = jsonDecode(response.body);
+    if (decoded is Map && decoded['message'] != null) {
+      return decoded['message'].toString();
     }
-    return [];
+    if (decoded is Map && decoded['error'] != null) {
+      return decoded['error'].toString();
+    }
+  } catch (_) {}
+
+  return response.body.isNotEmpty
+      ? response.body
+      : 'Request failed. Please try again.';
+}
+
+static Future<List<Map<String, dynamic>>> fetchAttendanceApprovals({
+  String? status,
+}) async {
+  final response = await http.get(
+    Uri.parse('$baseUrl/attendance/approvals?status=${status ?? ""}'),
+    headers: await _authHeaders(),
+  );
+
+  if (response.statusCode == 200) {
+    final data = jsonDecode(response.body);
+    return List<Map<String, dynamic>>.from(data);
   }
 
-  static Future<List<Map<String, dynamic>>> fetchLeaveApprovals({String? status}) async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/attendance/approvals?status=${status ?? ""}'),
-      headers: await _authHeaders(),
-    );
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return List<Map<String, dynamic>>.from(data);
-    }
-    return [];
+  throw Exception(
+    'Attendance approvals ${response.statusCode}: ${_extractErrorMessage(response)}',
+  );
+}
+
+static Future<List<Map<String, dynamic>>> fetchLeaveApprovals({
+  String? status,
+}) async {
+  final response = await http.get(
+    Uri.parse('$baseUrl/attendance/approvals?status=${status ?? ""}'),
+    headers: await _authHeaders(),
+  );
+
+  if (response.statusCode == 200) {
+    final data = jsonDecode(response.body);
+    return List<Map<String, dynamic>>.from(data);
   }
 
-  static Future<List<Map<String, dynamic>>> fetchOtherLocationApprovals({String? status}) async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/attendance/other-location?status=${status ?? ""}'),
+  throw Exception(
+    'Leave approvals ${response.statusCode}: ${_extractErrorMessage(response)}',
+  );
+}
+
+static Future<List<Map<String, dynamic>>> fetchOtherLocationApprovals({
+  String? status,
+}) async {
+  final response = await http.get(
+    Uri.parse('$baseUrl/attendance/other-location?status=${status ?? ""}'),
+    headers: await _authHeaders(),
+  );
+
+  if (response.statusCode == 200) {
+    final data = jsonDecode(response.body);
+    return List<Map<String, dynamic>>.from(data);
+  }
+
+  throw Exception(
+    'Other location approvals ${response.statusCode}: ${_extractErrorMessage(response)}',
+  );
+}
+
+  static Future<void> updateLeavePayrollStatus({
+    required String requestId,
+    required String payrollStatus,
+    required String source,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/attendance/approvals/$requestId/payroll-status'),
       headers: await _authHeaders(),
+      body: jsonEncode({
+        'source': source,
+        'payrollStatus': payrollStatus,
+      }),
     );
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return List<Map<String, dynamic>>.from(data);
+    
+    if (response.statusCode != 200) {
+      throw Exception('Failed to update payroll status: ${response.statusCode}');
     }
-    return [];
   }
 }

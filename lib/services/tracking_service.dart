@@ -4,7 +4,9 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/services/connectivity_service.dart';
 
 /// Foreground-only tracker that guarantees one save every 20 minutes,
 /// trying hard to get ≤ 5 m accuracy before posting.
@@ -18,15 +20,18 @@ class TrackingService {
   Timer? _periodic;
   bool _sending = false; // serialize ticks so they don't overlap
   StreamSubscription<Position>? _positionStream; // kept as-is
+  StreamSubscription<bool>? _connectivitySubscription; // connectivity listener
+  bool? _lastConnectivityState; // track last known state to detect transitions
 
   // Cadence & thresholds
-  static const Duration kInterval = Duration(minutes: 20);
+  static const Duration kInterval = Duration(minutes: 15);
   static const Duration kBurstTimeout =
       Duration(seconds: 120); // up to 2 min to hunt a great fix
   static const Duration kStreamMinSampleGap =
       Duration(seconds: 5); // Increased from 1s to reduce redundant points
   static const double kTargetAccuracyMeters =
       20.0; // Reduced from 100m to 20m for better precision
+  static const String _kPendingLocationsKey = 'tracking_pending_locations';
 
   TrackingService({
     required this.apiBase,
@@ -45,6 +50,7 @@ class TrackingService {
 
     print('[TrackingService] LOG: Starting tracking service for empId: $empId');
     await _ensureLocationPermission();
+    await _syncPendingLocations();
 
     // (Optional) make sure a tracking doc/session exists server-side
     try {
@@ -75,29 +81,44 @@ class TrackingService {
       }
     }
 
-    // Only periodic capture is kept
-    _periodic?.cancel();
-    _periodic = Timer.periodic(kInterval, (_) async {
-      if (_sending) return;
-      _sending = true;
-      try {
-        await _captureBestFixAndSend();
-        if (kDebugMode) {
-          print('[TrackingService] periodic location capture completed');
-        }
-      } finally {
-        _sending = false;
-      }
-    });
+    // ✅ FIXED: Periodic location posting is now delegated to Foreground Service
+    // Foreground Service runs in a background isolate and continues when app minimizes.
+    // This eliminates duplicate 20-min periodic posts (TrackingService was redundant).
+    // TrackingService now focuses on:
+    // - Initial location capture at check-in (done above)
+    // - Pending sync on connectivity restore (below)
+    // - Cleanup on check-out (in stopAfterCheckOut)
+    if (_periodic != null) {
+      _periodic!.cancel();
+      _periodic = null;
+    }
+    if (kDebugMode) {
+      print('[TrackingService] periodic location posting delegated to Foreground Service');
+    }
+
+    // ✅ NEW: Start listening to connectivity changes to trigger sync on offline→online
+    _listenToConnectivityChanges();
 
     if (kDebugMode) {
-      print('[TrackingService] started (every ${kInterval.inMinutes} min) with periodic timer only');
+      print('[TrackingService] started with connectivity listener (periodic posting delegated to FG service)');
     }
   }
 
   Future<void> stopAfterCheckOut() async {
     if (kDebugMode) {
       print('[TrackingService] stopping tracking service...');
+    }
+
+    await _syncPendingLocations();
+
+    // Cancel connectivity subscription
+    if (_connectivitySubscription != null) {
+      await _connectivitySubscription!.cancel();
+      _connectivitySubscription = null;
+      _lastConnectivityState = null;
+      if (kDebugMode) {
+        print('[TrackingService] connectivity subscription cancelled');
+      }
     }
 
     // Cancel periodic timer
@@ -181,8 +202,121 @@ class TrackingService {
     }
   }
 
+  // ---------- GPS Accuracy Improvement ----------
+  /// ✅ NEW: Capture multiple GPS samples and select best position.
+  /// Stops early if accuracy <= 10m.
+  /// Returns null if all samples exceed maxAccuracy (50m dev, 30m production).
+  /// Uses bestForNavigation accuracy for best results.
+  Future<Position?> _captureBestPositionWithSampling({
+    int maxSamples = 5,
+    double targetAccuracyMeters = 10.0,
+    double maxAccuracyMeters = 50.0,
+    Duration sampleTimeout = const Duration(seconds: 15),
+    Duration totalTimeout = const Duration(seconds: 120),
+  }) async {
+    try {
+      final startTime = DateTime.now();
+      Position? bestPosition;
+      int sampleCount = 0;
+
+      if (kDebugMode) {
+        print('[TrackingService] starting GPS sampling: max=$maxSamples, target=$targetAccuracyMeters m, max=$maxAccuracyMeters m');
+      }
+
+      // Try quick single-shots first
+      for (int i = 0; i < maxSamples; i++) {
+        final elapsed = DateTime.now().difference(startTime);
+        if (elapsed.inMilliseconds > totalTimeout.inMilliseconds) {
+          if (kDebugMode) {
+            print('[TrackingService] sampling timeout reached after $sampleCount samples');
+          }
+          break;
+        }
+
+        try {
+          sampleCount++;
+          final pos = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.bestForNavigation,
+            timeLimit: sampleTimeout,
+          );
+
+          if (bestPosition == null || pos.accuracy < bestPosition.accuracy) {
+            bestPosition = pos;
+            if (kDebugMode) {
+              print('[TrackingService] sample $sampleCount: acc=${pos.accuracy.toStringAsFixed(1)}m (best so far)');
+            }
+          }
+
+          // Early exit if accuracy is excellent
+          if (pos.accuracy <= targetAccuracyMeters) {
+            if (kDebugMode) {
+              print('[TrackingService] target accuracy reached after $sampleCount samples, stopping');
+            }
+            break;
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            print('[TrackingService] sample $sampleCount failed: $e');
+          }
+          // Continue to next sample on error
+          await Future.delayed(const Duration(milliseconds: 500));
+        }
+      }
+
+      // Validate final position
+      if (bestPosition == null) {
+        if (kDebugMode) {
+          print('[TrackingService] no valid GPS position obtained');
+        }
+        return null;
+      }
+
+      if (bestPosition.accuracy > maxAccuracyMeters) {
+        if (kDebugMode) {
+          print('[TrackingService] SKIPPED: accuracy=${bestPosition.accuracy.toStringAsFixed(1)}m exceeds max=${maxAccuracyMeters}m after $sampleCount samples');
+        }
+        return null;
+      }
+
+      if (kDebugMode) {
+        print('[TrackingService] selected best position: acc=${bestPosition.accuracy.toStringAsFixed(1)}m lat=${bestPosition.latitude} lng=${bestPosition.longitude}');
+      }
+      return bestPosition;
+    } catch (e) {
+      if (kDebugMode) {
+        print('[TrackingService] GPS sampling error: $e');
+      }
+      return null;
+    }
+  }
+
   // ---------- Core: capture best and POST ----------
+  /// Called once at check-in to capture initial location with high accuracy.
+  /// Periodic capture (every 20 minutes) is now handled by Foreground Service.
+  /// This method ensures the first location is posted as soon as possible after check-in.
   Future<void> _captureBestFixAndSend() async {
+    await _syncPendingLocations();
+
+    final best = await _captureBestPositionWithSampling(
+      maxSamples: 5,
+      targetAccuracyMeters: 10.0,
+      maxAccuracyMeters: 50.0,
+      sampleTimeout: const Duration(seconds: 15),
+      totalTimeout: const Duration(seconds: 120),
+    );
+
+    if (best != null) {
+      await _postPos(best, tag: 'fg-sampling');
+    } else {
+      if (kDebugMode) {
+        print('[TrackingService] initial check-in location rejected due to poor accuracy');
+      }
+    }
+  }
+
+  Future<void> _captureBestFixAndSend_OLD() async {
+    await _syncPendingLocations();
+
     Position? best;
     DateTime lastSampleAt = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -244,30 +378,149 @@ class TrackingService {
   }
 
   Future<void> _postPos(Position p, {required String tag}) async {
+    final payload = {
+      'empid': empId,
+      'lat': p.latitude,
+      'lng': p.longitude,
+      'accuracy': p.accuracy,
+      'source': tag,
+      'ts': DateTime.now().toIso8601String(),
+    };
+
     try {
       final response = await http.post(
         Uri.parse('${ApiService.baseUrl}/tracking/pos'),
         headers: _headers(),
-        body: jsonEncode({
-          'empid': empId,
-          'lat': p.latitude,
-          'lng': p.longitude,
-          'accuracy': p.accuracy,
-          'source': tag,
-          'ts': DateTime.now().toIso8601String(),
-        }),
+        body: jsonEncode(payload),
       );
 
       if (kDebugMode) {
         print(
           '[TrackingService] posted lat=${p.latitude}, lng=${p.longitude}, acc=${p.accuracy}m ($tag), status=${response.statusCode}',
         );
-        print('[TrackingService] response body: ${response.body}');
+        // print('[TrackingService] response body: ${response.body}');
+      }
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        if (kDebugMode) {
+          print('[TrackingService] post failed, queuing payload');
+        }
+        await _enqueuePendingLocation(payload);
       }
     } catch (e) {
       if (kDebugMode) {
         print('[TrackingService] post error: $e');
+        print('[TrackingService] queuing payload for retry');
       }
+      await _enqueuePendingLocation(payload);
+    }
+  }
+
+  Future<SharedPreferences> _prefs() => SharedPreferences.getInstance();
+
+  Future<List<Map<String, dynamic>>> _loadPendingLocations() async {
+    final prefs = await _prefs();
+    final raw = prefs.getStringList(_kPendingLocationsKey) ?? <String>[];
+    return raw
+        .map((entry) => jsonDecode(entry) as Map<String, dynamic>)
+        .toList();
+  }
+
+  Future<void> _savePendingLocations(List<Map<String, dynamic>> items) async {
+    final prefs = await _prefs();
+    final encoded = items.map((item) => jsonEncode(item)).toList();
+    await prefs.setStringList(_kPendingLocationsKey, encoded);
+  }
+
+  Future<void> _enqueuePendingLocation(Map<String, dynamic> payload) async {
+    final pending = await _loadPendingLocations();
+    pending.add(payload);
+    await _savePendingLocations(pending);
+  }
+
+  Future<void> _syncPendingLocations() async {
+    final pending = await _loadPendingLocations();
+    if (pending.isEmpty) return;
+
+    if (kDebugMode) {
+      print('[TrackingService] syncing ${pending.length} pending location(s)');
+    }
+
+    final kept = <Map<String, dynamic>>[];
+    for (final item in pending) {
+      try {
+        final response = await http.post(
+          Uri.parse('${ApiService.baseUrl}/tracking/pos'),
+          headers: _headers(),
+          body: jsonEncode(item),
+        );
+
+        if (kDebugMode) {
+          print('[TrackingService] sync pending status=${response.statusCode} item=$item');
+        }
+
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          kept.add(item);
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('[TrackingService] sync pending error: $e');
+        }
+        kept.add(item);
+      }
+    }
+
+    await _savePendingLocations(kept);
+    if (kDebugMode) {
+      print('[TrackingService] pending queue saved (${kept.length} left)');
+    }
+  }
+
+  /// ✅ NEW: Listen to connectivity changes and sync when offline→online.
+  /// Prevents duplicate syncs by checking _sending flag.
+  void _listenToConnectivityChanges() {
+    // Cancel any existing subscription first
+    _connectivitySubscription?.cancel();
+    _lastConnectivityState = null;
+
+    _connectivitySubscription =
+        ConnectivityService.I.online$.listen((isOnline) {
+      if (kDebugMode) {
+        print('[TrackingService] connectivity changed: isOnline=$isOnline');
+      }
+
+      // Detect transition: was offline, now online
+      if (_lastConnectivityState == false && isOnline == true) {
+        if (kDebugMode) {
+          print('[TrackingService] offline→online transition detected, triggering sync');
+        }
+
+        // Only sync if not already in a periodic/manual sync
+        if (!_sending) {
+          _sending = true;
+          _syncPendingLocations().then((_) {
+            _sending = false;
+            if (kDebugMode) {
+              print('[TrackingService] connectivity-triggered sync completed');
+            }
+          }).catchError((e) {
+            _sending = false;
+            if (kDebugMode) {
+              print('[TrackingService] connectivity-triggered sync error: $e');
+            }
+          });
+        } else {
+          if (kDebugMode) {
+            print('[TrackingService] sync already in progress, skipping duplicate trigger');
+          }
+        }
+      }
+
+      _lastConnectivityState = isOnline;
+    });
+
+    if (kDebugMode) {
+      print('[TrackingService] connectivity listener started');
     }
   }
 

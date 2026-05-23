@@ -265,7 +265,7 @@ Future<void> _loadAndDrawPath() async {
     ).timeout(const Duration(seconds: 15));
 
     _log('TRACK RES: ${res.statusCode}');
-    debugPrint('[TRACKING] Response body: ${res.body}');
+    debugPrint('[MY_TRACK] Full response body: ${res.body}');
     
     if (res.statusCode >= 400) {
       if (!mounted) return;
@@ -301,13 +301,20 @@ Future<void> _loadAndDrawPath() async {
     }
 
     var points = _parseTrackPoints(raw);
-    debugPrint('[TRACKING] Parsed points count: ${points.length}');
+    debugPrint('[MY_TRACK] parsed points count: ${points.length}');
     if (points.isNotEmpty) {
-      debugPrint('[TRACKING] First parsed point: lat=${points.first.lat}, lng=${points.first.lng}');
+      debugPrint('[MY_TRACK] First parsed point: lat=${points.first.lat}, lng=${points.first.lng}');
+      debugPrint('[MY_TRACK] Last parsed point: lat=${points.last.lat}, lng=${points.last.lng}');
     }
     
-    points = _simplifyByDistance(points, minMeters: 10);
-    debugPrint('[TRACKING] Simplified points count: ${points.length}');
+    // TEMPORARY: Bypass simplification for debugging
+    final simplified = points;
+    debugPrint('[MY_TRACK] simplified points count (bypass): ${simplified.length}');
+    if (simplified.isNotEmpty) {
+      for (int i = 0; i < simplified.length; i++) {
+        debugPrint('[MY_TRACK] Point[$i]: lat=${simplified[i].lat}, lng=${simplified[i].lng}, ts=${simplified[i].ts}');
+      }
+    }
 
     if (points.isEmpty) {
       if (!mounted) return;
@@ -320,7 +327,7 @@ Future<void> _loadAndDrawPath() async {
       return;
     }
 
-    final latLngs = points.map((p) => p.ll).toList(growable: false);
+    final latLngs = simplified.map((p) => p.ll).toList(growable: false);
 
     final Set<Polyline> polylines = (latLngs.length >= 2)
         ? {
@@ -333,7 +340,7 @@ Future<void> _loadAndDrawPath() async {
           }
         : {};
 
-    final markers = _buildMarkers(points);
+    final markers = _buildMarkers(simplified);
 
     if (!mounted) return;
     setState(() {

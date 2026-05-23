@@ -81,6 +81,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   List<Map<String, String>>? _cachedReasons;
   bool _reasonsLoading = false;
   bool _isAttendanceStatusLoading = false;
+  bool _hasAttendanceApiConfirmed = false;
 
   // ✅ SAFETY: Cache the user info future to prevent duplicate calls
   Future<void>? _loadUserInfoFuture;
@@ -557,6 +558,7 @@ Future<void> _loadTodayStatus() async {
   if (!mounted) return;
   setState(() {
     _isAttendanceStatusLoading = true;
+    _hasAttendanceApiConfirmed = false;
   });
 
   if (_lastStatusFetch != null &&
@@ -565,6 +567,7 @@ Future<void> _loadTodayStatus() async {
     if (!mounted) return;
     setState(() {
       _isAttendanceStatusLoading = false;
+      _hasAttendanceApiConfirmed = true;
     });
     return;
   }
@@ -576,6 +579,7 @@ Future<void> _loadTodayStatus() async {
     if (!mounted) return;
     setState(() {
       _isAttendanceStatusLoading = false;
+      _hasAttendanceApiConfirmed = true;
     });
     return;
   }
@@ -663,6 +667,7 @@ Future<void> _loadTodayStatus() async {
     if (!mounted) return;
     setState(() {
       _isAttendanceStatusLoading = false;
+      _hasAttendanceApiConfirmed = true;
     });
   }
 }
@@ -835,12 +840,13 @@ Future<Position?> _getPositionUsingDemo({
 }  
 
   // High-accuracy location fetching with validation
-  Future<Position?> _getHighAccuracyPosition({
-    bool quiet = false,
-    double maxAccuracyMeters = 50.0, // Updated to 50 meters threshold
-    int maxRetries = 3,
-    Duration timeout = const Duration(seconds: 15),
-  }) async {
+   Future<Position?> _getHighAccuracyPosition({
+     bool quiet = false,
+     String actionLabel = 'check-in',
+     double maxAccuracyMeters = 50.0,
+     int maxRetries = 3,
+     Duration timeout = const Duration(seconds: 15),
+   }) async {
     debugPrint('[GPS] Starting high-accuracy location fetch...');
     debugPrint('[GPS] Required accuracy: ≤${maxAccuracyMeters}m');
     
@@ -951,16 +957,18 @@ Future<Position?> _getPositionUsingDemo({
         debugPrint('[GPS] ✅ ACCEPTED: lat=${bestPosition.latitude.toStringAsFixed(6)}, lng=${bestPosition.longitude.toStringAsFixed(6)}, accuracy=${bestPosition.accuracy.toStringAsFixed(1)}m');
         
         // Clear the improving message and show success
-        if (!quiet && mounted) {
-          ScaffoldMessenger.of(context).clearSnackBars();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('✅ Location accurate (${bestPosition.accuracy.toStringAsFixed(1)}m) - Proceeding with check-in'),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        }
+//         if (!quiet && mounted) {
+//           ScaffoldMessenger.of(context).clearSnackBars();
+//           ScaffoldMessenger.of(context).showSnackBar(
+//             SnackBar(
+//               content: Text(
+//   '✅ Location accurate (${bestPosition.accuracy.toStringAsFixed(1)}m) - Proceeding with $actionLabel',
+// ),
+//               backgroundColor: Colors.green,
+//               duration: const Duration(seconds: 2),
+//             ),
+//           );
+//         }
         
         return bestPosition;
       } else {
@@ -1316,29 +1324,35 @@ Future<Position?> _getPositionUsingDemo({
   }
 
   Future<bool> _confirmOutside(
-    double distance,
-    double radius,
-    String branchName,
-  ) async {
-    return await showDialog<bool>(
-          context: context,
-          builder: (c) => AlertDialog(
-            title: const Text('Other location'),
-            content: const Text(
-              'You are in other location. Do you want to proceed with check-in here?',
-            ),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(c, false),
-                  child: const Text('Cancel')),
-              TextButton(
-                  onPressed: () => Navigator.pop(c, true),
-                  child: const Text('Proceed')),
-            ],
+  double distance,
+  double radius,
+  String branchName, {
+  String actionLabel = 'check-in',
+}) async {
+  return await showDialog<bool>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: const Text('Other location'),
+          content: Text(
+            'You are outside the office location for $branchName.\n\n'
+            'Distance from branch: ${distance.toStringAsFixed(1)}m\n'
+            'Allowed radius: ${radius.toStringAsFixed(1)}m\n\n'
+            'Do you want to proceed with $actionLabel?',
           ),
-        ) ??
-        false;
-  }
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('Proceed'),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+}
 
   String? _detectCheckInCategory() {
   if (_isOpenShift(selectedShift)) return null;
@@ -1866,7 +1880,9 @@ Future<void> _performCheckIn(String type) async {
     if (category.isNotEmpty && reasonInfo == null) return;
   }
 
-  final pos = await _getHighAccuracyPosition();
+  final pos = await _getHighAccuracyPosition(
+  actionLabel: 'check-in',
+ );
   if (pos == null) return;
 
   final branch = await _fetchMyBranch();
@@ -1890,15 +1906,22 @@ Future<void> _performCheckIn(String type) async {
     within = distance <= branch.radius;
 
     if (!within) {
-      final ok = await _confirmOutside(distance, branch.radius, branch.name);
+      final ok = await _confirmOutside(
+  distance,
+  branch.radius,
+  branch.name,
+  actionLabel: 'check-in',
+);
       if (!ok) return;
     }
   } else {
     final ok = await _confirmOutside(
-      0,
-      0,
-      location.isEmpty ? 'Unknown' : location,
+     0,
+     0,
+     location.isEmpty ? 'Unknown' : location,
+     actionLabel: 'check-in',
     );
+    
     if (!ok) return;
     within = false;
   }
@@ -1938,6 +1961,8 @@ Future<void> _performCheckIn(String type) async {
 
   final now = DateTime.now();
   setState(() {
+    _isAttendanceStatusLoading = true;
+    _hasAttendanceApiConfirmed = false;
     isCheckedIn = true;
     _checkInSource = type.toLowerCase();
     _checkInTime = now;
@@ -1982,7 +2007,11 @@ Future<void> _performCheckIn(String type) async {
       );
 
       if (!mounted) return;
-      setState(() => _checkInSource = '');
+      setState(() {
+        _checkInSource = '';
+        _isAttendanceStatusLoading = false;
+        _hasAttendanceApiConfirmed = true;
+      });
       _showInfoDialog('Already checked in today');
       return;
     }
@@ -2008,6 +2037,9 @@ Future<void> _performCheckIn(String type) async {
       
       debugPrint('[TRACKING] Tracking start functions called - UI state: isCheckedIn=$isCheckedIn, isTrackingStarted=false');
 
+      _lastStatusFetch = null;
+      await _loadTodayStatus();
+
       if (!mounted) return;
       _showSuccessDialog(
         responseData['message']?.toString() ?? 'Checked in successfully!',
@@ -2025,7 +2057,11 @@ Future<void> _performCheckIn(String type) async {
     );
 
     if (!mounted) return;
-    setState(() => _checkInSource = '');
+    setState(() {
+      _checkInSource = '';
+      _isAttendanceStatusLoading = false;
+      _hasAttendanceApiConfirmed = true;
+    });
     _showErrorDialog(message);
   } catch (e) {
     await _rollbackAfterFailedCheckIn(
@@ -2038,7 +2074,11 @@ Future<void> _performCheckIn(String type) async {
     );
 
     if (!mounted) return;
-    setState(() => _checkInSource = '');
+    setState(() {
+      _checkInSource = '';
+      _isAttendanceStatusLoading = false;
+      _hasAttendanceApiConfirmed = true;
+    });
     _showErrorDialog(_getUserFriendlyErrorMessage(e));
   }
 }
@@ -2109,7 +2149,10 @@ Future<void> _performCheckIn(String type) async {
         }
       }
 
-      final pos = await _getHighAccuracyPosition(quiet: silent);
+      final pos = await _getHighAccuracyPosition(
+  quiet: silent,
+  actionLabel: 'check-out',
+ );
       if (pos == null) {
         if (!silent) _showErrorDialog('Could not determine location');
         return;
@@ -2121,20 +2164,61 @@ Future<void> _performCheckIn(String type) async {
       String branchName = location;
       double expLat = 0, expLng = 0, expRad = 0;
 
-      if (branch != null) {
-        branchName = branch.name;
-        expLat = branch.lat;
-        expLng = branch.lng;
-        expRad = branch.radius;
-        distance = _distanceMeters(
-          lat1: pos.latitude,
-          lng1: pos.longitude,
-          lat2: branch.lat,
-          lng2: branch.lng,
-        );
-        within = distance <= branch.radius;
-      }
+    if (branch != null) {
+  branchName = branch.name;
+  expLat = branch.lat;
+  expLng = branch.lng;
+  expRad = branch.radius;
 
+  distance = _distanceMeters(
+    lat1: pos.latitude,
+    lng1: pos.longitude,
+    lat2: branch.lat,
+    lng2: branch.lng,
+  );
+
+  within = distance <= branch.radius;
+
+  debugPrint('[CHECKOUT RADIUS] Branch: $branchName');
+  debugPrint('[CHECKOUT RADIUS] Distance: ${distance.toStringAsFixed(2)}m');
+  debugPrint('[CHECKOUT RADIUS] Radius: ${branch.radius.toStringAsFixed(2)}m');
+  debugPrint('[CHECKOUT RADIUS] Within radius: $within');
+
+  if (!within) {
+    final ok = await _confirmOutside(
+      distance,
+      branch.radius,
+      branch.name,
+      actionLabel: 'check-out',
+    );
+
+    if (!ok) {
+      if (!silent) {
+        _showInfoDialog('Checkout cancelled');
+      }
+      return;
+    }
+  }
+} else {
+  debugPrint('[CHECKOUT RADIUS] Branch not found. Asking confirmation.');
+
+  final ok = await _confirmOutside(
+    0,
+    0,
+    location.isEmpty ? 'Unknown location' : location,
+    actionLabel: 'check-out',
+  );
+
+  if (!ok) {
+    if (!silent) {
+      _showInfoDialog('Checkout cancelled');
+    }
+    return;
+  }
+
+  within = false;
+  branchName = location.isEmpty ? 'Unknown location' : location;
+}
       final token = CompanyData.token;
       final url = Uri.parse('${ApiService.baseUrl}/attendance/check-out');
 
@@ -2540,7 +2624,12 @@ ShiftTimes? _getShiftTimes(String shift) {
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
                               Text(
-                                'In: ${_formatTime(_checkInTime)}',
+                                !_hasAttendanceApiConfirmed ||
+                                        _isAttendanceStatusLoading
+                                    ? 'In: Syncing attendance...'
+                                    : _checkInTime != null
+                                        ? 'In: ${_formatTime(_checkInTime)}'
+                                        : 'In: Not checked in',
                                 style: TextStyle(
                                     fontSize: 14,
                                     color: isCheckedIn
@@ -2550,7 +2639,12 @@ ShiftTimes? _getShiftTimes(String shift) {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                'Out: ${_formatTime(_checkOutTime)}',
+                                !_hasAttendanceApiConfirmed ||
+                                        _isAttendanceStatusLoading
+                                    ? 'Out: Syncing attendance...'
+                                    : _checkOutTime != null
+                                        ? 'Out: ${_formatTime(_checkOutTime)}'
+                                        : 'Out: Not checked out',
                                 style: TextStyle(
                                   fontSize: 14,
                                   color: _checkOutTime != null
@@ -2574,8 +2668,8 @@ ShiftTimes? _getShiftTimes(String shift) {
                               final formattedDate = "${today.day.toString().padLeft(2, '0')}-${today.month.toString().padLeft(2, '0')}-${today.year}";
                               
                               // Debug logs
-                              print("ATTENDANCE DATE API: $_checkInTime");
-                              print("FORMATTED DATE: $formattedDate");
+                              // print("ATTENDANCE DATE API: $_checkInTime");
+                              // print("FORMATTED DATE: $formattedDate");
                               
                               // Use check-in date if available, otherwise today's date
                               if (_checkInTime != null) {
@@ -2600,48 +2694,38 @@ ShiftTimes? _getShiftTimes(String shift) {
                   height: 96,
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(40),
-                    child: Image.asset('assets/images/splash2.jpg',
+                    child: Image.asset('assets/images/native_splash_logo-removebg.png',
                         fit: BoxFit.contain),
                   ),
                 ),
                 const SizedBox(height: 15),
-                // Show loading state while fetching attendance status
-                if (_isAttendanceStatusLoading)
-                  const Text(
-                    'Syncing attendance...',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Color.fromARGB(255, 169, 163, 182),
-                      fontWeight: FontWeight.w500,
+                // Timer remains as 00:00:00 while attendance time is syncing.
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildTimeBox(hours),
+                    const SizedBox(width: 6),
+                    const Text(
+                      ':',
+                      style: TextStyle(
+                          fontSize: 20,
+                          color: Color.fromARGB(255, 169, 163, 182),
+                          fontWeight: FontWeight.bold),
                     ),
-                  )
-                else
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _buildTimeBox(hours),
-                      const SizedBox(width: 6),
-                      const Text(
-                        ':',
-                        style: TextStyle(
-                            fontSize: 20,
-                            color: Color.fromARGB(255, 169, 163, 182),
-                            fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(width: 6),
-                      _buildTimeBox(minutes),
-                      const SizedBox(width: 6),
-                      const Text(
-                        ':',
-                        style: TextStyle(
-                            fontSize: 20,
-                            color: Color.fromARGB(255, 169, 163, 182),
-                            fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(width: 6),
-                      _buildTimeBox(seconds),
-                    ],
-                  ),
+                    const SizedBox(width: 6),
+                    _buildTimeBox(minutes),
+                    const SizedBox(width: 6),
+                    const Text(
+                      ':',
+                      style: TextStyle(
+                          fontSize: 20,
+                          color: Color.fromARGB(255, 169, 163, 182),
+                          fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(width: 6),
+                    _buildTimeBox(seconds),
+                  ],
+                ),
                 const SizedBox(height: 20),
                 Container(
                   padding:

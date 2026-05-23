@@ -4,17 +4,18 @@ class LeaveCard extends StatelessWidget {
   final Map<String, dynamic> item;
   final Function(String) onStatusChange;
   final Function(String) onPayrollStatusChange;
+  final bool isProcessing;
 
   const LeaveCard({
     super.key,
     required this.item,
     required this.onStatusChange,
     required this.onPayrollStatusChange,
+    this.isProcessing = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    // NOTE: No GestureDetector here. Parent handles onTap to open details.
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
       elevation: 3,
@@ -27,8 +28,7 @@ class LeaveCard extends StatelessWidget {
             ...item.entries.where((e) => e.key != 'status').map((e) {
               final key = _formatKey(e.key);
               String value = e.value?.toString() ?? '';
-              
-              // Handle empty values with better fallbacks
+
               if (value.trim().isEmpty) {
                 switch (e.key) {
                   case 'department':
@@ -47,26 +47,39 @@ class LeaveCard extends StatelessWidget {
                     value = 'No location assigned';
                     break;
                   case 'reason':
-                    value = '---'; // nicer empty reason
+                    value = '---';
                     break;
                   default:
-                    value = '---'; // dash for other empty fields
+                    value = '---';
                     break;
                 }
               }
-              
+
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 2),
                 child: Text("$key: $value"),
               );
             }),
             const SizedBox(height: 10),
+
+            // Row(
+            //   mainAxisAlignment: MainAxisAlignment.end,
+            //   children: [
+            //     _buildPayrollButton('Paid', 'paid'),
+            //     const SizedBox(width: 8),
+            //     _buildPayrollButton('Unpaid', 'unpaid'),
+            //   ],
+            // ),
+
+            const SizedBox(height: 10),
+
             if ((item['status'] ?? '').toString().toLowerCase() == 'pending')
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   ElevatedButton(
-                    onPressed: () => onStatusChange('approved'),
+                    onPressed:
+                        isProcessing ? null : () => onStatusChange('approved'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFE8F5E8),
                       foregroundColor: const Color(0xFF2E7D32),
@@ -84,11 +97,18 @@ class LeaveCard extends StatelessWidget {
                       ),
                       elevation: 0,
                     ),
-                    child: const Text("Approve"),
+                    child: isProcessing
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text("Approve"),
                   ),
                   const SizedBox(width: 8),
                   ElevatedButton(
-                    onPressed: () => onStatusChange('rejected'),
+                    onPressed:
+                        isProcessing ? null : () => onStatusChange('rejected'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFFFEBEE),
                       foregroundColor: const Color(0xFFD32F2F),
@@ -135,4 +155,51 @@ class LeaveCard extends StatelessWidget {
       .join(' ');
 
   String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+
+  Widget _buildPayrollButton(String label, String status) {
+    final currentPayrollStatus =
+        (item['payrollStatus'] ?? '').toString().toLowerCase();
+    final isSelected = currentPayrollStatus == status;
+
+    Color backgroundColor;
+    Color foregroundColor;
+
+    if (isSelected) {
+      if (status == 'paid') {
+        backgroundColor = const Color(0xFF4CAF50);
+        foregroundColor = Colors.white;
+      } else if (status == 'unpaid') {
+        backgroundColor = const Color(0xFFFF9800);
+        foregroundColor = Colors.white;
+      } else {
+        backgroundColor = const Color(0xFFE0E0E0);
+        foregroundColor = const Color(0xFF757575);
+      }
+    } else {
+      backgroundColor = const Color(0xFFE0E0E0);
+      foregroundColor = const Color(0xFF757575);
+    }
+
+    return ElevatedButton(
+      onPressed: isProcessing ? null : () => onPayrollStatusChange(status),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: backgroundColor,
+        foregroundColor: foregroundColor,
+        padding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 8,
+        ),
+        minimumSize: const Size(0, 32),
+        textStyle: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+        elevation: 0,
+      ),
+      child: Text(label),
+    );
+  }
 }

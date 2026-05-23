@@ -1,3 +1,606 @@
+// import 'dart:convert';
+// import 'dart:math' as math;
+
+// import 'package:flutter/material.dart';
+// import 'package:http/http.dart' as http;
+// import 'package:jwt_decoder/jwt_decoder.dart';
+// import 'package:shared_preferences/shared_preferences.dart';
+// import 'package:serv_app/models/company_profile.dart';
+// import 'package:serv_app/utils/location_permission_dialog.dart';
+
+// // Web localStorage shim
+// import 'package:serv_app/html_stub.dart'
+//     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
+
+// import 'package:serv_app/models/company_data.dart';
+// import 'package:serv_app/config/api_config.dart';
+// import 'package:serv_app/features/users/home_screen_page.dart';
+// import 'package:serv_app/features/admin/admin_dashboard_page.dart';
+// import 'package:serv_app/features/admin/company_details_page.dart';
+// import 'package:serv_app/services/api_service.dart';
+
+// // 👉 Keep the new, dedicated page-based Forgot Password flow.
+// import 'forgot_password_page.dart';
+
+// // ===== THEME =====
+// const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
+// const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
+// const Color kAppBarColor = Color(0xFF8C6EAF);
+// const Color kButtonColor = Color(0xFF655193);
+// const Color kTextColor = Colors.white;
+
+
+// class LoginPage extends StatefulWidget {
+//   const LoginPage({super.key});
+//   @override
+//   State<LoginPage> createState() => _LoginPageState();
+// }
+
+// class _LoginPageState extends State<LoginPage> {
+//   final _formKey = GlobalKey<FormState>();
+//   final idController = TextEditingController();
+//   final passwordController = TextEditingController();
+
+//   bool isPasswordVisible = false;
+//   bool _isEmpLoading = false;
+//   bool _isAdminLoading = false;
+
+//   bool get _isAnyLoginLoading => _isEmpLoading || _isAdminLoading;
+
+//   @override
+//   void dispose() {
+//     idController.dispose();
+//     passwordController.dispose();
+//     super.dispose();
+//   }
+
+//   // ---------- UI helpers ----------
+//   void _showSnack(String msg) {
+//     if (!mounted) return;
+//     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+//   }
+
+//   Future<void> _persist(String key, String value) async {
+//     try {
+//       html.window.localStorage[key] = value; // web
+//     } catch (_) {}
+//     final sp = await SharedPreferences.getInstance(); // mobile/desktop
+//     await sp.setString(key, value);
+//   }
+
+//   // ---------- PERMISSION FLOW (using unified dialog) ----------
+//   Future<void> _showPermissionIntroThenRequest() async {
+//     await LocationPermissionDialog.showIfNeeded(context);
+//   }
+
+//   // ---------- COMPANY PROFILE CHECK (from your old page) ----------
+//   /// Returns { exists: bool, data: Map, raw: Map }.
+//   /// NOTE: 404 is treated as {exists:false} so we route to setup without error.
+//   Future<Map<String, dynamic>> _checkCompanyProfile({
+//     required String token,
+//     required String adminEmail,
+//   }) async {
+//     Map<String, dynamic> norm(dynamic body) {
+//       final m = (body is Map) ? body : <String, dynamic>{};
+//       final exists = (m['exists'] == true) ||
+//           (m['filled'] == true) ||
+//           (m['hasProfile'] == true);
+//       final data = (m['data'] is Map)
+//           ? (m['data'] as Map).cast<String, dynamic>()
+//           : <String, dynamic>{};
+//       return {'exists': exists, 'data': data, 'raw': m};
+//     }
+
+//     Future<Map<String, dynamic>> treat404() async => {
+//           'exists': false,
+//           'data': <String, dynamic>{},
+//           'raw': <String, dynamic>{}
+//         };
+
+//     // 1) Try /company/profile/check
+//     final u1 = Uri.parse('${ApiService.baseUrl}/company/profile/check');
+//     try {
+//       final r1 = await http.get(u1, headers: {
+//         'Authorization': 'Bearer $token',
+//         'Accept': 'application/json'
+//       }).timeout(const Duration(seconds: 15));
+//       debugPrint('[GET] $u1 -> ${r1.statusCode}');
+//       if (r1.statusCode == 200) return norm(jsonDecode(r1.body));
+//       if (r1.statusCode == 404) return treat404();
+//       // fall through to fallback for non-200/404
+//     } catch (e) {
+//       debugPrint('profile/check exception: $e');
+//     }
+
+//     // 2) Fallback /company/profile?email=...
+//     final u2 = Uri.parse('${ApiService.baseUrl}/company/profile')
+//     .replace(queryParameters: {'email': adminEmail.trim().toLowerCase()});
+//     final r2 = await http.get(u2, headers: {
+//       'Authorization': 'Bearer $token',
+//       'Accept': 'application/json'
+//     }).timeout(const Duration(seconds: 15));
+
+//     debugPrint('[GET] $u2 -> ${r2.statusCode}');
+//     if (r2.statusCode == 200) return norm(jsonDecode(r2.body));
+//     if (r2.statusCode == 404) return treat404();
+
+//     // any other status is a real error
+//     dynamic err;
+//     try {
+//       err = jsonDecode(r2.body);
+//     } catch (_) {}
+//     throw Exception('HTTP ${r2.statusCode} ${r2.reasonPhrase} ${err ?? ''}');
+//   }
+
+//   // ---------- LOGIN (merged: old flow + new permission + new forgot) ----------
+// Future<void> _login({required bool isAdmin}) async {
+//   if (!_formKey.currentState!.validate()) return;
+
+//   setState(() {
+//     if (isAdmin) {
+//       _isAdminLoading = true;
+//     } else {
+//       _isEmpLoading = true;
+//     }
+//   });
+
+//   try {
+//     final email = idController.text.trim().toLowerCase();
+//     final pwd = passwordController.text;
+
+//     debugPrint('Current API Base URL: ${ApiService.baseUrl}');
+
+//     final response = await http
+//         .post(
+//           Uri.parse('${ApiService.baseUrl}/auth/login'),
+//           headers: {
+//             'Content-Type': 'application/json',
+//             'Accept': 'application/json',
+//           },
+//           body: jsonEncode({
+//             'email': email,
+//             'password': pwd,
+//           }),
+//         )
+//         .timeout(const Duration(seconds: 15));
+
+//     debugPrint('LOGIN STATUS: ${response.statusCode}');
+//     debugPrint('LOGIN BODY: ${response.body}');
+
+//     final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+//     if (response.statusCode == 200) {
+//       final token = (data['token'] ?? data['data']?['token'] ?? '').toString();
+//       final role = (data['role'] ?? data['data']?['role'] ?? '').toString();
+
+//       final empId = (data['empId'] ??
+//               data['empid'] ??
+//               data['data']?['empId'] ??
+//               data['data']?['empid'] ??
+//               data['user']?['empId'] ??
+//               data['user']?['empid'] ??
+//               '')
+//           .toString()
+//           .trim();
+
+//       final companyId = (data['companyId'] ??
+//               data['data']?['companyId'] ??
+//               data['user']?['companyId'] ??
+//               '')
+//           .toString()
+//           .trim();
+
+//       final name = (data['name'] ??
+//               data['data']?['name'] ??
+//               data['user']?['name'] ??
+//               '')
+//           .toString()
+//           .trim();
+
+//       if (token.isEmpty || role.isEmpty) {
+//         _showSnack('Invalid server response. Token or role missing.');
+//         return;
+//       }
+
+//       if (isAdmin && role != 'admin') {
+//         _showSnack("Not authorized as admin.");
+//         return;
+//       }
+
+//       if (!isAdmin && role != 'employee') {
+//         _showSnack("Not authorized as employee.");
+//         return;
+//       }
+
+//       CompanyData.token = token;
+//       CompanyData.role = role;
+//       CompanyData.empid = empId;
+//       CompanyData.companyId = companyId;
+
+//       // Extract empid from JWT token as fallback
+//       final decoded = JwtDecoder.decode(token);
+
+//       final empIdFromToken = (decoded['empid'] ??
+//               decoded['empId'] ??
+//               decoded['employeeId'] ??
+//               '')
+//           .toString()
+//           .trim();
+
+//       final finalEmpId = empId.isNotEmpty ? empId : empIdFromToken;
+
+//       CompanyData.empid = finalEmpId;
+
+//       if (finalEmpId.isNotEmpty) {
+//         await _persist('empid', finalEmpId);
+//         await _persist('empId', finalEmpId);
+//       }
+
+//       await _persist('token', token);
+//       await _persist('role', role);
+
+//       if (companyId.isNotEmpty) {
+//         await _persist('companyId', companyId);
+//       }
+
+//       if (name.isNotEmpty) {
+//         await _persist('name', name);
+//       }
+
+//       debugPrint('User authentication completed - role: ${CompanyData.role}');
+//       debugPrint('Employee ID exists: ${CompanyData.empid.isNotEmpty}');
+//       debugPrint('Company ID exists: ${CompanyData.companyId.isNotEmpty}');
+
+//       if (isAdmin) {
+//         final result = await _checkCompanyProfile(
+//           token: token,
+//           adminEmail: email,
+//         );
+
+//         final exists = result['exists'] == true;
+//         final companyData =
+//             result['data'] as Map<String, dynamic>? ?? const {};
+
+//         if (!mounted) return;
+
+//         if (exists) {
+//           Navigator.of(context).pushAndRemoveUntil(
+//             MaterialPageRoute(
+//               builder: (_) => AdminDashboard(
+//                 companyProfile: CompanyProfile(
+//                   name: (companyData['companyName'] ?? '').toString(),
+//                   adminName: (companyData['adminName'] ?? '').toString(),
+//                   logoUrl: companyData['logoUrl']?.toString(),
+//                 ),
+//               ),
+//             ),
+//             (route) => false,
+//           );
+//         } else {
+//           Navigator.pushReplacement(
+//             context,
+//             MaterialPageRoute(
+//               builder: (_) => const CompanyDetailsFormPage(),
+//             ),
+//           );
+//         }
+//       } else {
+//         String docId = '';
+
+//         try {
+//           final decoded = JwtDecoder.decode(token);
+//           docId = (decoded['userId'] ?? decoded['uid'] ?? '').toString();
+
+//           final jwtEmpId =
+//               (decoded['empId'] ?? decoded['empid'] ?? '').toString().trim();
+
+//           final jwtCompanyId =
+//               (decoded['companyId'] ?? '').toString().trim();
+
+//           if (CompanyData.empid.isEmpty && jwtEmpId.isNotEmpty) {
+//             CompanyData.empid = jwtEmpId;
+//             await _persist('empId', jwtEmpId);
+//             await _persist('empid', jwtEmpId);
+//           }
+
+//           if (CompanyData.companyId.isEmpty && jwtCompanyId.isNotEmpty) {
+//             CompanyData.companyId = jwtCompanyId;
+//             await _persist('companyId', jwtCompanyId);
+//           }
+//         } catch (_) {}
+
+//         if (docId.isNotEmpty) {
+//           await _persist('userDocId', docId);
+//         }
+
+//         if (mounted) {
+//           await _showPermissionIntroThenRequest();
+//         }
+
+//         if (!mounted) return;
+
+//         Navigator.of(context).pushAndRemoveUntil(
+//           MaterialPageRoute(
+//             builder: (_) => HomeScreen(
+//               userName: name.isNotEmpty ? name : email.split('@').first,
+//               employeeDocId: docId,
+//             ),
+//           ),
+//           (route) => false,
+//         );
+//       }
+//     } else {
+//       final msg =
+//           (data['message'] ?? data['error'] ?? 'Login failed').toString();
+//       _showSnack(msg);
+//     }
+//   } catch (e) {
+//     _showSnack('Error: $e');
+//   } finally {
+//     if (mounted) {
+//       setState(() {
+//         _isEmpLoading = false;
+//         _isAdminLoading = false;
+//       });
+//     }
+//   }
+// }
+
+//   // ---------- UI ----------
+//   @override
+//   Widget build(BuildContext context) {
+//     return Scaffold(
+//       backgroundColor: Colors.transparent,
+//       body: Container(
+//         width: double.infinity,
+//         height: double.infinity,
+//         decoration: const BoxDecoration(
+//           gradient: LinearGradient(
+//             colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
+//             begin: Alignment.topCenter,
+//             end: Alignment.bottomCenter,
+//           ),
+//         ),
+//         child: SafeArea(
+//           child: LayoutBuilder(
+//             builder: (ctx, constraints) {
+//               return SingleChildScrollView(
+//                 physics: const BouncingScrollPhysics(),
+//                 child: Padding(
+//                   padding:
+//                       const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+//                   child: Form(
+//                     key: _formKey,
+//                     child: Column(
+//                       children: [
+//                         const SizedBox(height: 20),
+//                         Image.asset('assets/images/serv_new_logo-removebg.png',
+//                         // Image.asset('test/apple.JPEG',
+//                             height: 150, width: 260, fit: BoxFit.contain),
+//                         const SizedBox(height: 4),
+//                         const Text('Sign In',
+//                             style: TextStyle(
+//                                 fontSize: 22, fontWeight: FontWeight.bold)),
+//                         const SizedBox(height: 20),
+
+//                         // Email
+//                         TextFormField(
+//                           controller: idController,
+//                           keyboardType: TextInputType.emailAddress,
+//                           decoration: InputDecoration(
+//                             labelText: "Enter email",
+//                             prefixIcon:
+//                                 const Icon(Icons.email, color: kButtonColor),
+//                             filled: true,
+//                             fillColor: Colors.white,
+//                             border: OutlineInputBorder(
+//                               borderRadius: BorderRadius.circular(12),
+//                             ),
+//                           ),
+//                           validator: (val) {
+//                             if (val == null || val.trim().isEmpty) {
+//                               return "Email required";
+//                             }
+//                             final emailRegex = RegExp(
+//                               r"^[\w._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$",
+//                               caseSensitive: false,
+//                             );
+//                             if (!emailRegex.hasMatch(val.trim())) {
+//                               return "Enter valid email";
+//                             }
+//                             return null;
+//                           },
+//                         ),
+//                         const SizedBox(height: 16),
+
+//                         // Password
+//                         TextFormField(
+//                           controller: passwordController,
+//                           obscureText: !isPasswordVisible,
+//                           decoration: InputDecoration(
+//                             labelText: "Enter password",
+//                             prefixIcon:
+//                                 const Icon(Icons.lock, color: kButtonColor),
+//                             suffixIcon: IconButton(
+//                               icon: Icon(
+//                                 isPasswordVisible
+//                                     ? Icons.visibility
+//                                     : Icons.visibility_off,
+//                                 color: kButtonColor,
+//                               ),
+//                               onPressed: () => setState(
+//                                 () => isPasswordVisible = !isPasswordVisible,
+//                               ),
+//                             ),
+//                             filled: true,
+//                             fillColor: Colors.white,
+//                             border: OutlineInputBorder(
+//                               borderRadius: BorderRadius.circular(12),
+//                             ),
+//                           ),
+//                           validator: (val) =>
+//                               (val == null || val.isEmpty)
+//                                   ? "Password required"
+//                                   : null,
+//                         ),
+
+//                         // 👉 Keep the new navigation to a dedicated page
+//                         Align(
+//                           alignment: Alignment.centerRight,
+//                           child: TextButton(
+//                             onPressed: () {
+//                               Navigator.push(
+//                                 context,
+//                                 MaterialPageRoute(
+//                                   builder: (_) => const ForgotPasswordPage(),
+//                                 ),
+//                               );
+//                             },
+//                             child: const Text(
+//                               "Forgot password?",
+//                               style: TextStyle(
+//                                 decoration: TextDecoration.underline,
+//                                 color: kAppBarColor,
+//                                 fontSize: 12,
+//                               ),
+//                             ),
+//                           ),
+//                         ),
+//                         const SizedBox(height: 10),
+
+//                         // Employee
+//                         SizedBox(
+//                           width: double.infinity,
+//                           height: 44,
+//                           child: ElevatedButton(
+//                             onPressed: _isAnyLoginLoading
+//                                 ? null
+//      : () => _login(isAdmin: false),
+//                             style: ElevatedButton.styleFrom(
+//                               backgroundColor: kButtonColor,
+//                               shape: RoundedRectangleBorder(
+//                                   borderRadius: BorderRadius.circular(8)),
+//                             ),
+//                             child: _isEmpLoading
+//                                 ? const _ArcLoader(
+//                                     size: 22, color: Colors.white)
+//                                 : const Text("Sign in as employee",
+//                                     style: TextStyle(color: kTextColor)),
+//                           ),
+//                         ),
+//                         const SizedBox(height: 10),
+
+//                         // Admin
+//                         SizedBox(
+//                           width: double.infinity,
+//                           height: 44,
+//                           child: ElevatedButton(
+//                             onPressed: _isAnyLoginLoading
+//                                 ? null
+//                                 : () => _login(isAdmin: true),
+//                             style: ElevatedButton.styleFrom(
+//                               backgroundColor: kButtonColor,
+//                               shape: RoundedRectangleBorder(
+//                                   borderRadius: BorderRadius.circular(8)),
+//                             ),
+//                             child: _isAdminLoading
+//                                 ? const _ArcLoader(
+//                                     size: 22, color: Colors.white)
+//                                 : const Text("Sign in as admin",
+//                                     style: TextStyle(color: kTextColor)),
+//                           ),
+//                         ),
+//                         const SizedBox(height: 12),
+//                       ],
+//                     ),
+//                   ),
+//                 ),
+//               );
+//             },
+//           ),
+//         ),
+//       ),
+//     );
+//   }
+// }
+
+// // Loader (kept)
+// class _ArcLoader extends StatefulWidget {
+//   final double size;
+//   final Color color;
+//   final double strokeWidth;
+//   const _ArcLoader({
+//     required this.size,
+//     required this.color,
+//     this.strokeWidth = 2.0,
+//   });
+
+//   @override
+//   State<_ArcLoader> createState() => _ArcLoaderState();
+// }
+
+// class _ArcLoaderState extends State<_ArcLoader>
+//     with SingleTickerProviderStateMixin {
+//   late final AnimationController _c;
+//   @override
+//   void initState() {
+//     super.initState();
+//     _c = AnimationController(
+//       vsync: this,
+//       duration: const Duration(milliseconds: 900),
+//     )..repeat();
+//   }
+
+//   @override
+//   void dispose() {
+//     _c.dispose();
+//     super.dispose();
+//   }
+
+//   @override
+//   Widget build(BuildContext context) {
+//     return SizedBox(
+//       width: widget.size,
+//       height: widget.size,
+//       child: AnimatedBuilder(
+//         animation: _c,
+//         builder: (context, _) {
+//           return Transform.rotate(
+//             angle: _c.value * 2 * math.pi,
+//             child: CustomPaint(
+//               painter: _ArcPainter(
+//                 color: widget.color,
+//                 strokeWidth: widget.strokeWidth,
+//               ),
+//             ),
+//           );
+//         },
+//       ),
+//     );
+//   }
+// }
+
+// class _ArcPainter extends CustomPainter {
+//   final Color color;
+//   final double strokeWidth;
+//   _ArcPainter({required this.color, required this.strokeWidth});
+//   @override
+//   void paint(Canvas canvas, Size size) {
+//     final paint = Paint()
+//       ..style = PaintingStyle.stroke
+//       ..strokeCap = StrokeCap.round
+//       ..strokeWidth = strokeWidth
+//       ..color = color;
+//     final rect = Offset.zero & size;
+//     const sweep = math.pi * 0.8;
+//     const gap = math.pi;
+//     canvas.drawArc(rect.deflate(strokeWidth / 2), 0, sweep, false, paint);
+//     canvas.drawArc(rect.deflate(strokeWidth / 2), gap, sweep, false, paint);
+//   }
+//   @override
+//   bool shouldRepaint(covariant _ArcPainter oldDelegate) =>
+//       oldDelegate.color != color || oldDelegate.strokeWidth != strokeWidth;
+// }
 import 'dart:convert';
 import 'dart:math' as math;
 
@@ -19,16 +622,15 @@ import 'package:serv_app/features/admin/admin_dashboard_page.dart';
 import 'package:serv_app/features/admin/company_details_page.dart';
 import 'package:serv_app/services/api_service.dart';
 
-// 👉 Keep the new, dedicated page-based Forgot Password flow.
 import 'forgot_password_page.dart';
 
 // ===== THEME =====
-const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
-const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-const Color kAppBarColor = Color(0xFF8C6EAF);
-const Color kButtonColor = Color(0xFF655193);
+const Color kPrimary = Color(0xFF8C6EAF);
+const Color kPrimaryDark = Color(0xFF655193);
+const Color kPrimaryLight = Color(0xFFD1C4E9);
+const Color kAccent = Color(0xFFB39DDB);
 const Color kTextColor = Colors.white;
-
+const Color kFieldBg = Color(0xFFF7F4FC);
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -36,7 +638,7 @@ class LoginPage extends StatefulWidget {
   State<LoginPage> createState() => _LoginPageState();
 }
 
-class _LoginPageState extends State<LoginPage> {
+class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   final idController = TextEditingController();
   final passwordController = TextEditingController();
@@ -45,37 +647,71 @@ class _LoginPageState extends State<LoginPage> {
   bool _isEmpLoading = false;
   bool _isAdminLoading = false;
 
+  late final AnimationController _fadeController;
+  late final Animation<double> _fadeAnim;
+  late final AnimationController _slideController;
+  late final Animation<Offset> _slideAnim;
+
   bool get _isAnyLoginLoading => _isEmpLoading || _isAdminLoading;
+
+  @override
+  void initState() {
+    super.initState();
+    _fadeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+    _fadeAnim = CurvedAnimation(parent: _fadeController, curve: Curves.easeOut);
+
+    _slideController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+    _slideAnim = Tween<Offset>(
+      begin: const Offset(0, 0.18),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(parent: _slideController, curve: Curves.easeOutCubic),
+    );
+
+    _fadeController.forward();
+    _slideController.forward();
+  }
 
   @override
   void dispose() {
     idController.dispose();
     passwordController.dispose();
+    _fadeController.dispose();
+    _slideController.dispose();
     super.dispose();
   }
 
-  // ---------- UI helpers ----------
   void _showSnack(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg, style: const TextStyle(fontFamily: 'sans-serif')),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: kPrimaryDark,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
   }
 
   Future<void> _persist(String key, String value) async {
     try {
-      html.window.localStorage[key] = value; // web
+      html.window.localStorage[key] = value;
     } catch (_) {}
-    final sp = await SharedPreferences.getInstance(); // mobile/desktop
+    final sp = await SharedPreferences.getInstance();
     await sp.setString(key, value);
   }
 
-  // ---------- PERMISSION FLOW (using unified dialog) ----------
   Future<void> _showPermissionIntroThenRequest() async {
     await LocationPermissionDialog.showIfNeeded(context);
   }
 
-  // ---------- COMPANY PROFILE CHECK (from your old page) ----------
-  /// Returns { exists: bool, data: Map, raw: Map }.
-  /// NOTE: 404 is treated as {exists:false} so we route to setup without error.
   Future<Map<String, dynamic>> _checkCompanyProfile({
     required String token,
     required String adminEmail,
@@ -97,7 +733,6 @@ class _LoginPageState extends State<LoginPage> {
           'raw': <String, dynamic>{}
         };
 
-    // 1) Try /company/profile/check
     final u1 = Uri.parse('${ApiService.baseUrl}/company/profile/check');
     try {
       final r1 = await http.get(u1, headers: {
@@ -107,14 +742,12 @@ class _LoginPageState extends State<LoginPage> {
       debugPrint('[GET] $u1 -> ${r1.statusCode}');
       if (r1.statusCode == 200) return norm(jsonDecode(r1.body));
       if (r1.statusCode == 404) return treat404();
-      // fall through to fallback for non-200/404
     } catch (e) {
       debugPrint('profile/check exception: $e');
     }
 
-    // 2) Fallback /company/profile?email=...
     final u2 = Uri.parse('${ApiService.baseUrl}/company/profile')
-    .replace(queryParameters: {'email': adminEmail.trim().toLowerCase()});
+        .replace(queryParameters: {'email': adminEmail.trim().toLowerCase()});
     final r2 = await http.get(u2, headers: {
       'Authorization': 'Bearer $token',
       'Accept': 'application/json'
@@ -124,7 +757,6 @@ class _LoginPageState extends State<LoginPage> {
     if (r2.statusCode == 200) return norm(jsonDecode(r2.body));
     if (r2.statusCode == 404) return treat404();
 
-    // any other status is a real error
     dynamic err;
     try {
       err = jsonDecode(r2.body);
@@ -132,391 +764,652 @@ class _LoginPageState extends State<LoginPage> {
     throw Exception('HTTP ${r2.statusCode} ${r2.reasonPhrase} ${err ?? ''}');
   }
 
-  // ---------- LOGIN (merged: old flow + new permission + new forgot) ----------
-Future<void> _login({required bool isAdmin}) async {
-  if (!_formKey.currentState!.validate()) return;
+  Future<void> _login({required bool isAdmin}) async {
+    if (!_formKey.currentState!.validate()) return;
 
-  setState(() {
-    if (isAdmin) {
-      _isAdminLoading = true;
-    } else {
-      _isEmpLoading = true;
-    }
-  });
-
-  try {
-    final email = idController.text.trim().toLowerCase();
-    final pwd = passwordController.text;
-
-    debugPrint('Current API Base URL: ${ApiService.baseUrl}');
-
-    final response = await http
-        .post(
-          Uri.parse('${ApiService.baseUrl}/auth/login'),
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
-          body: jsonEncode({
-            'email': email,
-            'password': pwd,
-          }),
-        )
-        .timeout(const Duration(seconds: 15));
-
-    debugPrint('LOGIN STATUS: ${response.statusCode}');
-    debugPrint('LOGIN BODY: ${response.body}');
-
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
-
-    if (response.statusCode == 200) {
-      final token = (data['token'] ?? data['data']?['token'] ?? '').toString();
-      final role = (data['role'] ?? data['data']?['role'] ?? '').toString();
-
-      final empId = (data['empId'] ??
-              data['empid'] ??
-              data['data']?['empId'] ??
-              data['data']?['empid'] ??
-              data['user']?['empId'] ??
-              data['user']?['empid'] ??
-              '')
-          .toString()
-          .trim();
-
-      final companyId = (data['companyId'] ??
-              data['data']?['companyId'] ??
-              data['user']?['companyId'] ??
-              '')
-          .toString()
-          .trim();
-
-      final name = (data['name'] ??
-              data['data']?['name'] ??
-              data['user']?['name'] ??
-              '')
-          .toString()
-          .trim();
-
-      if (token.isEmpty || role.isEmpty) {
-        _showSnack('Invalid server response. Token or role missing.');
-        return;
-      }
-
-      if (isAdmin && role != 'admin') {
-        _showSnack("Not authorized as admin.");
-        return;
-      }
-
-      if (!isAdmin && role != 'employee') {
-        _showSnack("Not authorized as employee.");
-        return;
-      }
-
-      CompanyData.token = token;
-      CompanyData.role = role;
-      CompanyData.empid = empId;
-      CompanyData.companyId = companyId;
-
-      // Extract empid from JWT token as fallback
-      final decoded = JwtDecoder.decode(token);
-
-      final empIdFromToken = (decoded['empid'] ??
-              decoded['empId'] ??
-              decoded['employeeId'] ??
-              '')
-          .toString()
-          .trim();
-
-      final finalEmpId = empId.isNotEmpty ? empId : empIdFromToken;
-
-      CompanyData.empid = finalEmpId;
-
-      if (finalEmpId.isNotEmpty) {
-        await _persist('empid', finalEmpId);
-        await _persist('empId', finalEmpId);
-      }
-
-      await _persist('token', token);
-      await _persist('role', role);
-
-      if (companyId.isNotEmpty) {
-        await _persist('companyId', companyId);
-      }
-
-      if (name.isNotEmpty) {
-        await _persist('name', name);
-      }
-
-      debugPrint('User authentication completed - role: ${CompanyData.role}');
-      debugPrint('Employee ID exists: ${CompanyData.empid.isNotEmpty}');
-      debugPrint('Company ID exists: ${CompanyData.companyId.isNotEmpty}');
-
+    setState(() {
       if (isAdmin) {
-        final result = await _checkCompanyProfile(
-          token: token,
-          adminEmail: email,
-        );
+        _isAdminLoading = true;
+      } else {
+        _isEmpLoading = true;
+      }
+    });
 
-        final exists = result['exists'] == true;
-        final companyData =
-            result['data'] as Map<String, dynamic>? ?? const {};
+    try {
+      final email = idController.text.trim().toLowerCase();
+      final pwd = passwordController.text;
 
-        if (!mounted) return;
+      debugPrint('Current API Base URL: ${ApiService.baseUrl}');
 
-        if (exists) {
+      final response = await http
+          .post(
+            Uri.parse('${ApiService.baseUrl}/auth/login'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: jsonEncode({
+              'email': email,
+              'password': pwd,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      debugPrint('LOGIN STATUS: ${response.statusCode}');
+      debugPrint('LOGIN BODY: ${response.body}');
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode == 200) {
+        final token =
+            (data['token'] ?? data['data']?['token'] ?? '').toString();
+        final role = (data['role'] ?? data['data']?['role'] ?? '').toString();
+
+        final empId = (data['empId'] ??
+                data['empid'] ??
+                data['data']?['empId'] ??
+                data['data']?['empid'] ??
+                data['user']?['empId'] ??
+                data['user']?['empid'] ??
+                '')
+            .toString()
+            .trim();
+
+        final companyId = (data['companyId'] ??
+                data['data']?['companyId'] ??
+                data['user']?['companyId'] ??
+                '')
+            .toString()
+            .trim();
+
+        final name = (data['name'] ??
+                data['data']?['name'] ??
+                data['user']?['name'] ??
+                '')
+            .toString()
+            .trim();
+
+        if (token.isEmpty || role.isEmpty) {
+          _showSnack('Invalid server response. Token or role missing.');
+          return;
+        }
+
+        if (isAdmin && role != 'admin') {
+          _showSnack("Not authorized as admin.");
+          return;
+        }
+
+        if (!isAdmin && role != 'employee') {
+          _showSnack("Not authorized as employee.");
+          return;
+        }
+
+        CompanyData.token = token;
+        CompanyData.role = role;
+        CompanyData.empid = empId;
+        CompanyData.companyId = companyId;
+
+        final decoded = JwtDecoder.decode(token);
+
+        final empIdFromToken = (decoded['empid'] ??
+                decoded['empId'] ??
+                decoded['employeeId'] ??
+                '')
+            .toString()
+            .trim();
+
+        final finalEmpId = empId.isNotEmpty ? empId : empIdFromToken;
+
+        CompanyData.empid = finalEmpId;
+
+        if (finalEmpId.isNotEmpty) {
+          await _persist('empid', finalEmpId);
+          await _persist('empId', finalEmpId);
+        }
+
+        await _persist('token', token);
+        await _persist('role', role);
+
+        if (companyId.isNotEmpty) {
+          await _persist('companyId', companyId);
+        }
+
+        if (name.isNotEmpty) {
+          await _persist('name', name);
+        }
+
+        debugPrint('User authentication completed - role: ${CompanyData.role}');
+        debugPrint('Employee ID exists: ${CompanyData.empid.isNotEmpty}');
+        debugPrint('Company ID exists: ${CompanyData.companyId.isNotEmpty}');
+
+        if (isAdmin) {
+          final result = await _checkCompanyProfile(
+            token: token,
+            adminEmail: email,
+          );
+
+          final exists = result['exists'] == true;
+          final companyData =
+              result['data'] as Map<String, dynamic>? ?? const {};
+
+          if (!mounted) return;
+
+          if (exists) {
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(
+                builder: (_) => AdminDashboard(
+                  companyProfile: CompanyProfile(
+                    name: (companyData['companyName'] ?? '').toString(),
+                    adminName: (companyData['adminName'] ?? '').toString(),
+                    logoUrl: companyData['logoUrl']?.toString(),
+                  ),
+                ),
+              ),
+              (route) => false,
+            );
+          } else {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const CompanyDetailsFormPage(),
+              ),
+            );
+          }
+        } else {
+          String docId = '';
+
+          try {
+            final decoded = JwtDecoder.decode(token);
+            docId = (decoded['userId'] ?? decoded['uid'] ?? '').toString();
+
+            final jwtEmpId =
+                (decoded['empId'] ?? decoded['empid'] ?? '').toString().trim();
+
+            final jwtCompanyId =
+                (decoded['companyId'] ?? '').toString().trim();
+
+            if (CompanyData.empid.isEmpty && jwtEmpId.isNotEmpty) {
+              CompanyData.empid = jwtEmpId;
+              await _persist('empId', jwtEmpId);
+              await _persist('empid', jwtEmpId);
+            }
+
+            if (CompanyData.companyId.isEmpty && jwtCompanyId.isNotEmpty) {
+              CompanyData.companyId = jwtCompanyId;
+              await _persist('companyId', jwtCompanyId);
+            }
+          } catch (_) {}
+
+          if (docId.isNotEmpty) {
+            await _persist('userDocId', docId);
+          }
+
+          if (mounted) {
+            await _showPermissionIntroThenRequest();
+          }
+
+          if (!mounted) return;
+
           Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(
-              builder: (_) => AdminDashboard(
-                companyProfile: CompanyProfile(
-                  name: (companyData['companyName'] ?? '').toString(),
-                  adminName: (companyData['adminName'] ?? '').toString(),
-                  logoUrl: companyData['logoUrl']?.toString(),
-                ),
+              builder: (_) => HomeScreen(
+                userName: name.isNotEmpty ? name : email.split('@').first,
+                employeeDocId: docId,
               ),
             ),
             (route) => false,
           );
-        } else {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const CompanyDetailsFormPage(),
-            ),
-          );
         }
       } else {
-        String docId = '';
-
-        try {
-          final decoded = JwtDecoder.decode(token);
-          docId = (decoded['userId'] ?? decoded['uid'] ?? '').toString();
-
-          final jwtEmpId =
-              (decoded['empId'] ?? decoded['empid'] ?? '').toString().trim();
-
-          final jwtCompanyId =
-              (decoded['companyId'] ?? '').toString().trim();
-
-          if (CompanyData.empid.isEmpty && jwtEmpId.isNotEmpty) {
-            CompanyData.empid = jwtEmpId;
-            await _persist('empId', jwtEmpId);
-            await _persist('empid', jwtEmpId);
-          }
-
-          if (CompanyData.companyId.isEmpty && jwtCompanyId.isNotEmpty) {
-            CompanyData.companyId = jwtCompanyId;
-            await _persist('companyId', jwtCompanyId);
-          }
-        } catch (_) {}
-
-        if (docId.isNotEmpty) {
-          await _persist('userDocId', docId);
-        }
-
-        if (mounted) {
-          await _showPermissionIntroThenRequest();
-        }
-
-        if (!mounted) return;
-
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (_) => HomeScreen(
-              userName: name.isNotEmpty ? name : email.split('@').first,
-              employeeDocId: docId,
-            ),
-          ),
-          (route) => false,
-        );
+        final msg =
+            (data['message'] ?? data['error'] ?? 'Login failed').toString();
+        _showSnack(msg);
       }
-    } else {
-      final msg =
-          (data['message'] ?? data['error'] ?? 'Login failed').toString();
-      _showSnack(msg);
-    }
-  } catch (e) {
-    _showSnack('Error: $e');
-  } finally {
-    if (mounted) {
-      setState(() {
-        _isEmpLoading = false;
-        _isAdminLoading = false;
-      });
+    } catch (e) {
+      _showSnack('Error: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isEmpLoading = false;
+          _isAdminLoading = false;
+        });
+      }
     }
   }
-}
 
   // ---------- UI ----------
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
+      backgroundColor: const Color(0xFFF3EEF9),
+      body: Stack(
+        children: [
+          // ── decorative blobs ──
+          Positioned(
+            top: -size.height * 0.08,
+            right: -size.width * 0.18,
+            child: _Blob(
+              width: size.width * 0.72,
+              height: size.height * 0.38,
+              color: kPrimary.withOpacity(0.85),
+            ),
           ),
-        ),
-        child: SafeArea(
-          child: LayoutBuilder(
-            builder: (ctx, constraints) {
-              return SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+          Positioned(
+            top: size.height * 0.18,
+            left: -size.width * 0.22,
+            child: _Blob(
+              width: size.width * 0.6,
+              height: size.height * 0.28,
+              color: kPrimaryLight.withOpacity(0.7),
+            ),
+          ),
+          Positioned(
+            bottom: -size.height * 0.06,
+            right: -size.width * 0.1,
+            child: _Blob(
+              width: size.width * 0.65,
+              height: size.height * 0.26,
+              color: kAccent.withOpacity(0.5),
+            ),
+          ),
+
+          // ── content ──
+          SafeArea(
+            child: FadeTransition(
+              opacity: _fadeAnim,
+              child: SlideTransition(
+                position: _slideAnim,
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 28, vertical: 16),
                   child: Form(
                     key: _formKey,
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        const SizedBox(height: 96),
-                        Image.asset('assets/images/splash_logo.png',
-                        // Image.asset('test/apple.JPEG',
-                            height: 110, width: 110, fit: BoxFit.cover),
-                        const SizedBox(height: 10),
-                        const Text('Sign In',
-                            style: TextStyle(
-                                fontSize: 22, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 30),
+                        const SizedBox(height: 18),
 
-                        // Email
-                        TextFormField(
-                          controller: idController,
-                          keyboardType: TextInputType.emailAddress,
-                          decoration: InputDecoration(
-                            labelText: "Enter email",
-                            prefixIcon:
-                                const Icon(Icons.email, color: kButtonColor),
-                            filled: true,
-                            fillColor: Colors.white,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          validator: (val) {
-                            if (val == null || val.trim().isEmpty) {
-                              return "Email required";
-                            }
-                            final emailRegex = RegExp(
-                              r"^[\w._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$",
-                              caseSensitive: false,
-                            );
-                            if (!emailRegex.hasMatch(val.trim())) {
-                              return "Enter valid email";
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Password
-                        TextFormField(
-                          controller: passwordController,
-                          obscureText: !isPasswordVisible,
-                          decoration: InputDecoration(
-                            labelText: "Enter password",
-                            prefixIcon:
-                                const Icon(Icons.lock, color: kButtonColor),
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                isPasswordVisible
-                                    ? Icons.visibility
-                                    : Icons.visibility_off,
-                                color: kButtonColor,
-                              ),
-                              onPressed: () => setState(
-                                () => isPasswordVisible = !isPasswordVisible,
-                              ),
-                            ),
-                            filled: true,
-                            fillColor: Colors.white,
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          validator: (val) =>
-                              (val == null || val.isEmpty)
-                                  ? "Password required"
-                                  : null,
+                        // Logo
+                        Image.asset(
+                          'assets/images/serv_new_logo-removebg.png',
+                          height: 120,
+                          width: 250,
+                          fit: BoxFit.contain,
                         ),
 
-                        // 👉 Keep the new navigation to a dedicated page
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton(
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const ForgotPasswordPage(),
+                        const SizedBox(height: 28),
+
+                        // Welcome text
+                        const Text(
+                          'Welcome Back',
+                          style: TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF2D1B4E),
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Sign in to continue',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: kPrimary.withOpacity(0.75),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+
+                        const SizedBox(height: 32),
+
+                        Column(
+                          children: [
+                              // Email field
+                              _StyledField(
+                                controller: idController,
+                                label: 'Email address',
+                                icon: Icons.mail_outline_rounded,
+                                keyboardType: TextInputType.emailAddress,
+                                validator: (val) {
+                                  if (val == null || val.trim().isEmpty) {
+                                    return 'Email required';
+                                  }
+                                  final emailRegex = RegExp(
+                                    r"^[\w._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$",
+                                    caseSensitive: false,
+                                  );
+                                  if (!emailRegex.hasMatch(val.trim())) {
+                                    return 'Enter valid email';
+                                  }
+                                  return null;
+                                },
+                              ),
+
+                              const SizedBox(height: 16),
+
+                              // Password field
+                              _StyledField(
+                                controller: passwordController,
+                                label: 'Password',
+                                icon: Icons.lock_outline_rounded,
+                                obscureText: !isPasswordVisible,
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    isPasswordVisible
+                                        ? Icons.visibility_rounded
+                                        : Icons.visibility_off_rounded,
+                                    color: kPrimary,
+                                    size: 20,
+                                  ),
+                                  onPressed: () => setState(
+                                    () => isPasswordVisible =
+                                        !isPasswordVisible,
+                                  ),
                                 ),
-                              );
-                            },
-                            child: const Text(
-                              "Forgot password?",
-                              style: TextStyle(
-                                decoration: TextDecoration.underline,
-                                color: kAppBarColor,
-                                fontSize: 12,
+                                validator: (val) =>
+                                    (val == null || val.isEmpty)
+                                        ? 'Password required'
+                                        : null,
                               ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
 
-                        // Employee
-                        SizedBox(
-                          width: double.infinity,
-                          height: 44,
-                          child: ElevatedButton(
-                            onPressed: _isAnyLoginLoading
-                                ? null
-     : () => _login(isAdmin: false),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: kButtonColor,
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8)),
-                            ),
-                            child: _isEmpLoading
-                                ? const _ArcLoader(
-                                    size: 22, color: Colors.white)
-                                : const Text("Sign in as employee",
-                                    style: TextStyle(color: kTextColor)),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
+                              // Forgot password
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton(
+                                  onPressed: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            const ForgotPasswordPage(),
+                                      ),
+                                    );
+                                  },
+                                  style: TextButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 4, horizontal: 0),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  child: const Text(
+                                    'Forgot password?',
+                                    style: TextStyle(
+                                      color: kPrimary,
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ),
 
-                        // Admin
-                        SizedBox(
-                          width: double.infinity,
-                          height: 44,
-                          child: ElevatedButton(
-                            onPressed: _isAnyLoginLoading
-                                ? null
-                                : () => _login(isAdmin: true),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: kButtonColor,
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8)),
-                            ),
-                            child: _isAdminLoading
-                                ? const _ArcLoader(
-                                    size: 22, color: Colors.white)
-                                : const Text("Sign in as admin",
-                                    style: TextStyle(color: kTextColor)),
-                          ),
+                              const SizedBox(height: 20),
+
+                              // Sign in as Employee
+                              _GradientButton(
+                                label: 'Sign in as Employee',
+                                icon: Icons.person_rounded,
+                                isLoading: _isEmpLoading,
+                                disabled: _isAnyLoginLoading,
+                                onTap: () => _login(isAdmin: false),
+                              ),
+
+                              const SizedBox(height: 12),
+
+                              // Divider
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Divider(
+                                        color: kPrimaryLight, thickness: 1),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10),
+                                    child: Text(
+                                      'or',
+                                      style: TextStyle(
+                                        color: kPrimary.withOpacity(0.5),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Divider(
+                                        color: kPrimaryLight, thickness: 1),
+                                  ),
+                                ],
+                              ),
+
+                              const SizedBox(height: 12),
+
+                              // Sign in as Admin
+                              _OutlineButton(
+                                label: 'Sign in as Admin',
+                                icon: Icons.admin_panel_settings_rounded,
+                                isLoading: _isAdminLoading,
+                                disabled: _isAnyLoginLoading,
+                                onTap: () => _login(isAdmin: true),
+                              ),
+                          ],
                         ),
-                        const SizedBox(height: 12),
+
+                        const SizedBox(height: 30),
                       ],
                     ),
                   ),
                 ),
-              );
-            },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ──────────────────────────────────────────
+// Blob shape widget
+// ──────────────────────────────────────────
+class _Blob extends StatelessWidget {
+  final double width;
+  final double height;
+  final Color color;
+  const _Blob(
+      {required this.width, required this.height, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipPath(
+      clipper: _BlobClipper(),
+      child: Container(width: width, height: height, color: color),
+    );
+  }
+}
+
+class _BlobClipper extends CustomClipper<Path> {
+  @override
+  Path getClip(Size size) {
+    final path = Path();
+    path.moveTo(size.width * 0.05, size.height * 0.35);
+    path.cubicTo(
+      size.width * 0.0,
+      size.height * 0.1,
+      size.width * 0.3,
+      size.height * -0.05,
+      size.width * 0.55,
+      size.height * 0.08,
+    );
+    path.cubicTo(
+      size.width * 0.8,
+      size.height * 0.2,
+      size.width * 1.05,
+      size.height * 0.1,
+      size.width * 1.0,
+      size.height * 0.45,
+    );
+    path.cubicTo(
+      size.width * 0.95,
+      size.height * 0.8,
+      size.width * 0.7,
+      size.height * 1.05,
+      size.width * 0.45,
+      size.height * 0.98,
+    );
+    path.cubicTo(
+      size.width * 0.2,
+      size.height * 0.92,
+      size.width * 0.1,
+      size.height * 0.65,
+      size.width * 0.05,
+      size.height * 0.35,
+    );
+    path.close();
+    return path;
+  }
+
+  @override
+  bool shouldReclip(_BlobClipper oldClipper) => false;
+}
+
+// ──────────────────────────────────────────
+// Styled text field
+// ──────────────────────────────────────────
+class _StyledField extends StatelessWidget {
+  final TextEditingController controller;
+  final String label;
+  final IconData icon;
+  final bool obscureText;
+  final TextInputType? keyboardType;
+  final Widget? suffixIcon;
+  final String? Function(String?)? validator;
+
+  const _StyledField({
+    required this.controller,
+    required this.label,
+    required this.icon,
+    this.obscureText = false,
+    this.keyboardType,
+    this.suffixIcon,
+    this.validator,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: controller,
+      obscureText: obscureText,
+      keyboardType: keyboardType,
+      style: const TextStyle(
+        fontSize: 14,
+        color: Color(0xFF2D1B4E),
+        fontWeight: FontWeight.w500,
+      ),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: TextStyle(
+          color: kPrimary.withOpacity(0.7),
+          fontSize: 13.5,
+          fontWeight: FontWeight.w500,
+        ),
+        prefixIcon: Icon(icon, color: kPrimary, size: 20),
+        suffixIcon: suffixIcon,
+        filled: true,
+        fillColor: kFieldBg,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: kPrimaryLight.withOpacity(0.6)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: kPrimary, width: 1.5),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Colors.redAccent),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
+        ),
+      ),
+      validator: validator,
+    );
+  }
+}
+
+// ──────────────────────────────────────────
+// Gradient (filled) button
+// ──────────────────────────────────────────
+class _GradientButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool isLoading;
+  final bool disabled;
+  final VoidCallback onTap;
+
+  const _GradientButton({
+    required this.label,
+    required this.icon,
+    required this.isLoading,
+    required this.disabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 50,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: disabled
+              ? LinearGradient(
+                  colors: [kPrimary.withOpacity(0.4), kAccent.withOpacity(0.4)])
+              : const LinearGradient(
+                  colors: [kPrimaryDark, kPrimary],
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: disabled
+              ? []
+              : [
+                  BoxShadow(
+                    color: kPrimary.withOpacity(0.35),
+                    blurRadius: 16,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+        ),
+        child: ElevatedButton.icon(
+          onPressed: disabled ? null : onTap,
+          icon: isLoading
+              ? const SizedBox.shrink()
+              : Icon(icon, size: 18, color: Colors.white),
+          label: isLoading
+              ? const _ArcLoader(size: 22, color: Colors.white)
+              : Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.transparent,
+            shadowColor: Colors.transparent,
+            disabledBackgroundColor: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
           ),
         ),
       ),
@@ -524,7 +1417,59 @@ Future<void> _login({required bool isAdmin}) async {
   }
 }
 
-// Loader (kept)
+// ──────────────────────────────────────────
+// Outline button (Admin)
+// ──────────────────────────────────────────
+class _OutlineButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool isLoading;
+  final bool disabled;
+  final VoidCallback onTap;
+
+  const _OutlineButton({
+    required this.label,
+    required this.icon,
+    required this.isLoading,
+    required this.disabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 50,
+      child: OutlinedButton.icon(
+        onPressed: disabled ? null : onTap,
+        icon: isLoading
+            ? const SizedBox.shrink()
+            : Icon(icon, size: 18, color: kPrimaryDark),
+        label: isLoading
+            ? const _ArcLoader(size: 22, color: kPrimaryDark)
+            : Text(
+                label,
+                style: const TextStyle(
+                  color: kPrimaryDark,
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.3,
+                ),
+              ),
+        style: OutlinedButton.styleFrom(
+          side: const BorderSide(color: kPrimary, width: 1.5),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ──────────────────────────────────────────
+// Arc loader (unchanged)
+// ──────────────────────────────────────────
 class _ArcLoader extends StatefulWidget {
   final double size;
   final Color color;
@@ -542,6 +1487,7 @@ class _ArcLoader extends StatefulWidget {
 class _ArcLoaderState extends State<_ArcLoader>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c;
+
   @override
   void initState() {
     super.initState();
@@ -584,6 +1530,7 @@ class _ArcPainter extends CustomPainter {
   final Color color;
   final double strokeWidth;
   _ArcPainter({required this.color, required this.strokeWidth});
+
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
@@ -597,6 +1544,7 @@ class _ArcPainter extends CustomPainter {
     canvas.drawArc(rect.deflate(strokeWidth / 2), 0, sweep, false, paint);
     canvas.drawArc(rect.deflate(strokeWidth / 2), gap, sweep, false, paint);
   }
+
   @override
   bool shouldRepaint(covariant _ArcPainter oldDelegate) =>
       oldDelegate.color != color || oldDelegate.strokeWidth != strokeWidth;

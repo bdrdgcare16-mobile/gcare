@@ -141,31 +141,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                     child: Row(
                       children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),  // Increased padding
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),  // Slightly larger radius
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Color(0x14000000),
-                                blurRadius: 6,  // Slightly more pronounced shadow
-                                offset: Offset(0, 3),
-                              ),
-                            ],
-                          ),
-                          child: Image.asset(
-                            'assets/images/logobg.png',
-                            height: 48,  // Increased from 36
-                            fit: BoxFit.contain,
-                          ),
-                        ),
-                        const Spacer(),
-                        const _HeaderIcon(icon: Icons.location_on),
-                        const SizedBox(width: 14),
-                        const _HeaderIcon(icon: Icons.warning),
-                        const SizedBox(width: 14),
-                        const _HeaderIcon(icon: Icons.person),
+                      
+                       
                       ],
                     ),
                   ),

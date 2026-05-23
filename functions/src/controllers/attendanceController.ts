@@ -3,6 +3,10 @@ import { db } from '../config/firebase';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { trackUsage } from '../services/usageService';
 
+// Helper functions for request processing
+const getReqCompanyId = (req: Request) => req.user?.companyId;
+const getReqEmpId = (req: Request) => req.user?.empid || 'admin';
+
 /* ============================== Helpers ============================== */
 
 const EMP_COL       = 'employees';
@@ -113,17 +117,6 @@ function eachYMD(start: string, end: string) {
 const HOLIDAYS_SET = new Set<string>([]);
 
 /* ==== tolerant helpers for emp id ==== */
-const pickEmpId = (obj: any): string | null => {
-  const v = obj?.empid ?? obj?.empId ?? obj?.employeeId ?? null;
-  return v ? String(v).trim() : null;
-};
-const getReqEmpId = (req: Request): string | null => {
-  return pickEmpId((req as any).body) || pickEmpId((req as any).user) || null;
-};
-
-function getReqCompanyId(req: Request): string | null {
-  return String((req as any).user?.companyId || '').trim() || null;
-}
 
 const normStr = (s: any) => String(s ?? '').trim();
 const lower = (s: string) => s.trim().toLowerCase();
@@ -753,7 +746,7 @@ export const getLiveAttendance = async (req: Request, res: Response) => {
         .where('companyId', '==', companyId)
         .get();
     const shiftByGroup: Record<string, any> =
-      Object.fromEntries(shiftsSnap.docs.map(d => [d.data().group, d.data()]));
+      Object.fromEntries(shiftsSnap.docs.map(d => [d.data().shiftname, d.data()]));
 
     const isHoliday = HOLIDAYS_SET.has(today);
     const isWeekOff = isSunday(today); // <— now IST-safe
@@ -1430,15 +1423,14 @@ export const getRangeSummary = async (req: Request, res: Response) => {
     });
   }
 };
-
 /** POST /api/attendance/approvals/decision */
 export const decideApproval = async (req: Request, res: Response) => {
-  const companyId = getReqCompanyId(req);
-  if (!companyId) {
-    return res.status(403).json({ error: 'companyId missing in token' });
-  }
-
   try {
+    const companyId = (req as any).user?.companyId;
+    if (!companyId) {
+      return res.status(403).json({ error: 'companyId missing in token' });
+    }
+
     const { source, attendanceId, leaveId, empid, date, status, remarks, id, requestId } = req.body || {};
     const clean = normStr(status);
     if (!['Approved', 'Rejected'].includes(clean)) {
@@ -1448,13 +1440,10 @@ export const decideApproval = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'source must be attendance or leaves' });
     }
 
-    // Try to resolve a generic id first (may belong to attendance OR otherLocation)
     const genericId = String(id || requestId || '');
 
     if (source === 'attendance') {
-      // If an explicit attendanceId is supplied, use it
       if (attendanceId) {
-        // Load the document first to verify companyId
         const doc = await db.collection(ATT_COL).doc(String(attendanceId)).get();
         if (!doc.exists) {
           return res.status(404).json({ error: 'Attendance record not found' });
@@ -1466,15 +1455,16 @@ export const decideApproval = async (req: Request, res: Response) => {
         }
 
         await doc.ref.update({
-          approvalStatus: clean,
-          decisionBy: getReqEmpId(req),
-          decisionAt: FieldValue.serverTimestamp(),
-          decisionRemarks: remarks || null,
-        });
+            approvalStatus: clean,
+            status: clean,
+            decisionBy: (req as any).user?.empid || 'admin',
+            decisionAt: FieldValue.serverTimestamp(),
+            decisionRemarks: remarks || null,
+            updatedAt: FieldValue.serverTimestamp(),
+       });
         return res.json({ message: `Attendance ${clean.toLowerCase()} successfully` });
       }
 
-      // If we have a generic id, try attendance first, then otherLocation
       if (genericId) {
         const attRef = db.collection(ATT_COL).doc(genericId);
         const attDoc = await attRef.get();
@@ -1486,7 +1476,7 @@ export const decideApproval = async (req: Request, res: Response) => {
           
           await attRef.update({
             approvalStatus: clean,
-            decisionBy: getReqEmpId(req),
+            decisionBy: (req as any).user?.empid || 'admin',
             decisionAt: FieldValue.serverTimestamp(),
             decisionRemarks: remarks || null,
           });
@@ -1503,16 +1493,15 @@ export const decideApproval = async (req: Request, res: Response) => {
           
           await olRef.update({
             approvalStatus: clean,
-            decisionBy: getReqEmpId(req),
+            decisionBy: (req as any).user?.empid || 'admin',
             decisionAt: FieldValue.serverTimestamp(),
             decisionRemarks: remarks || null,
-            updatedAt:FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
           });
           return res.json({ message: `Other-location ${clean.toLowerCase()} successfully` });
         }
       }
 
-      // Finally, try by (empid,date)
       if (empid && date) {
         const q = await db.collection(ATT_COL)
           .where('empid', '==', empid)
@@ -1523,8 +1512,8 @@ export const decideApproval = async (req: Request, res: Response) => {
 
         await q.docs[0].ref.update({
           approvalStatus: clean,
-          decisionBy: getReqEmpId(req),
-          decisionAt:FieldValue.serverTimestamp(),
+          decisionBy: (req as any).user?.empid || 'admin',
+          decisionAt: FieldValue.serverTimestamp(),
           decisionRemarks: remarks || null,
         });
         return res.json({ message: `Attendance ${clean.toLowerCase()} successfully` });
@@ -1533,26 +1522,26 @@ export const decideApproval = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'attendanceId or (id/requestId) or (empid & date) required' });
     }
 
-    // Leaves
     if (!leaveId) return res.status(400).json({ error: 'leaveId required' });
-    
-    // Load the document first to verify companyId
+      
     const leaveDoc = await db.collection(LEAVE_COL).doc(String(leaveId)).get();
     if (!leaveDoc.exists) {
       return res.status(404).json({ error: 'Leave record not found' });
     }
-    
+      
     const leaveData = leaveDoc.data();
     if (leaveData?.companyId !== companyId) {
       return res.status(403).json({ error: 'Access denied: companyId mismatch' });
     }
-    
+      
     await leaveDoc.ref.update({
-      approvalStatus: clean,
-      decisionBy: getReqEmpId(req),
-      decisionAt: FieldValue.serverTimestamp(),
-      decisionRemarks: remarks || null,
-    });
+         approvalStatus: clean,
+         status: clean,
+         decisionBy: (req as any).user?.empid || 'admin',
+         decisionAt: FieldValue.serverTimestamp(),
+         decisionRemarks: remarks || null,
+         updatedAt: FieldValue.serverTimestamp(),
+   });
     return res.json({ message: `Leave ${clean.toLowerCase()} successfully` });
   } catch (err: any) {
     console.error('decideApproval error:', err);
@@ -1564,24 +1553,24 @@ export const decideApproval = async (req: Request, res: Response) => {
 
 /** GET /api/attendance/other-location?status=Pending|Approved|Rejected|All&start=YYYY-MM-DD&end=YYYY-MM-DD */
 export const listOtherLocationEvents = async (req: Request, res: Response) => {
-  const companyId = getReqCompanyId(req);
+  const companyId = (req as any).user?.companyId;
   if (!companyId) {
     return res.status(403).json({ error: 'companyId missing in token' });
   }
 
   try {
     const statusRaw = normStr(req.query.status || 'All');
-    const want = statusRaw.toLowerCase(); // pending|approved|rejected|all
+    const want = statusRaw.toLowerCase();
     const start = (String(req.query.start || '').slice(0, 10)) || null;
     const end   = (String(req.query.end   || '').slice(0, 10)) || null;
 
-    let ref: FirebaseFirestore.Query = db.collection(OTHER_LOC_COL).where('companyId', '==', companyId);
+    let ref: any = db.collection(OTHER_LOC_COL).where('companyId', '==', companyId);
     if (want !== 'all') ref = ref.where('approvalStatus', '==', statusRaw);
     if (start) ref = ref.where('date', '>=', start);
     if (end)   ref = ref.where('date', '<=', end);
 
     const snap = await ref.get();
-    const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const rows = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
 
     rows.sort((a: any, b: any) =>
       String(b.date || '').localeCompare(String(a.date || '')) ||
@@ -1595,44 +1584,143 @@ export const listOtherLocationEvents = async (req: Request, res: Response) => {
   }
 };
 
-/** POST /api/attendance/other-location/decision { id, status: 'Approved'|'Rejected', remarks? } */
+/** POST /api/attendance/other-location/decision */
 export const decideOtherLocationEvent = async (req: Request, res: Response) => {
-  const companyId = getReqCompanyId(req);
+  const companyId = (req as any).user?.companyId;
   if (!companyId) {
     return res.status(403).json({ error: 'companyId missing in token' });
   }
 
+  const { requestId, source, status, remarks } = req.body;
+  
+  if (!requestId || !status) {
+    return res.status(400).json({ error: 'requestId and status required' });
+  }
+
+  const normalizedStatus = normStr(status).toLowerCase();
+  if (normalizedStatus !== 'approved' && normalizedStatus !== 'rejected') {
+    return res.status(400).json({ error: 'status must be approved or rejected' });
+  }
+
   try {
-    const { id, status, remarks } = req.body || {};
-    const clean = normStr(status);
-    if (!id) return res.status(400).json({ error: 'id required' });
-    if (!['Approved', 'Rejected'].includes(clean)) {
-      return res.status(400).json({ error: 'status must be Approved or Rejected' });
-    }
-
-    // Load the document first to verify companyId
-    const doc = await db.collection(OTHER_LOC_COL).doc(String(id)).get();
-    if (!doc.exists) {
-      return res.status(404).json({ error: 'Other location event not found' });
-    }
+    let docRef: any;
     
-    const docData = doc.data();
-    if (docData?.companyId !== companyId) {
-      return res.status(403).json({ error: 'Access denied: companyId mismatch' });
+    if (source === 'other_location') {
+      docRef = db.collection(OTHER_LOC_COL).doc(requestId);
+    } else {
+      docRef = db.collection(ATT_COL).doc(requestId);
     }
 
-    await doc.ref.update({
-      approvalStatus: clean,
-      decisionBy: getReqEmpId(req),
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'Request not found' });
+    }
+
+    const updateData: any = {
+      approvalStatus: normalizedStatus,
+      decisionRemarks: remarks || '',
       decisionAt: FieldValue.serverTimestamp(),
-      decisionRemarks: remarks || null,
-      updatedAt: FieldValue.serverTimestamp(),
+    };
+
+    if (source === 'other_location') {
+      updateData.status = normalizedStatus;
+    }
+
+    await docRef.update(updateData);
+
+    console.log('OTHER LOCATION DECISION UPDATED:', {
+      requestId,
+      source,
+      status: normalizedStatus,
+      remarks,
+      updatedAt: new Date().toISOString(),
     });
 
-    return res.json({ message: `Other-location ${clean.toLowerCase()} successfully` });
-  } catch (err: any) {
-    console.error('decideOtherLocationEvent error:', err);
-    return res.status(500).json({ error: err.message });
+    return res.status(200).json({
+      success: true,
+      requestId,
+      status: normalizedStatus,
+      message: 'Request updated successfully'
+    });
+  } catch (error: any) {
+    console.error('OTHER LOCATION DECISION ERROR:', error);
+    return res.status(500).json({
+      error: 'Failed to update request',
+      message: error?.message || 'Unknown error'
+    });
+  }
+};
+
+
+/** PATCH /api/attendance/approvals/:requestId/payroll-status */
+export const updatePayrollStatus = async (req: Request, res: Response) => {
+  const companyId = (req as any).user?.companyId;
+  if (!companyId) {
+    return res.status(403).json({ error: 'companyId missing in token' });
+  }
+
+  const { requestId } = req.params as any;
+  const { payrollStatus, source } = req.body as any;
+
+  if (!requestId || !payrollStatus || !source) {
+    return res.status(400).json({ error: 'requestId, payrollStatus, and source required' });
+  }
+
+  const normalizedPayrollStatus = normStr(payrollStatus).toLowerCase();
+  if (normalizedPayrollStatus !== 'paid' && normalizedPayrollStatus !== 'unpaid') {
+    return res.status(400).json({ error: 'payrollStatus must be paid or unpaid' });
+  }
+
+  try {
+    let docRef: any;
+    
+    if (source === 'leaves') {
+      docRef = db.collection('leaves').doc(requestId);
+    } else if (source === 'attendance') {
+      docRef = db.collection('attendance').doc(requestId);
+    } else {
+      return res.status(400).json({ error: 'source must be leaves or attendance' });
+    }
+
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'Request not found' });
+    }
+
+    // Verify company isolation
+    const docData = doc.data() as any;
+    if (docData.companyId !== companyId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const updateData: any = {
+      payrollStatus: normalizedPayrollStatus,
+      payrollUpdatedAt: FieldValue.serverTimestamp(),
+      payrollUpdatedBy: (req as any).user?.empid || 'admin',
+    };
+
+    await docRef.update(updateData);
+
+    console.log('PAYROLL STATUS UPDATED:', {
+      requestId,
+      source,
+      payrollStatus: normalizedPayrollStatus,
+      updatedAt: new Date().toISOString(),
+      updatedBy: (req as any).user?.empid || 'admin',
+    });
+
+    return res.status(200).json({
+      success: true,
+      requestId,
+      payrollStatus: normalizedPayrollStatus,
+      message: 'Payroll status updated successfully'
+    });
+  } catch (error: any) {
+    console.error('PAYROLL STATUS UPDATE ERROR:', error);
+    return res.status(500).json({
+      error: 'Failed to update payroll status',
+      message: error?.message || 'Unknown error'
+    });
   }
 };
 
@@ -1665,7 +1753,7 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
     const shiftByGroup: Record<string, any> = {};
     shiftsSnap.forEach((d) => {
       const s = d.data();
-      shiftByGroup[(s as any).group] = s;
+      shiftByGroup[(s as any).shiftname] = s;
     });
 
     // Process attendance documents in parallel with employee data fetching
@@ -1996,7 +2084,7 @@ export const listMyRequests = async (req: Request, res: Response) => {
     const shiftByGroup: Record<string, any> = {};
     shiftsSnap.forEach((d) => {
       const s = d.data();
-      shiftByGroup[(s as any).group] = s;
+      shiftByGroup[(s as any).shiftname] = s;
     });
 
     let emp: any = null;
@@ -2210,9 +2298,8 @@ export const getRequestDetails = async (req: Request, res: Response) => {
   }
 };
 
-/** GET /api/attendance/monthly/:empid/:year/:month */
 export const getMonthlySummary = async (req: Request, res: Response) => {
-  console.log("[MONTHLY] params:", req.params);
+  console.log("[ MONTHLY] params:", req.params);
   console.log("[MONTHLY] user:", req.user);
 
   const companyId = req.user?.companyId;
@@ -2254,7 +2341,6 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
     "0"
   )}`;
 
-  // Update absent generation date range to only generate up to today's date for current month
   const today = new Date();
   const todayYear = today.getFullYear();
   const todayMonth = today.getMonth() + 1;
@@ -2263,10 +2349,9 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
   let absentGenerationEndDate = endDate;
 
   if (yearNumber === todayYear && monthNumber === todayMonth) {
-    absentGenerationEndDate = `${yearNumber}-${safeMonth}-${String(todayDate).padStart(
-      2,
-      "0"
-    )}`;
+    absentGenerationEndDate = `${yearNumber}-${safeMonth}-${String(
+      todayDate
+    ).padStart(2, "0")}`;
   }
 
   if (
@@ -2350,6 +2435,81 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
       .where("startDate", "<=", endDate)
       .get();
 
+    // ✅ Fetch employee shift group and matching shift timing
+    let employeeShiftGroup = "";
+    let employeeShiftStartTime: string | null = null;
+    let employeeShiftEndTime: string | null = null;
+
+    const employeeSnap = await db
+      .collection("employees")
+      .where("companyId", "==", companyId)
+      .where("empid", "==", empid)
+      .limit(1)
+      .get();
+
+    if (!employeeSnap.empty) {
+      const employeeData = employeeSnap.docs[0].data() as any;
+
+      employeeShiftGroup = (
+        employeeData.shiftGroup ||
+        employeeData.shiftName ||
+        employeeData.shiftname ||
+        ""
+      )
+        .toString()
+        .trim();
+
+      console.log(
+        `[MONTHLY SHIFT] Employee: ${empid}, ShiftGroup: ${employeeShiftGroup}`
+      );
+    } else {
+      console.log(
+        `[MONTHLY SHIFT] No employee found for empid: ${empid}, companyId: ${companyId}`
+      );
+    }
+
+    if (employeeShiftGroup) {
+      let shiftSnap = await db
+        .collection("shifts")
+        .where("companyId", "==", companyId)
+        .where("name", "==", employeeShiftGroup)
+        .limit(1)
+        .get();
+
+      if (shiftSnap.empty) {
+        shiftSnap = await db
+          .collection("shifts")
+          .where("companyId", "==", companyId)
+          .where("shiftname", "==", employeeShiftGroup)
+          .limit(1)
+          .get();
+      }
+
+      if (!shiftSnap.empty) {
+        const shiftData = shiftSnap.docs[0].data() as any;
+
+        employeeShiftStartTime = normalizeTime(
+          shiftData.startTime ||
+            shiftData.shiftStartTime ||
+            shiftData.workStartTime
+        );
+
+        employeeShiftEndTime = normalizeTime(
+          shiftData.endTime ||
+            shiftData.shiftEndTime ||
+            shiftData.workEndTime
+        );
+
+        console.log(
+          `[MONTHLY SHIFT] Matched shift: ${employeeShiftGroup}, Start: ${employeeShiftStartTime}, End: ${employeeShiftEndTime}`
+        );
+      } else {
+        console.log(
+          `[MONTHLY SHIFT] No matching shift found for ${employeeShiftGroup}, using fallback time`
+        );
+      }
+    }
+
     const approvedPermissionByDate: Record<string, number> = {};
     const permissionLeaveDetailsByDate: Record<string, any[]> = {};
     const approvedLeaveByDate: Record<string, any[]> = {};
@@ -2369,7 +2529,6 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
       const isPermission = isPermissionLeaveType(leaveType);
       const isRegularLeave = !isPermission && isApproved;
 
-      // Process permission leaves
       if (leaveStartDate && isPermission && isApproved) {
         const duration =
           typeof leave.duration === "number" && leave.duration > 0
@@ -2394,19 +2553,21 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
         });
 
         console.log(
-          `[MONTHLY PERMISSION] Employee: ${empid}, Date: ${leaveStartDate}, LeaveType: ${leave.leaveType}, ApprovalStatus: ${leave.approvalStatus}, Duration: ${duration}` 
+          `[MONTHLY PERMISSION] Employee: ${empid}, Date: ${leaveStartDate}, LeaveType: ${leave.leaveType}, ApprovalStatus: ${leave.approvalStatus}, Duration: ${duration}`
         );
       }
 
-      // Process regular leaves (Casual, Sick, Planned, etc.)
       if (isRegularLeave) {
-        // Handle multi-day leaves
         const start = new Date(leaveStartDate);
         const end = new Date(leaveEndDate);
-        
-        for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
-          const dateStr = date.toISOString().split('T')[0];
-          
+
+        for (
+          let date = new Date(start);
+          date <= end;
+          date.setDate(date.getDate() + 1)
+        ) {
+          const dateStr = date.toISOString().split("T")[0];
+
           if (!approvedLeaveByDate[dateStr]) {
             approvedLeaveByDate[dateStr] = [];
           }
@@ -2415,14 +2576,14 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
             id: leaveDoc.id,
             leaveType: leave.leaveType,
             approvalStatus: leave.approvalStatus,
-            duration: 1, // Count as 1 day per date
+            duration: 1,
             startDate: leave.startDate,
             endDate: leave.endDate,
             reason: leave.reason || null,
           });
 
           console.log(
-            `[MONTHLY LEAVE] Employee: ${empid}, Date: ${dateStr}, LeaveType: ${leave.leaveType}, ApprovalStatus: ${leave.approvalStatus}` 
+            `[MONTHLY LEAVE] Employee: ${empid}, Date: ${dateStr}, LeaveType: ${leave.leaveType}, ApprovalStatus: ${leave.approvalStatus}`
           );
         }
       }
@@ -2442,19 +2603,27 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
       const checkIn = normalizeTime(attendanceDoc.checkIn);
       const checkOut = normalizeTime(attendanceDoc.checkOut);
 
-      const shiftStart = normalizeTime(
-        attendanceDoc.shiftStartTime ||
-          attendanceDoc.shiftGroup?.startTime ||
-          attendanceDoc.shift?.startTime ||
-          "09:00"
-      );
+      // ✅ Updated shift timing logic:
+      // 1. Use shift time saved in attendance document if available.
+      // 2. If missing, use employee's assigned shift from shifts collection.
+      // 3. Only then use fallback 09:00 / 18:00.
+      const shiftStart =
+        normalizeTime(
+          attendanceDoc.shiftStartTime ||
+            attendanceDoc.shiftGroup?.startTime ||
+            attendanceDoc.shift?.startTime
+        ) ||
+        employeeShiftStartTime ||
+        "09:00";
 
-      const shiftEnd = normalizeTime(
-        attendanceDoc.shiftEndTime ||
-          attendanceDoc.shiftGroup?.endTime ||
-          attendanceDoc.shift?.endTime ||
-          "18:00"
-      );
+      const shiftEnd =
+        normalizeTime(
+          attendanceDoc.shiftEndTime ||
+            attendanceDoc.shiftGroup?.endTime ||
+            attendanceDoc.shift?.endTime
+        ) ||
+        employeeShiftEndTime ||
+        "18:00";
 
       if (date && checkIn && shiftStart) {
         const checkInTime = buildDateTime(date, checkIn);
@@ -2479,16 +2648,19 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
 
       const permissionCount = approvedPermissionByDate[date] || 0;
       const isPermission = permissionCount > 0;
-      
+
       const leaveDetails = approvedLeaveByDate[date] || [];
       const isLeave = leaveDetails.length > 0;
       const leaveCount = leaveDetails.length;
-      
-      const isAbsent = !isPermission && !isLeave && (!checkIn || checkIn === 'null');
+
+      const isAbsent =
+        !isPermission && !isLeave && (!checkIn || checkIn === "null");
 
       return {
         id: doc.id,
         ...attendanceDoc,
+        shiftStartTime: shiftStart,
+        shiftEndTime: shiftEnd,
         isLate,
         isEarly,
         isAbsent,
@@ -2502,7 +2674,6 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
       };
     });
 
-    // Add permission-only records
     Object.keys(approvedPermissionByDate).forEach((permissionDate) => {
       if (!attendanceDates.has(permissionDate)) {
         data.push({
@@ -2514,6 +2685,8 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
           attendanceStatus: "Permission",
           checkIn: null,
           checkOut: null,
+          shiftStartTime: employeeShiftStartTime || "09:00",
+          shiftEndTime: employeeShiftEndTime || "18:00",
           isLate: false,
           isEarly: false,
           isAbsent: false,
@@ -2527,15 +2700,18 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
         });
 
         console.log(
-          `[MONTHLY PERMISSION ONLY] Employee: ${empid}, Date: ${permissionDate}, PermissionCount: ${approvedPermissionByDate[permissionDate]}` 
+          `[MONTHLY PERMISSION ONLY] Employee: ${empid}, Date: ${permissionDate}, PermissionCount: ${approvedPermissionByDate[permissionDate]}`
         );
       }
     });
 
-    // Add leave-only records
     Object.keys(approvedLeaveByDate).forEach((leaveDate) => {
-      if (!attendanceDates.has(leaveDate) && !approvedPermissionByDate[leaveDate]) {
+      if (
+        !attendanceDates.has(leaveDate) &&
+        !approvedPermissionByDate[leaveDate]
+      ) {
         const leaveDetails = approvedLeaveByDate[leaveDate];
+
         data.push({
           id: `leave-${empid}-${leaveDate}`,
           empid,
@@ -2545,6 +2721,8 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
           attendanceStatus: "Leave",
           checkIn: null,
           checkOut: null,
+          shiftStartTime: employeeShiftStartTime || "09:00",
+          shiftEndTime: employeeShiftEndTime || "18:00",
           isLate: false,
           isEarly: false,
           isAbsent: false,
@@ -2558,38 +2736,43 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
         });
 
         console.log(
-          `[MONTHLY LEAVE ONLY] Employee: ${empid}, Date: ${leaveDate}, LeaveType: ${leaveDetails[0]?.leaveType}, LeaveCount: ${leaveDetails.length}` 
+          `[MONTHLY LEAVE ONLY] Employee: ${empid}, Date: ${leaveDate}, LeaveType: ${leaveDetails[0]?.leaveType}, LeaveCount: ${leaveDetails.length}`
         );
       }
     });
 
-    // Generate working days and create absent records
     const generateWorkingDays = (start: string, end: string): string[] => {
       const workingDays: string[] = [];
       const startDate = new Date(start);
       const endDate = new Date(end);
-      
-      for (let date = new Date(startDate); date <= endDate; date.setDate(date.getDate() + 1)) {
+
+      for (
+        let date = new Date(startDate);
+        date <= endDate;
+        date.setDate(date.getDate() + 1)
+      ) {
         const dayOfWeek = date.getDay();
-        // Skip Sundays (day 0)
+
         if (dayOfWeek !== 0) {
-          workingDays.push(date.toISOString().split('T')[0]);
+          workingDays.push(date.toISOString().split("T")[0]);
         }
       }
-      
+
       return workingDays;
     };
 
     const allWorkingDays = absentGenerationEndDate
-  ? generateWorkingDays(startDate, absentGenerationEndDate)
-  : [];
+      ? generateWorkingDays(startDate, absentGenerationEndDate)
+      : [];
+
     const totalWorkingDays = allWorkingDays.length;
 
-    // Create absent records for working days with no attendance, leave, or permission
-    allWorkingDays.forEach(workingDate => {
-      if (!attendanceDates.has(workingDate) && 
-          !approvedLeaveByDate[workingDate] && 
-          !approvedPermissionByDate[workingDate]) {
+    allWorkingDays.forEach((workingDate) => {
+      if (
+        !attendanceDates.has(workingDate) &&
+        !approvedLeaveByDate[workingDate] &&
+        !approvedPermissionByDate[workingDate]
+      ) {
         data.push({
           id: `absent-${empid}-${workingDate}`,
           empid,
@@ -2599,6 +2782,8 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
           attendanceStatus: "Absent",
           checkIn: null,
           checkOut: null,
+          shiftStartTime: employeeShiftStartTime || "09:00",
+          shiftEndTime: employeeShiftEndTime || "18:00",
           isLate: false,
           isEarly: false,
           isAbsent: true,
@@ -2612,7 +2797,7 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
         });
 
         console.log(
-          `[MONTHLY ABSENT] Employee: ${empid}, Date: ${workingDate}, Status: Absent` 
+          `[MONTHLY ABSENT] Employee: ${empid}, Date: ${workingDate}, Status: Absent`
         );
       }
     });
@@ -2621,18 +2806,35 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
       return a.date.localeCompare(b.date);
     });
 
-    const totalLate = data.filter((item: any) => item.isLate).length;
-    const totalEarly = data.filter((item: any) => item.isEarly).length;
+    const lateDates = new Set<string>();
+    const earlyDates = new Set<string>();
+
+    data.forEach((item: any) => {
+      if (item.isLate && item.date) {
+        lateDates.add(item.date);
+      }
+
+      if (item.isEarly && item.date) {
+        earlyDates.add(item.date);
+      }
+    });
+
+    const totalLate = lateDates.size;
+    const totalEarly = earlyDates.size;
+
     const totalPermission = data.reduce(
       (total: number, item: any) => total + (item.permissionCount || 0),
       0
     );
+
     const totalLeave = data.filter((item: any) => item.isLeave).length;
     const totalAbsent = data.filter((item: any) => item.isAbsent).length;
-    const totalPresent = data.filter((item: any) => !item.isAbsent && !item.isLeave && !item.isPermission).length;
+    const totalPresent = data.filter(
+      (item: any) => !item.isAbsent && !item.isLeave && !item.isPermission
+    ).length;
 
     console.log(
-      `[MONTHLY] Employee: ${empid}, Total Working Days: ${totalWorkingDays}, Records: ${data.length}, Present: ${totalPresent}, Absent: ${totalAbsent}, Leave: ${totalLeave}, Late: ${totalLate}, Early: ${totalEarly}, Permission: ${totalPermission}` 
+      `[MONTHLY] Employee: ${empid}, Total Working Days: ${totalWorkingDays}, Records: ${data.length}, Present: ${totalPresent}, Absent: ${totalAbsent}, Leave: ${totalLeave}, Late: ${totalLate}, Early: ${totalEarly}, Permission: ${totalPermission}`
     );
 
     return res.status(200).json(data);

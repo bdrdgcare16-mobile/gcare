@@ -62,10 +62,15 @@ function pointFromBody(body: any): TrackPoint {
 }
 
 /* ---------- NEW: throttle helpers (strict 20 min) ---------- */
+/* ---------- Tracking throttle helpers ---------- */
+const TRACKING_DEBUG_VERSION = 'tracking-debug-2min-1meter-v2';
+console.log('[TrackingController] VERSION:', TRACKING_DEBUG_VERSION);
+
 function minutesBetween(aIso: string, bIso: string) {
   return Math.abs((new Date(aIso).getTime() - new Date(bIso).getTime()) / 60000);
 }
-const MIN_TRACK_INTERVAL_MIN = 20;
+
+const MIN_TRACK_INTERVAL_MIN = 15;
 // very small movement filter so we don't store duplicate same-spot updates
 function distanceMeters(a: {lat:number; lng:number}, b: {lat:number; lng:number}) {
   const R = 6371000; // m
@@ -117,6 +122,9 @@ export async function trackingAppendPos(req: Request, res: Response) {
     const id = docId(empid, dateIso);
     const pt = pointFromBody(req.body);
     const nowIso = new Date().toISOString();
+    
+    // ✅ NEW: Capture reject reason outside transaction scope for response
+    let rejectReasonForResponse = '';
 
     console.log('[TrackingController] LOG: Parsed data - empid:', empid, 'dateIso:', dateIso, 'docId:', id);
     console.log('[TrackingController] LOG: Point data - lat:', pt.lat, 'lng:', pt.lng, 'accuracy:', pt.accuracy, 'ts:', pt.ts);
@@ -183,6 +191,9 @@ export async function trackingAppendPos(req: Request, res: Response) {
       console.log('[TrackingController] LOG: Time since last:', last ? minutesBetween(pt.ts, last.ts).toFixed(1) + 'min' : 'N/A');
       console.log('[TrackingController] LOG: Distance from last:', last ? distanceMeters({lat:last.lat, lng:last.lng}, {lat:pt.lat, lng:pt.lng}).toFixed(1) + 'm' : 'N/A');
 
+      // ✅ UPDATED: Capture reason for response
+      rejectReasonForResponse = rejectReason;
+
       // Debug log
       const lastPoint = last || { lat: 0, lng: 0, ts: '' };
       const distance = last 
@@ -209,8 +220,17 @@ export async function trackingAppendPos(req: Request, res: Response) {
       }
     });
 
-    console.log('[TrackingController] LOG: Final response - ok:', true, 'id:', id, 'added:', accepted ? 'YES' : 'NO', 'throttled:', !accepted);
-    return res.status(200).json({ ok: true, id, added: accepted ? pt : null, throttled: !accepted });
+    // ✅ UPDATED: Include reason and throttle constants in response
+    console.log('[TrackingController] LOG: Final response - ok:', true, 'id:', id, 'added:', accepted ? 'YES' : 'NO', 'throttled:', !accepted, 'reason:', rejectReasonForResponse);
+    return res.status(200).json({
+      ok: true,
+      id,
+      added: accepted ? pt : null,
+      throttled: !accepted,
+      reason: accepted ? 'Point added to pathMap' : rejectReasonForResponse,
+      minIntervalMinutes: MIN_TRACK_INTERVAL_MIN,
+      minMoveMeters: MIN_MOVE_METERS,
+    });
   } catch (e: any) {
     return res.status(400).json({ error: e?.message || String(e) });
   }
