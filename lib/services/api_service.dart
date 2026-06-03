@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint, kDebugMode;
 import 'package:http/http.dart' as http;
 
 import 'package:serv_app/config/api_config.dart';
@@ -309,7 +309,9 @@ static Future<Map<String, String>> _authHeaders({bool json = true}) async {
     final res = await _getWithFallback(_approvalsPaths, query: qp);
 
     if (!_ok(res)) {
-      debugPrint(res.body);
+      if (kDebugMode) {
+        debugPrint(res.body);
+      }
       throw Exception('Failed to fetch approvals (${res.statusCode})'
       );
     }
@@ -613,29 +615,47 @@ static Future<Map<String, String>> _authHeaders({bool json = true}) async {
   }
 
   static Future<Map<String, dynamic>> fetchTrackingDay({
-    required String empid,
-    required String dateIso,
-  }) async {
-    final headers = await _authHeaders();
+  required String empid,
+  required String dateIso,
+}) async {
+  final headers = await _authHeaders();
 
-    final uri = Uri.parse('$baseUrl/tracking/day')
-        .replace(queryParameters: {'dateIso': dateIso});
+  final uri = Uri.parse('$baseUrl/tracking/day').replace(
+    queryParameters: {
+      'empid': empid,
+      'dateIso': dateIso,
+    },
+  );
 
-    final res = await _safeGet(uri, headers: headers);
+  final res = await _safeGet(
+    uri,
+    headers: {
+      ...headers,
+      'x-empid': empid,
+    },
+  );
 
-    if (!_ok(res)) {
-      throw Exception('tracking/day ${res.statusCode}: ${res.body}');
-    }
-
-    final body = json.decode(res.body);
-
-    if (body is Map && body['data'] is Map) {
-      return Map<String, dynamic>.from(body['data']);
-    }
-
-    return <String, dynamic>{};
+  if (!_ok(res)) {
+    throw Exception('tracking/day ${res.statusCode}: ${res.body}');
   }
 
+  final body = json.decode(res.body);
+
+  if (body is Map && body['data'] is Map) {
+    final data = Map<String, dynamic>.from(body['data']);
+
+    return {
+      ...data,
+      'pathMap': data['pathMap'] is List ? data['pathMap'] : [],
+      'events': data['events'] is List ? data['events'] : [],
+    };
+  }
+
+  return <String, dynamic>{
+    'pathMap': [],
+    'events': [],
+  };
+}
   static String _extractErrorMessage(http.Response response) {
   try {
     final decoded = jsonDecode(response.body);

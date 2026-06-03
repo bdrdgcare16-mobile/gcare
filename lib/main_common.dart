@@ -1,8 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart'
-    show kIsWeb;
+import 'package:flutter/foundation.dart' show kDebugMode, debugPrint,kIsWeb;
 import 'package:firebase_core/firebase_core.dart';
+
 import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 import 'package:workmanager/workmanager.dart';
 import 'package:serv_app/features/auth/auth_guard.dart';
@@ -36,10 +36,14 @@ Future<void> startApp({
     final app = await Firebase.initializeApp(
       options: firebaseOptions,
     );
-    debugPrint('Firebase initialized for [$environmentName]: ${app.options.projectId}');
-    debugPrint('API key configured: ${app.options.apiKey.isNotEmpty ? 'YES' : 'NO'}');
+    if (kDebugMode) {
+      debugPrint('Firebase initialized for [$environmentName]: ${app.options.projectId}');
+      debugPrint('API key configured: ${app.options.apiKey.isNotEmpty ? 'YES' : 'NO'}');
+    }
   } catch (e) {
-    debugPrint('Firebase initialization error [$environmentName]: $e');
+    if (kDebugMode) {
+      debugPrint('Firebase initialization error [$environmentName]: $e');
+    }
   }
 
   if (_isAndroid) {
@@ -47,7 +51,9 @@ Future<void> startApp({
       try {
         await initializeBackgroundSystems();
       } catch (e) {
-        debugPrint('initializeBackgroundSystems failed [$environmentName]: $e');
+        if (kDebugMode) {
+          debugPrint('initializeBackgroundSystems failed [$environmentName]: $e');
+        }
       }
     });
   }
@@ -156,11 +162,27 @@ Future<void> startFgTracking({
   required String token,
 }) async {
   if (!_isAndroid) return;
+
   try {
+    if (kDebugMode) {
+      debugPrint('[FG TEST] startFgTracking called empid=$empid tokenEmpty=${token.isEmpty}');
+    }
+
     await setTrackingIdentity(empid: empid, token: token);
+
+    if (kDebugMode) {
+      debugPrint('[FG TEST] setTrackingIdentity completed');
+    }
+
     await startForegroundTracking();
+
+    if (kDebugMode) {
+      debugPrint('[FG TEST] startForegroundTracking completed');
+    }
   } catch (e) {
-    debugPrint('startFgTracking error: $e');
+    if (kDebugMode) {
+      debugPrint('startFgTracking error: $e');
+    }
   }
 }
 
@@ -169,6 +191,8 @@ Future<void> stopFgTracking() async {
   try {
     await stopForegroundTracking();
   } catch (e) {
-    debugPrint('stopFgTracking error: $e');
+    if (kDebugMode) {
+      debugPrint('stopFgTracking error: $e');
+    }
   }
 }

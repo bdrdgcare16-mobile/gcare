@@ -78,7 +78,30 @@ function isOpenShift(shiftName: string): boolean {
   return name.includes('open');
 }
 
-function cmpHHMM(a?: string, b?: string) { return (a || '00:00') > (b || '00:00'); }
+function timeHHMMToMinutes(value?: string | null): number | null {
+  if (!value) return null;
+  const parts = value.split(':');
+  if (parts.length < 2) return null;
+  const hour = Number(parts[0]);
+  const minute = Number(parts[1]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return hour * 60 + minute;
+}
+
+function minutesToHHMM(minutes: number): string {
+  const normalized = ((minutes % 1440) + 1440) % 1440;
+  const hour = Math.floor(normalized / 60);
+  const minute = normalized % 60;
+  return `${pad2(hour)}:${pad2(minute)}`;
+}
+
+function cmpHHMM(a?: string, b?: string) {
+  const aMin = timeHHMMToMinutes(a ?? '00:00');
+  const bMin = timeHHMMToMinutes(b ?? '00:00');
+  if (aMin === null || bMin === null) return false;
+  return aMin > bMin;
+}
 
 function midpointHHMM(start?: string, end?: string) {
   if (isOpenShift(start || '') || isOpenShift(end || '')) {
@@ -92,6 +115,56 @@ function midpointHHMM(start?: string, end?: string) {
   return `${pad2(mh)}:${pad2(mm)}`;
 }
 
+function isValidYMD(value: any): boolean {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim());
+}
+
+function normalizeTimeString(value: any): string | null {
+  if (!value) return null;
+
+  if (typeof value === 'object' && typeof value.toDate === 'function') {
+    return normalizeTimeString(value.toDate());
+  }
+
+  if (value instanceof Date) {
+    return `${pad2(value.getHours())}:${pad2(value.getMinutes())}`;
+  }
+
+  const raw = String(value).trim();
+  if (raw === '' || raw === '-' || raw.toLowerCase() === 'null') return null;
+
+  // Handle ISO and datetime strings
+  if (raw.includes('T')) {
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) {
+      return `${pad2(parsed.getHours())}:${pad2(parsed.getMinutes())}`;
+    }
+  }
+
+  const parts = raw.split(':');
+  if (parts.length < 2) return null;
+  const hour = parts[0].trim().padStart(2, '0');
+  const minute = parts[1].trim().padStart(2, '0');
+  if (!/^[0-2]\d$/.test(hour) || !/^[0-5]\d$/.test(minute)) return null;
+  return `${hour}:${minute}`;
+}
+
+function formatDurationHM(minutes: number): string {
+  const normalized = Math.max(0, Math.round(minutes));
+  const hours = Math.floor(normalized / 60);
+  const mins = normalized % 60;
+  if (hours > 0 && mins > 0) {
+    return `${hours}h ${mins}m`;
+  }
+  if (hours > 0) {
+    return `${hours}h`;
+  }
+  if (mins > 0) {
+    return `${mins}m`;
+  }
+  return '0m';
+}
+
 function toISO(v: any): string {
   try {
     if (!v) return '';
@@ -101,14 +174,21 @@ function toISO(v: any): string {
     return d.toISOString().slice(0, 10);
   } catch { return ''; }
 }
+
 function eachYMD(start: string, end: string) {
   const out: string[] = [];
   const d = new Date(start);
+  if (Number.isNaN(d.getTime())) {
+    throw new Error(`Invalid start date for range: ${start}`);
+  }
   for (;;) {
     const ymd = d.toISOString().slice(0, 10);
     out.push(ymd);
     if (ymd === end) break;
     d.setDate(d.getDate() + 1);
+    if (out.length > 1000) {
+      throw new Error('Date range too large or invalid');
+    }
   }
   return out;
 }
@@ -1086,31 +1166,32 @@ export const getRangeSummary = async (req: Request, res: Response) => {
     return res.status(403).json({ error: 'companyId missing in token' });
   }
 
+  if (req.query.companyId) {
+    console.log('Ignoring companyId from query params; companyId is derived from authenticated token only.');
+  }
+
   try {
-    const start = String(req.query.start || '').slice(0, 10);
-    const end   = String(req.query.end   || '').slice(0, 10);
-    console.log('Query params - start:', start, 'end:', end);
-    
-    if (!start || !end) {
-      console.log('ERROR: Missing start or end date');
-      return res.status(400).json({ error: 'Provide ?start=YYYY-MM-DD&end=YYYY-MM-DD' });
+    const rawStart = String(req.query.start ?? '').trim();
+    const rawEnd = String(req.query.end ?? '').trim();
+    const start = rawStart.slice(0, 10);
+    const end = rawEnd.slice(0, 10);
+    console.log('Query params - rawStart:', rawStart, 'rawEnd:', rawEnd, 'start:', start, 'end:', end);
+
+    if (!start || !end || !isValidYMD(start) || !isValidYMD(end)) {
+      console.log('ERROR: Missing or invalid start/end date parameters');
+      return res.status(400).json({ error: 'Provide valid ?start=YYYY-MM-DD&end=YYYY-MM-DD' });
     }
-    
-    // Validate date format and range
-    try {
-      const startDate = new Date(start);
-      const endDate = new Date(end);
-      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-        console.log('ERROR: Invalid date format');
-        return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
-      }
-      if (endDate < startDate) {
-        console.log('ERROR: End date before start date');
-        return res.status(400).json({ error: 'End date must be after start date' });
-      }
-    } catch (dateErr) {
-      console.log('ERROR: Date parsing error:', dateErr);
+
+    // Validate date range, not just format
+    const startDate = new Date(`${start}T00:00:00Z`);
+    const endDate = new Date(`${end}T00:00:00Z`);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      console.log('ERROR: Invalid date format after normalization');
       return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
+    }
+    if (endDate < startDate) {
+      console.log('ERROR: End date before start date');
+      return res.status(400).json({ error: 'End date must be after start date' });
     }
 
     console.log('Fetching employees...');
@@ -1118,32 +1199,55 @@ export const getRangeSummary = async (req: Request, res: Response) => {
       .where('status', '==', 'active')
       .where('companyId', '==', companyId)
       .get();
-    
-    console.log('Employee snapshot size:', empSnap.size);
-    const employees = empSnap.docs.map(d => {
-      const data = d.data();
-      console.log('Employee doc:', { empid: data.empid, name: data.name, status: data.status });
-      return data;
-    });
 
-    const activeEmployees = employees.filter((e: any) =>
-      String(e.status || '').toLowerCase() === 'active'
-    ).length;
-    console.log('Active employees count:', activeEmployees);
+    console.log('Employee snapshot size:', empSnap.size);
+    const employees = empSnap.docs.map(d => d.data());
+    const activeEmployees = employees.length;
+    console.log('Active employee count:', activeEmployees);
 
     console.log('Fetching shifts...');
     const shiftsSnap = await db.collection(SHIFT_COL)
       .where('companyId', '==', companyId)
       .get();
+
+    console.log('Shift count:', shiftsSnap.size);
     
-    console.log('Shifts snapshot size:', shiftsSnap.size);
+    // Log every shift document with all possible fields
+    console.log('=== SHIFT DOCUMENTS DEBUG ===');
     const shiftByGroup: Record<string, any> = {};
     shiftsSnap.docs.forEach(d => {
       const data = d.data();
-      const group = data.group || 'unknown';
-      shiftByGroup[group] = data;
-      console.log('Shift doc:', { group, startTime: data.startTime, endTime: data.endTime });
+      console.log('Shift document:', {
+        id: d.id,
+        group: data.group,
+        shiftGroup: data.shiftGroup,
+        shiftName: data.shiftName,
+        name: data.name,
+        shift: data.shift,
+        startTime: data.startTime,
+        endTime: data.endTime,
+        graceMinutes: data.graceMinutes,
+      });
+      
+      // Build shiftByGroup using all possible valid keys with normalization
+      const possibleKeys = [
+        String(data.group ?? '').trim(),
+        String(data.shiftGroup ?? '').trim(),
+        String(data.shiftName ?? '').trim(),
+        String(data.name ?? '').trim(),
+        String(data.shift ?? '').trim(),
+        d.id.trim(),
+      ];
+      
+      possibleKeys.forEach(key => {
+        if (key) {
+          const normalizedKey = key.toLowerCase();
+          shiftByGroup[normalizedKey] = data;
+        }
+      });
     });
+    console.log('ShiftByGroup keys:', Object.keys(shiftByGroup));
+    console.log('=== END SHIFT DOCUMENTS DEBUG ===');
 
     console.log('Fetching attendance records...');
     const attSnap = await db.collection(ATT_COL)
@@ -1151,241 +1255,318 @@ export const getRangeSummary = async (req: Request, res: Response) => {
       .where('date', '>=', start)
       .where('date', '<=', end)
       .get();
-    
-    console.log('Attendance snapshot size:', attSnap.size);
-    const attByEmpDate: Record<string, any> = {};
-    attSnap.forEach(doc => { 
+
+    console.log('Attendance record count:', attSnap.size);
+    const attendanceByEmpIdDate: Record<string, any> = {};
+    attSnap.docs.forEach(doc => {
       const a = doc.data();
-      const key = `${a.empid || 'unknown'}|${a.date || 'unknown'}`;
-      attByEmpDate[key] = { id: doc.id, ...a };
+      const empid = String(a.empid ?? 'unknown');
+      const date = String(a.date ?? 'unknown');
+      const key = `${empid}|${date}`;
+      attendanceByEmpIdDate[key] = { id: doc.id, ...a };
     });
 
-    console.log('Fetching all leaves (including pending Half-Day requests)...');
+    console.log('Fetching leave records for this company...');
     let leavesSnap;
     try {
-      // Fetch all leaves to include pending Half-Day requests
-      leavesSnap = await db.collection(LEAVE_COL).get();
+      leavesSnap = await db.collection(LEAVE_COL)
+        .where('companyId', '==', companyId)
+        .get();
     } catch (leaveErr) {
-      console.log('Warning: Failed to fetch leaves:', leaveErr);
-      leavesSnap = await db.collection(LEAVE_COL).get();
+      console.log('Warning: Failed to fetch company-specific leaves:', leaveErr);
+      leavesSnap = await db.collection(LEAVE_COL)
+        .where('companyId', '==', companyId)
+        .get();
     }
-    
-    console.log('Leaves snapshot size:', leavesSnap.size);
-    const allLeaves = leavesSnap.docs
-      .map(d => d.data())
-      .filter((L: any) => {
-        const status = String(L.approvalStatus ?? L.status ?? 'Pending').toLowerCase();
-        const type = String(L.type ?? '').toLowerCase();
-        
-        // Include approved leaves of any type
-        const isApproved = status === 'approved';
-        // Include pending Half-Day leave requests
-        const isHalfDayPending = status === 'pending' && (type.includes('half') || type.includes('half day') || type.includes('half-day'));
-        
-        if (isApproved) {
-          console.log('Approved leave:', { empid: L.empid, type: L.type, startDate: L.startDate, endDate: L.endDate });
-        }
-        if (isHalfDayPending) {
-          console.log('Pending Half-Day leave:', { empid: L.empid, type: L.type, startDate: L.startDate, endDate: L.endDate });
-        }
-        
-        return isApproved || isHalfDayPending;
-      })
-      .map((L: any) => ({
-        empid: L.empid || '',
-        type: String(L.type || ''),
-        start: toISO(L.startDate || L.selectDate || L.date),
-        end:   toISO(L.endDate   || L.selectDate || L.date || L.startDate),
-      }))
-      .filter((L: any) => L.empid && L.start); // Ensure valid data
 
-    console.log('All leaves count (including pending Half-Day):', allLeaves.length);
-
-    const leaveDays = new Set<string>();
-    let onLeaveCount = 0;
-    for (const L of allLeaves) {
-      if (!L.start) continue;
-      const s = L.start, e = L.end || L.start;
-      if (e < start || s > end) continue;
-      
+    console.log('Leave record count:', leavesSnap.size);
+    const leavesByEmpIdDate: Record<string, any[]> = {};
+    for (const doc of leavesSnap.docs) {
+      const L = doc.data() as any;
       try {
-        const dateRange = eachYMD((s < start ? start : s), (e > end ? end : e));
-        for (const d of dateRange) {
-          leaveDays.add(`${L.empid}|${d}`);
-          onLeaveCount++;
+        const empid = String(L.empid ?? '').trim();
+        if (!empid) continue;
+
+        const status = String(L.approvalStatus ?? L.status ?? 'Pending').toLowerCase();
+        const type = String(L.type ?? L.leaveType ?? '').toLowerCase();
+        const isApproved = status === 'approved';
+        const isHalfDayPending = status === 'pending' && (type.includes('half') || type.includes('half day') || type.includes('half-day'));
+        if (!isApproved && !isHalfDayPending) continue;
+
+        const startDate = toISO(L.startDate || L.selectDate || L.date);
+        const endDate = toISO(L.endDate || L.selectDate || L.date || L.startDate);
+        if (!startDate) continue;
+
+        const actualEndDate = endDate || startDate;
+        if (actualEndDate < start || startDate > end) continue;
+
+        const leaveStart = startDate < start ? start : startDate;
+        const leaveEnd = actualEndDate > end ? end : actualEndDate;
+        const leaveEntry = {
+          empid,
+          type: String(L.type || L.leaveType || ''),
+          start: startDate,
+          end: actualEndDate,
+          status,
+        };
+
+        const dateRange = eachYMD(leaveStart, leaveEnd);
+        for (const leaveDate of dateRange) {
+          const key = `${empid}|${leaveDate}`;
+          leavesByEmpIdDate[key] = leavesByEmpIdDate[key] ?? [];
+          leavesByEmpIdDate[key].push(leaveEntry);
         }
-      } catch (dateErr) {
-        console.log('Error processing leave date range:', { L, dateErr });
+      } catch (leaveErr) {
+        console.log('Skipping invalid leave record:', { id: doc.id, error: leaveErr });
       }
     }
-    console.log('Leave days count:', onLeaveCount);
 
-    let checkedIn = 0, absent = 0, lateIn = 0, earlyOut = 0, halfDay = 0, presentApproved = 0, holiday = 0, weekOff = 0;
+    console.log('Indexed leave date entries:', Object.keys(leavesByEmpIdDate).length);
+
+    const dates = eachYMD(start, end);
+    console.log('Processing', dates.length, 'days from', start, 'to', end);
+
     const rows: any[] = [];
-    
-    try {
-      const dates = eachYMD(start, end);
-      console.log('Processing', dates.length, 'days from', start, 'to', end);
 
-      for (const ymd of dates) {
-        const isHoliday = HOLIDAYS_SET.has(ymd);
-        const isWO = isSunday(ymd);
-        if (isHoliday) holiday++;
-        if (isWO) weekOff++;
+    for (const ymd of dates) {
+      const isHoliday = HOLIDAYS_SET.has(ymd);
+      const isWO = isSunday(ymd);
 
-        for (const emp of employees) {
-          try {
-            const empid = (emp as any).empid || 'unknown';
-            const key = `${empid}|${ymd}`;
-            const att = attByEmpDate[key] || null;
-            const shiftGroup = (emp as any).shiftGroup || 'default';
-            const shift = shiftByGroup[shiftGroup] || { startTime: '09:00', endTime: '18:00' };
-            const startT = shift.startTime || '09:00';
-            const endT   = shift.endTime   || '18:00';
-            const mid    = midpointHHMM(startT, endT);
+      for (const emp of employees) {
+        try {
+          const empid = String((emp as any).empid || 'unknown');
+          const key = `${empid}|${ymd}`;
+          const att = attendanceByEmpIdDate[key] || null;
+          const rawShiftGroup = String((emp as any).shiftGroup || 'default');
+          const normalizedShiftGroup = rawShiftGroup.trim().toLowerCase();
+          const shift = shiftByGroup[normalizedShiftGroup];
+          
+          if (!shift) {
+            const fallbackReason = `Shift not found for employee shiftGroup "${rawShiftGroup}" (normalized: "${normalizedShiftGroup}")`;
+            console.log('SHIFT LOOKUP FALLBACK:', {
+              empid,
+              employeeShiftGroup: rawShiftGroup,
+              normalizedShiftGroup,
+              availableShiftKeys: Object.keys(shiftByGroup),
+              fallbackReason,
+            });
+          }
+          
+          const shiftData = shift || { startTime: '09:00', endTime: '18:00', graceMinutes: 5 };
+          const startT = normalizeTimeString(shiftData.startTime) ?? '09:00';
+          const endT = normalizeTimeString(shiftData.endTime) ?? '18:00';
+          const mid = midpointHHMM(startT, endT);
 
-            let status = 'Absent';
-            let isLate = false, isEarly = false;
+          const rawCheckIn = att?.checkIn;
+          const rawCheckOut = att?.checkOut;
+          const checkIn = normalizeTimeString(rawCheckIn);
+          const checkOut = normalizeTimeString(rawCheckOut);
+          console.log('[RangeSummary - Input Times]', { empid, ymd, rawCheckIn, rawCheckOut, normalizedCheckIn: checkIn, normalizedCheckOut: checkOut });
+          const leaveEntries = leavesByEmpIdDate[key] ?? [];
+          const matchingLeave = leaveEntries.length > 0 ? leaveEntries[0] : null;
 
-            if (isHoliday) {
-              status = 'Holiday';
-            } else if (isWO) {
-              status = 'WeekOff';
-            } else if (leaveDays.has(key)) {
-              console.log('=== HALF-DAY LEAVE DEBUG ===');
-              console.log('Employee ID:', empid);
-              console.log('Date:', ymd);
-              console.log('Leave days key found:', key);
-              
-              const matchingLeave = allLeaves.find((l: any) =>
-                l.empid === empid && l.start <= ymd && ymd <= (l.end || l.start)
-              );
-              
-              console.log('Matching leave:', matchingLeave ? {
-                empid: matchingLeave.empid,
-                type: matchingLeave.type,
-                start: matchingLeave.start,
-                end: matchingLeave.end
-              } : null);
-              
-              status = matchingLeave && matchingLeave.type.toLowerCase().includes('half') ? 'Half Day' : 'On Leave';
-              console.log('Final status from leave:', status);
-              
-              if (status === 'Half Day') {
-                halfDay++;
-                console.log('Half-Day count incremented:', halfDay);
-              }
-              console.log('=== END HALF-DAY LEAVE DEBUG ===');
-            } else if (att?.checkIn) {
-              checkedIn++;
-              status = 'Present';
-              
-              try {
-                if (cmpHHMM(att.checkIn, startT)) { isLate = true; lateIn++; }
-                if (att.checkOut && !cmpHHMM(att.checkOut, endT)) { isEarly = true; earlyOut++; }
-                
-                // Fixed: Handle Open Shift half-day logic properly
-                const isOS = isOpenShift(shiftGroup);
-                console.log('MONTHLY SUMMARY OPEN SHIFT DEBUG:', {
-                  empid: empid,
-                  shiftGroup: shiftGroup,
-                  isOpenShift: isOS,
-                  checkIn: att.checkIn,
-                  checkOut: att.checkOut,
-                  mid: mid
-                });
-                
-                if (isOS) {
-                  // Open Shift: Only calculate half-day after both checkIn and checkOut are available
-                  if (att.checkIn && att.checkOut) {
-                    // Calculate worked duration in minutes
-                    const [checkInHour, checkInMinute] = att.checkIn.split(':').map(Number);
-                    const [checkOutHour, checkOutMinute] = att.checkOut.split(':').map(Number);
-                    
-                    const checkInDateTime = new Date();
-                    checkInDateTime.setHours(checkInHour, checkInMinute, 0, 0);
-                    
-                    const checkOutDateTime = new Date();
-                    checkOutDateTime.setHours(checkOutHour, checkOutMinute, 0, 0);
-                    
-                    // Handle overnight check-out
-                    if (checkOutDateTime < checkInDateTime) {
-                      checkOutDateTime.setDate(checkOutDateTime.getDate() + 1);
-                    }
-                    
-                    const workedDurationMinutes = (checkOutDateTime.getTime() - checkInDateTime.getTime()) / (1000 * 60);
-                    
-                    console.log('MONTHLY SUMMARY OPEN SHIFT WORKED DURATION:', {
-                      empid: empid,
-                      workedDurationMinutes: workedDurationMinutes,
-                      threshold: 300
-                    });
-                    
-                    if (workedDurationMinutes < 300) {
-                      status = 'Half Day';
-                      halfDay++;
-                      console.log('Monthly Summary: Open Shift Half-Day - worked less than 5 hours');
-                    } else {
-                      console.log('Monthly Summary: Open Shift Full Day - worked 5+ hours');
-                    }
-                  } else {
-                    console.log('Monthly Summary: Open Shift - waiting for both checkIn and checkOut');
-                  }
-                } else if (!isOpenShift(shiftGroup)) {
-                  // Fixed Shift: Apply existing midpoint logic (only for non-Open Shift)
-                  if (cmpHHMM(att.checkIn, mid)) { 
-                    status = 'Half Day'; 
-                    halfDay++; 
-                    console.log('Monthly Summary: Fixed Shift Half-Day - checked in after midpoint');
-                  }
-                }
-                
-                if (String(att.approvalStatus || '').toLowerCase() === 'approved') presentApproved++;
-              } catch (timeErr) {
-                console.log('Error processing time comparison:', { att, timeErr });
-              }
-            } else {
-              absent++;
+          const rawGrace = (shiftData as any).graceMinutes;
+          let graceMinutes = 5;
+          if (typeof rawGrace === 'number' && Number.isFinite(rawGrace)) {
+            graceMinutes = rawGrace;
+          } else if (typeof rawGrace === 'string' && /^\d+$/.test(rawGrace.trim())) {
+            graceMinutes = Number(rawGrace.trim());
+          }
+          graceMinutes = Math.max(0, graceMinutes);
+
+          const isOS = isOpenShift(rawShiftGroup);
+          const configuredShiftStart = normalizeTimeString(shiftData.startTime);
+          const shiftStart = isOS ? configuredShiftStart : (configuredShiftStart ?? startT);
+          const shiftStartMinutes = timeHHMMToMinutes(shiftStart);
+          const checkInMinutes = timeHHMMToMinutes(checkIn);
+          const graceDeadlineMinutes = shiftStartMinutes !== null ? shiftStartMinutes + graceMinutes : null;
+          const graceDeadline = graceDeadlineMinutes !== null ? minutesToHHMM(graceDeadlineMinutes) : null;
+
+          let status = 'Absent';
+          let isLate = false;
+          let isEarly = false;
+
+          if (isHoliday) {
+            status = 'Holiday';
+          } else if (isWO) {
+            status = 'WeekOff';
+          } else if (matchingLeave) {
+            status = String(matchingLeave.type || '').toLowerCase().includes('half') ? 'Half Day' : 'On Leave';
+          } else if (checkIn) {
+            status = 'Present';
+
+            if (checkOut && !cmpHHMM(checkOut, endT)) {
+              isEarly = true;
             }
 
-            rows.push({
-              employeeId: empid,
-              employeeName: (emp as any).name || '',
-              shift: (emp as any).shift || (emp as any).shiftGroup || '',
-              date: ymd,
-              checkIn: att?.checkIn || '-',
-              checkOut: att?.checkOut || '-',
-              department: (emp as any).dept || (emp as any).department || '',
-              attendance: status,
-              workedHours: att?.workedHours ? String(att.workedHours) : '-',
+            if (checkInMinutes !== null && graceDeadlineMinutes !== null) {
+              isLate = checkInMinutes > graceDeadlineMinutes;
+            } else {
+              isLate = false;
+            }
+
+            // For Open Shift, business rule: no late check-in
+            if (isOS) {
+              isLate = false;
+              console.log('OPEN SHIFT LATE OVERRIDE:', {
+                empid,
+                rawShiftGroup,
+                reason: 'Open Shift employees are never marked as late',
+              });
+            }
+
+            console.log('RANGE SUMMARY CHECKIN DEBUG:', {
+              empid,
+              shiftGroup: rawShiftGroup,
+              shiftStart: shiftStart ?? '-',
+              graceMinutes,
+              graceDeadline: graceDeadline ?? '-',
+              checkIn,
+              checkInMinutes,
+              graceDeadlineMinutes,
               late: isLate,
-              early: isEarly,
-              approval: att?.approvalStatus || 'Pending',
             });
-          } catch (empErr) {
-            console.log('Error processing employee:', { emp: (emp as any).empid, ymd, empErr });
-            // Continue with next employee
+
+            if (isOS) {
+              if (checkIn && checkOut) {
+                const [checkInHour, checkInMinute] = checkIn.split(':').map(Number);
+                const [checkOutHour, checkOutMinute] = checkOut.split(':').map(Number);
+                const checkInDateTime = new Date();
+                checkInDateTime.setHours(checkInHour, checkInMinute, 0, 0);
+                const checkOutDateTime = new Date();
+                checkOutDateTime.setHours(checkOutHour, checkOutMinute, 0, 0);
+                if (checkOutDateTime < checkInDateTime) {
+                  checkOutDateTime.setDate(checkOutDateTime.getDate() + 1);
+                }
+                const workedDurationMinutes = (checkOutDateTime.getTime() - checkInDateTime.getTime()) / (1000 * 60);
+                if (workedDurationMinutes < 300) {
+                  status = 'Half Day';
+                }
+              }
+            } else if (checkIn && cmpHHMM(checkIn, mid)) {
+              status = 'Half Day';
+            }
           }
+
+          // Calculate worked hours from checkIn and checkOut
+          let workedHours = '-';
+          
+          if (checkIn && checkOut && checkIn !== '-' && checkOut !== '-') {
+            try {
+              // Parse checkIn time (HH:mm format)
+              const checkInParts = checkIn.split(':');
+              const checkInHour = parseInt(checkInParts[0], 10);
+              const checkInMinute = parseInt(checkInParts[1], 10);
+              
+              // Parse checkOut time (HH:mm format)
+              const checkOutParts = checkOut.split(':');
+              const checkOutHour = parseInt(checkOutParts[0], 10);
+              const checkOutMinute = parseInt(checkOutParts[1], 10);
+              
+              // Validate parsed values
+              if (
+                !Number.isNaN(checkInHour) && !Number.isNaN(checkInMinute) &&
+                !Number.isNaN(checkOutHour) && !Number.isNaN(checkOutMinute) &&
+                checkInHour >= 0 && checkInHour <= 23 &&
+                checkInMinute >= 0 && checkInMinute <= 59 &&
+                checkOutHour >= 0 && checkOutHour <= 23 &&
+                checkOutMinute >= 0 && checkOutMinute <= 59
+              ) {
+                // Calculate duration in minutes
+                let checkInTotalMinutes = checkInHour * 60 + checkInMinute;
+                let checkOutTotalMinutes = checkOutHour * 60 + checkOutMinute;
+                
+                // Handle overnight checkout (e.g., 22:00 to 06:00 next day)
+                if (checkOutTotalMinutes < checkInTotalMinutes) {
+                  checkOutTotalMinutes += 24 * 60; // Add 24 hours
+                }
+                
+                const durationMinutes = checkOutTotalMinutes - checkInTotalMinutes;
+                
+                console.log('[RangeSummary - Duration Calc]', {
+                  empid,
+                  ymd,
+                  checkIn,
+                  checkOut,
+                  checkInMinutes: checkInTotalMinutes,
+                  checkOutMinutes: checkOutTotalMinutes,
+                  durationMinutes,
+                });
+                
+                if (durationMinutes >= 0) {
+                  workedHours = formatDurationHM(durationMinutes);
+                  console.log('[RangeSummary - Formatted Hours]', { empid, ymd, durationMinutes, workedHours });
+                }
+              } else {
+                console.warn('[RangeSummary - Invalid Time Values]', {
+                  empid,
+                  ymd,
+                  checkIn,
+                  checkOut,
+                  checkInHour,
+                  checkInMinute,
+                  checkOutHour,
+                  checkOutMinute,
+                });
+              }
+            } catch (err) {
+              console.error('[RangeSummary - WorkedHours Error]', { empid, ymd, checkIn, checkOut, error: err });
+            }
+          } else {
+            console.log('[RangeSummary - Skipping WorkedHours Calc]', { empid, ymd, checkIn, checkOut, checkInValid: checkIn && checkIn !== '-', checkOutValid: checkOut && checkOut !== '-' });
+          }
+          
+          console.log('[RangeSummary Final Row]', empid, checkIn, checkOut, workedHours);
+
+          rows.push({
+            employeeId: empid,
+            employeeName: (emp as any).name || '',
+            shift: (emp as any).shift || (emp as any).shiftGroup || '',
+            date: ymd,
+            checkIn: checkIn || '-',
+            checkOut: checkOut || '-',
+            department: (emp as any).dept || (emp as any).department || '',
+            attendance: status,
+            workedHours,
+            late: isLate,
+            early: isEarly,
+            approval: att?.approvalStatus || 'Pending',
+          });
+        } catch (empErr) {
+          console.log('Error processing employee/date row:', { emp: (emp as any).empid, ymd, empErr });
         }
       }
-    } catch (dateRangeErr) {
-      console.log('Error processing date range:', dateRangeErr);
-      return res.status(500).json({ error: 'Failed to process date range: ' + String(dateRangeErr) });
     }
 
-    console.log('Final counts:', {
+    // Calculate counts from final rows only
+    const checkedIn = rows.filter(r => r.checkIn !== '-').length;
+    const absent = rows.filter(r => r.attendance === 'Absent').length;
+    const onLeaveCount = rows.filter(r => r.attendance === 'On Leave').length;
+    const halfDay = rows.filter(r => r.attendance === 'Half Day').length;
+    const lateCheckIn = rows.filter(r => r.late === true).length;
+    const earlyCheckOut = rows.filter(r => r.early === true).length;
+    const holiday = rows.filter(r => r.attendance === 'Holiday').length;
+    const weekOff = rows.filter(r => r.attendance === 'WeekOff').length;
+    const present = rows.filter(r => r.attendance === 'Present').length;
+
+    // Add required logs
+    console.log('=== RANGE SUMMARY COUNT CALCULATION DEBUG ===');
+    console.log('Generated rows length:', rows.length);
+    console.log('Dates included:', dates.join(', '));
+    console.log('Employee IDs included:', employees.map((e: any) => e.empid).join(', '));
+    console.log('Final counts calculated from rows:', {
       activeEmployees,
-      onLeave: onLeaveCount,
       checkedIn,
       absent,
-      lateCheckIn: lateIn,
-      earlyCheckOut: earlyOut,
+      onLeave: onLeaveCount,
       halfDay,
-      present: presentApproved,
+      lateCheckIn,
+      earlyCheckOut,
       holiday,
       weekOff,
-      totalRows: rows.length
+      present,
     });
+    console.log('=== END RANGE SUMMARY COUNT CALCULATION DEBUG ===');
 
     const response = {
       counts: {
@@ -1393,16 +1574,17 @@ export const getRangeSummary = async (req: Request, res: Response) => {
         onLeave: onLeaveCount,
         checkedIn,
         absent,
-        lateCheckIn: lateIn,
-        earlyCheckOut: earlyOut,
+        lateCheckIn,
+        earlyCheckOut,
         halfDay,
-        present: presentApproved,
+        present,
         holiday,
         weekOff,
       },
       rows,
     };
 
+    console.log('Final response row count:', rows.length);
     console.log('=== RANGE SUMMARY DEBUG END ===');
     return res.json(response);
   } catch (err: any) {

@@ -1,5 +1,7 @@
-import { storage as adminStorage } from '../config/firebase';
+import { admin } from '../config/firebase';
 import { v4 as uuidv4 } from 'uuid';
+
+const adminStorage = admin.storage();
 
 export interface UploadedFile {
   fieldname: string;

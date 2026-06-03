@@ -20,11 +20,9 @@ const Color kAppBarColor = Color(0xFF8C6EAF);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
-
-
 // Neutral overlays for glass effect
-const Color _glassFill = Color(0x26FFFFFF);      // white @ ~15%
-const Color _glassBorder = Color(0x33FFFFFF);    // white @ ~20%
+const Color _glassFill = Color(0x26FFFFFF); // white @ ~15%
+const Color _glassBorder = Color(0x33FFFFFF); // white @ ~20%
 const Color _labelColor = Color(0xFF2F2A3B);
 
 // ===== Backend base (same as the rest of the app) =====
@@ -50,8 +48,9 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
   late final TextEditingController _adminRoleCtrl;
 
   final ImagePicker _picker = ImagePicker();
-  XFile? _logoFile; // persisted via CompanyData too
-  Uint8List? _logoBytes; // for avatar preview
+  XFile? _logoFile; // newly selected logo before save
+  Uint8List? _logoBytes; // for selected image preview / old base64 fallback
+  String _logoUrl = ''; // Firebase Storage image URL from backend
 
   @override
   void initState() {
@@ -127,11 +126,13 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
         final adminName = (data['adminName'] ?? '').toString();
         final designation = (data['designation'] ?? '').toString();
 
-        // Optional image: server may store logoBase64 OR logoUrl
+        // New image flow: prefer Firebase Storage URL
+        final String logoUrl = (data['logoUrl'] ?? '').toString();
+
+        // Old fallback: server may still contain legacy logoBase64
         Uint8List? logoBytes;
         final String logoBase64 = (data['logoBase64'] ?? '').toString();
-        if (logoBase64.isNotEmpty) {
-          // strip any "data:image/*;base64," prefix
+        if (logoUrl.isEmpty && logoBase64.isNotEmpty) {
           final pure = logoBase64.split('base64,').last;
           try {
             logoBytes = base64Decode(pure);
@@ -153,11 +154,20 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
         CompanyData.adminName = adminName;
         CompanyData.adminRole = designation;
 
-        if (logoBytes != null) {
-          setState(() => _logoBytes = logoBytes);
-        }
-
         if (mounted) {
+          setState(() {
+            _logoUrl = logoUrl;
+
+            if (logoUrl.isNotEmpty) {
+              // Use Storage URL image. Clear old local/base64 preview.
+              _logoBytes = null;
+              _logoFile = null;
+            } else if (logoBytes != null) {
+              // Legacy fallback only.
+              _logoBytes = logoBytes;
+            }
+          });
+
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Profile loaded')),
           );
@@ -173,7 +183,8 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-                content: Text('Unauthorized. Please sign in again.')),
+              content: Text('Unauthorized. Please sign in again.'),
+            ),
           );
         }
       } else {
@@ -195,41 +206,63 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
   }
 
   // ----- API: SAVE PROFILE -----
+  String _getMimeTypeFromFilename(String filename) {
+    final lower = filename.toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+    if (lower.endsWith('.gif')) return 'image/gif';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    return 'application/octet-stream';
+  }
+
   Future<void> _saveProfile() async {
     setState(() => _saving = true);
     try {
       final uri = Uri.parse('${ApiService.baseUrl}/company/profile');
-      final req = http.MultipartRequest('POST', uri);
-
-      // Auth header only; MultipartRequest sets its own content-type
       final tok = _readToken();
+      final headers = <String, String>{
+        'Content-Type': 'application/json',
+      };
       if (tok != null && tok.isNotEmpty) {
-        req.headers['Authorization'] = 'Bearer $tok';
+        headers['Authorization'] = 'Bearer $tok';
       }
 
-      // Fields expected by backend
-      req.fields['companyName'] = _nameCtrl.text.trim();
-      req.fields['email'] = _emailCtrl.text.trim();
-      req.fields['phone'] = _phoneCtrl.text.trim();
-      req.fields['website'] = _websiteCtrl.text.trim();
-      req.fields['adminName'] = _adminNameCtrl.text.trim();
-      req.fields['designation'] = _adminRoleCtrl.text.trim();
+      final Map<String, dynamic> body = {
+        'companyName': _nameCtrl.text.trim(),
+        'email': _emailCtrl.text.trim(),
+        'phone': _phoneCtrl.text.trim(),
+        'website': _websiteCtrl.text.trim(),
+        'adminName': _adminNameCtrl.text.trim(),
+        'designation': _adminRoleCtrl.text.trim(),
+      };
 
-      // Optional logo file — multer looks for 'logo'
+      // Transport image as Base64 JSON.
+      // Backend should upload it to Firebase Storage and return logoUrl.
       if (_logoFile != null) {
         final bytes = await _logoFile!.readAsBytes();
-        final filename = _logoFile!.name; // works on web & mobile
-        req.files.add(
-          http.MultipartFile.fromBytes('logo', bytes, filename: filename),
-        );
+        body['logoBase64'] = base64Encode(bytes);
+        body['logoMimeType'] = _getMimeTypeFromFilename(_logoFile!.name);
       }
 
-      final streamed = await req.send();
-      final res = await http.Response.fromStream(streamed);
+      final res = await http.post(
+        uri,
+        headers: headers,
+        body: jsonEncode(body),
+      );
 
       if (res.statusCode == 200) {
+        String updatedLogoUrl = _logoUrl;
+
+        try {
+          final responseBody = jsonDecode(res.body) as Map<String, dynamic>;
+          final data = (responseBody['data'] ?? {}) as Map<String, dynamic>;
+          updatedLogoUrl = (data['logoUrl'] ?? updatedLogoUrl).toString();
+        } catch (_) {
+          // Keep existing logo URL if response parsing fails.
+        }
+
         // Persist back to CompanyData so the rest of the app can read it
-        CompanyData.logoFile = _logoFile;
+        CompanyData.logoFile = null;
         CompanyData.companyName = _nameCtrl.text.trim();
         CompanyData.email = _emailCtrl.text.trim();
         CompanyData.phone = _phoneCtrl.text.trim();
@@ -238,6 +271,16 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
         CompanyData.adminRole = _adminRoleCtrl.text.trim();
 
         if (mounted) {
+          setState(() {
+            _logoUrl = updatedLogoUrl;
+
+            if (updatedLogoUrl.isNotEmpty) {
+              // After successful upload, use Storage URL instead of reusing local file.
+              _logoFile = null;
+              _logoBytes = null;
+            }
+          });
+
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Profile saved')),
           );
@@ -273,6 +316,10 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
       setState(() {
         _logoFile = picked;
         _logoBytes = bytes;
+
+        // Selected local preview should show immediately.
+        // URL will be updated after save.
+        _logoUrl = '';
       });
     }
   }
@@ -295,6 +342,18 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
     super.dispose();
   }
 
+  ImageProvider<Object>? _buildAvatarImage() {
+    if (_logoBytes != null) {
+      return MemoryImage(_logoBytes!);
+    }
+
+    if (_logoUrl.trim().isNotEmpty) {
+      return NetworkImage(_logoUrl.trim());
+    }
+
+    return null;
+  }
+
   // ----- BUILD -----
   @override
   Widget build(BuildContext context) {
@@ -302,8 +361,7 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
     final double spacing = isWide ? 28.0 : 16.0;
     final double maxW = isWide ? 820 : double.infinity;
 
-    final ImageProvider<Object>? avatar =
-        (_logoBytes != null) ? MemoryImage(_logoBytes!) : null;
+    final ImageProvider<Object>? avatar = _buildAvatarImage();
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -414,10 +472,12 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
 
                           // ── Content Sections ────────────────────────────────
                           if (_loading)
-                            const Center(child: Padding(
-                              padding: EdgeInsets.all(24.0),
-                              child: CircularProgressIndicator(),
-                            ))
+                            const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(24.0),
+                                child: CircularProgressIndicator(),
+                              ),
+                            )
                           else
                             (_isEditing
                                 ? _EditLayout(

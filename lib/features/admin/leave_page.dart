@@ -498,6 +498,28 @@ class _LeavePageState extends State<LeavePage> {
     }
   }
 
+  Future<void> _editLeaveItem(int index) async {
+    if (index < 0 || index >= leaveList.length) return;
+
+    final leave = leaveList[index];
+    final updated = await Navigator.pushNamed(
+      context,
+      '/add-leave',
+      arguments: {
+        'id': leave['id'] ?? '',
+        'type': leave['type'] ?? '',
+        'shift': leave['shift'] ?? '',
+        'fromDate': leave['fromDate'] ?? '',
+        'toDate': leave['toDate'] ?? '',
+        'allowedDays': leave['allowedDays'] ?? '',
+      },
+    );
+
+    if (updated == true && mounted) {
+      await _fetchLeaveTypes();
+    }
+  }
+
   void _addWeekOff() {
     if (!_formKey.currentState!.validate()) return;
 
@@ -724,21 +746,35 @@ class _LeavePageState extends State<LeavePage> {
                                                       ),
                                                     ),
                                                   ),
-                                                  IconButton(
-                                                    icon: _loading
-                                                        ? const SizedBox(
-                                                            width: 20,
-                                                            height: 20,
-                                                            child: CircularProgressIndicator(
-                                                                strokeWidth: 2),
-                                                          )
-                                                        : const Icon(
-                                                            Icons.delete_outline,
-                                                            color: Colors.red,
-                                                          ),
-                                                    onPressed: _loading
-                                                        ? null
-                                                        : () => _deleteLeaveItem(index),
+                                                  Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
+                                                      IconButton(
+                                                        icon: const Icon(
+                                                          Icons.edit_outlined,
+                                                          color: Colors.blue,
+                                                        ),
+                                                        onPressed: _loading
+                                                            ? null
+                                                            : () => _editLeaveItem(index),
+                                                      ),
+                                                      IconButton(
+                                                        icon: _loading
+                                                            ? const SizedBox(
+                                                                width: 20,
+                                                                height: 20,
+                                                                child: CircularProgressIndicator(
+                                                                    strokeWidth: 2),
+                                                              )
+                                                            : const Icon(
+                                                                Icons.delete_outline,
+                                                                color: Colors.red,
+                                                              ),
+                                                        onPressed: _loading
+                                                            ? null
+                                                            : () => _deleteLeaveItem(index),
+                                                      ),
+                                                    ],
                                                   ),
                                                 ],
                                               ),

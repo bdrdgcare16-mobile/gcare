@@ -595,24 +595,10 @@ class _AttendanceReportState extends State<AttendanceReport> {
                                           isWeb,
                                         ),
                                         _buildSummaryCard(
-                                          'Week Off',
-                                          _getCountForType('Week Off')
-                                              .toString(),
-                                          const Color(0xFFBA68C8),
-                                          isWeb,
-                                        ),
-                                        _buildSummaryCard(
                                           'Half Day',
                                           _getCountForType('Half Day')
                                               .toString(),
                                           const Color(0xFFF8BBD0),
-                                          isWeb,
-                                        ),
-                                        _buildSummaryCard(
-                                          'Regularized',
-                                          _getCountForType('Regularized')
-                                              .toString(),
-                                          const Color(0xFFF06292),
                                           isWeb,
                                         ),
                                       ],

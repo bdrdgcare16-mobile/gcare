@@ -1,9 +1,0 @@
-{
-  "projects": {
-    "dev": "serv-dev-f2557",
-    "prod": "servappbackend",
-    "default": "serv-dev-f2557"
-  },
-  "targets": {},
-  "etags": {}
-}

@@ -8,6 +8,7 @@ import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'package:flutter/foundation.dart';
 
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
@@ -55,7 +56,9 @@ class _OverTimePageState extends State<OverTimePage> {
       final t = CompanyData.token;
       if (t != null && t.isNotEmpty) {
         html.window.localStorage.putIfAbsent('token', () => t);
-        debugPrint('[Overtime] token from CompanyData (${t.length})');
+        if (kDebugMode) {
+          debugPrint('[Overtime] token from CompanyData (${t.length})');
+        }
         return t;
       }
     } catch (_) {}
@@ -64,7 +67,9 @@ class _OverTimePageState extends State<OverTimePage> {
     for (final k in ['jwt', 'token', 'access_token', 'auth_token']) {
       final v = html.window.localStorage[k];
       if (v != null && v.isNotEmpty) {
-        debugPrint('[Overtime] token from localStorage "$k" (${v.length})');
+        if (kDebugMode) {
+          debugPrint('[Overtime] token from localStorage "$k" (${v.length})');
+        }
         return v;
       }
     }
@@ -73,12 +78,16 @@ class _OverTimePageState extends State<OverTimePage> {
     for (final k in html.window.localStorage.keys) {
       final v = html.window.localStorage[k];
       if (v != null && _looksLikeJwt(v)) {
-        debugPrint('[Overtime] token from localStorage "$k" (${v.length})');
+        if (kDebugMode) {
+          debugPrint('[Overtime] token from localStorage "$k" (${v.length})');
+        }
         return v;
       }
     }
 
-    debugPrint('[Overtime] No token found');
+    if (kDebugMode) {
+      debugPrint('[Overtime] No token found');
+    }
     return null;
   }
   TimeOfDay? _parseTimeOfDay(dynamic value) {
@@ -165,7 +174,9 @@ String _formatShiftTime(TimeOfDay? time) {
 
     await _loadShiftTimingByShiftName(raw);
   } catch (e) {
-    debugPrint('[Overtime] Failed to load default shift: $e');
+    if (kDebugMode) {
+      debugPrint('[Overtime] Failed to load default shift: $e');
+    }
   }
 }
   // =====================================================================
@@ -187,7 +198,9 @@ String _formatShiftTime(TimeOfDay? time) {
     );
 
     if (res.statusCode != 200) {
-      debugPrint('[Overtime] Failed to fetch shifts: ${res.statusCode}');
+      if (kDebugMode) {
+        debugPrint('[Overtime] Failed to fetch shifts: ${res.statusCode}');
+      }
       return;
     }
 
@@ -231,18 +244,24 @@ String _formatShiftTime(TimeOfDay? time) {
           shiftEndTime = parsedEnd;
         });
 
-        debugPrint(
-          '[Overtime] Shift matched: $name, '
-          'start=$startRaw, end=$endRaw',
-        );
+        if (kDebugMode) {
+          debugPrint(
+            '[Overtime] Shift matched: $name, '
+            'start=$startRaw, end=$endRaw',
+          );
+        }
 
         return;
       }
     }
 
-    debugPrint('[Overtime] No matching shift found for: $shiftName');
+    if (kDebugMode) {
+      debugPrint('[Overtime] No matching shift found for: $shiftName');
+    }
   } catch (e) {
-    debugPrint('[Overtime] Shift timing fetch error: $e');
+    if (kDebugMode) {
+      debugPrint('[Overtime] Shift timing fetch error: $e');
+    }
   }
 }
   Future<void> pickTime(BuildContext context, bool isStart) async {
@@ -442,8 +461,9 @@ String _formatShiftTime(TimeOfDay? time) {
         body: jsonEncode(body),
       );
 
-      debugPrint('[Overtime] status=${resp.statusCode}');
-      debugPrint('[Overtime] body=${resp.body}');
+      if (kDebugMode) {
+        debugPrint('[Overtime] status=${resp.statusCode}');
+      }
 
       if (resp.statusCode == 201) {
         ScaffoldMessenger.of(context).showSnackBar(

@@ -50,14 +50,16 @@ export const createLeaveType = async (req: Request, res: Response): Promise<Resp
       return res.status(403).json({ message: 'Company ID missing in token' });
     }
 
-    let { type, fromDate, toDate, days } = (req.body ?? {}) as {
+    let { type, shift, fromDate, toDate, days } = (req.body ?? {}) as {
       type?: string;
+      shift?: string;
       fromDate?: string;
       toDate?: string;
       days?: number | string;
     };
 
     type = String(type ?? '').trim();
+    shift = String(shift ?? '').trim();
 
     if (!type || !fromDate || !toDate || days == null) {
       return res.status(400).json({ message: 'Please fill in all required fields' });
@@ -77,7 +79,7 @@ export const createLeaveType = async (req: Request, res: Response): Promise<Resp
 
     const id = uuidv4();
 
-    const payload = {
+    const payload: Record<string, any> = {
       id,
       companyId,
       type,
@@ -89,6 +91,9 @@ export const createLeaveType = async (req: Request, res: Response): Promise<Resp
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     };
+    if (shift) {
+      payload.shift = shift;
+    }
 
     console.log('[createLeaveType] payload =', payload);
 
@@ -152,6 +157,103 @@ export const listLeaveTypes = async (req: Request, res: Response): Promise<Respo
     console.error('[leave-types:list] error', err);
     return res.status(500).json({
       message: 'Unable to load leave types',
+      error: err?.message || 'Unknown error',
+    });
+  }
+};
+
+/**
+ * PUT /api/leave-types/:id
+ * Admin only
+ */
+export const updateLeaveType = async (req: Request, res: Response): Promise<Response | void> => {
+  try {
+    const { companyId } = ((req as any).user ?? {}) as {
+      companyId?: string | null;
+    };
+
+    if (!companyId) {
+      return res.status(403).json({ message: 'Company ID missing in token' });
+    }
+
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ message: 'Leave type ID is required' });
+    }
+
+    let { type, shift, fromDate, toDate, days } = (req.body ?? {}) as {
+      type?: string;
+      shift?: string;
+      fromDate?: string;
+      toDate?: string;
+      days?: number | string;
+    };
+
+    type = String(type ?? '').trim();
+    shift = String(shift ?? '').trim();
+
+    if (!type || !fromDate || !toDate || days == null) {
+      return res.status(400).json({ message: 'Please fill in all required fields' });
+    }
+
+    const s = new Date(fromDate);
+    const e = new Date(toDate);
+    const allowedDays = Number(days);
+
+    if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime()) || e < s) {
+      return res.status(400).json({ message: 'Please enter valid dates' });
+    }
+
+    if (!Number.isFinite(allowedDays) || allowedDays <= 0) {
+      return res.status(400).json({ message: 'Number of days must be greater than zero' });
+    }
+
+    const ref = db.collection(COLL).doc(id);
+    const doc = await ref.get();
+
+    if (!doc.exists) {
+      return res.status(404).json({ message: 'Leave type not found' });
+    }
+
+    const data = doc.data() as any;
+    if ((data.companyId || null) !== companyId) {
+      return res.status(403).json({ message: 'You are not allowed to update this leave type' });
+    }
+
+    const updates: Record<string, any> = {
+      type,
+      fromDate: Timestamp.fromDate(s),
+      toDate: Timestamp.fromDate(e),
+      allowedDays,
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+    if (shift) {
+      updates.shift = shift;
+    }
+
+    await ref.update(updates);
+
+    await trackLeaveTypeUsage(req, {
+      writeCount: 1,
+      apiCalls: 1,
+    });
+
+    return res.status(200).json({
+      status: 'success',
+      message: 'Leave type updated successfully',
+      data: {
+        id,
+        type,
+        shift,
+        fromDate: Timestamp.fromDate(s),
+        toDate: Timestamp.fromDate(e),
+        allowedDays,
+      },
+    });
+  } catch (err: any) {
+    console.error('[leave-types:update] error', err);
+    return res.status(500).json({
+      message: 'An error occurred while updating the leave type',
       error: err?.message || 'Unknown error',
     });
   }

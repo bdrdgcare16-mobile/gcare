@@ -32,12 +32,16 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
   final _formKey = GlobalKey<FormState>();
 
   final typeCtrl = TextEditingController();
+  final shiftCtrl = TextEditingController();
   final fromCtrl = TextEditingController();
   final toCtrl = TextEditingController();
   final daysCtrl = TextEditingController();
 
   DateTime? fromDate;
   DateTime? toDate;
+  bool _isEditMode = false;
+  String? _editingId;
+  bool _initializedFromArgs = false;
 
   // Auth state variables
   String? _token;
@@ -48,6 +52,52 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
   void initState() {
     super.initState();
     _loadAuthData();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_initializedFromArgs) {
+      _initializedFromArgs = true;
+      _initializeFromRouteArgs();
+    }
+  }
+
+  @override
+  void dispose() {
+    typeCtrl.dispose();
+    shiftCtrl.dispose();
+    fromCtrl.dispose();
+    toCtrl.dispose();
+    daysCtrl.dispose();
+    super.dispose();
+  }
+
+  void _initializeFromRouteArgs() {
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Map<String, dynamic>) {
+      final id = args['id']?.toString();
+      if (id != null && id.isNotEmpty) {
+        _isEditMode = true;
+        _editingId = id;
+        typeCtrl.text = args['type']?.toString() ?? '';
+        shiftCtrl.text = args['shift']?.toString() ?? '';
+        fromCtrl.text = args['fromDate']?.toString() ?? '';
+        toCtrl.text = args['toDate']?.toString() ?? '';
+        daysCtrl.text = args['allowedDays']?.toString() ?? '';
+
+        fromDate = _parseDateString(fromCtrl.text);
+        toDate = _parseDateString(toCtrl.text);
+      }
+    }
+  }
+
+  DateTime? _parseDateString(String value) {
+    try {
+      return DateFormat('dd-MM-yyyy').parse(value);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _loadAuthData() async {
@@ -176,8 +226,13 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
       return;
     }
 
+    if (_isEditMode) {
+      return _updateLeave(token);
+    }
+
     final body = {
       'type': typeCtrl.text.trim(),
+      'shift': shiftCtrl.text.trim(),
       // backend expects ISO-like dates; use yyyy-MM-dd
       'fromDate': DateFormat('yyyy-MM-dd').format(fromDate!),
       'toDate': DateFormat('yyyy-MM-dd').format(toDate!),
@@ -195,12 +250,20 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
       );
 
       if (resp.statusCode == 201) {
-        // Keep your existing local list if you still use it anywhere
+        final responseData = resp.body.isNotEmpty
+            ? jsonDecode(resp.body) as Map<String, dynamic>
+            : <String, dynamic>{};
+        final savedData = responseData['data'] is Map<String, dynamic>
+            ? responseData['data'] as Map<String, dynamic>
+            : responseData;
+
         leaveList.add({
-          'type': typeCtrl.text,
-          'from': fromCtrl.text,
-          'to': toCtrl.text,
-          'days': daysCtrl.text,
+          'id': savedData['id']?.toString() ?? '',
+          'type': typeCtrl.text.trim(),
+          'shift': shiftCtrl.text.trim(),
+          'fromDate': fromCtrl.text,
+          'toDate': toCtrl.text,
+          'allowedDays': daysCtrl.text.trim(),
         });
 
         if (!mounted) return;
@@ -222,12 +285,63 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
     }
   }
 
+  Future<void> _updateLeave(String token) async {
+    if (_editingId == null || _editingId!.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to update leave type. Missing ID.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final body = {
+      'type': typeCtrl.text.trim(),
+      'shift': shiftCtrl.text.trim(),
+      'fromDate': DateFormat('yyyy-MM-dd').format(fromDate!),
+      'toDate': DateFormat('yyyy-MM-dd').format(toDate!),
+      'days': int.tryParse(daysCtrl.text.trim()) ?? 1,
+    };
+
+    try {
+      final resp = await http.put(
+        Uri.parse('${ApiService.baseUrl}/leave-types/${Uri.encodeComponent(_editingId!)}'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode(body),
+      );
+
+      if (resp.statusCode == 200 || resp.statusCode == 204) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Leave type updated successfully')),
+        );
+        Navigator.pop(context, true);
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed: ${resp.statusCode} ${resp.body}')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Network error: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loadingAuth) {
       return Scaffold(
         appBar: AppBar(
-            title: const Text('Add Leave Type'), backgroundColor: kAppBarColor),
+            title: Text(_isEditMode ? 'Edit Leave Type' : 'Add Leave Type'),
+            backgroundColor: kAppBarColor),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
@@ -236,7 +350,8 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
 
     return Scaffold(
       appBar: AppBar(
-          title: const Text('Add Leave Type'), backgroundColor: kAppBarColor),
+          title: Text(_isEditMode ? 'Edit Leave Type' : 'Add Leave Type'),
+          backgroundColor: kAppBarColor),
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -252,9 +367,10 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
             child: ListView(
               children: [
                 _buildField('Type', typeCtrl),
+                _buildField('Shift', shiftCtrl, isRequired: false),
                 _buildDateField('From Date', fromCtrl, isFrom: true),
                 _buildDateField('To Date', toCtrl, minDate: fromDate),
-                _buildField('Number of Days', daysCtrl, TextInputType.number),
+                _buildField('Number of Days', daysCtrl, inputType: TextInputType.number),
                 const SizedBox(height: 20),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -273,7 +389,9 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
                         foregroundColor: Colors.white,
                       ),
                       onPressed: _isAdmin() ? _saveLeave : null,
-                      child: Text(_isAdmin() ? 'Create' : 'Admin Only'),
+                      child: Text(_isAdmin()
+                          ? (_isEditMode ? 'Update Leave' : 'Create')
+                          : 'Admin Only'),
                     ),
                   ],
                 ),
@@ -286,7 +404,7 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
   }
 
   Widget _buildField(String label, TextEditingController ctrl,
-      [TextInputType? inputType]) {
+      {TextInputType? inputType, bool isRequired = true}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
@@ -294,8 +412,9 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
         keyboardType: inputType,
         style: const TextStyle(color: kAppBarColor),
         decoration: _getDecor(label),
-        validator: (value) =>
-            value == null || value.isEmpty ? 'Required' : null,
+        validator: isRequired
+            ? (value) => value == null || value.isEmpty ? 'Required' : null
+            : null,
       ),
     );
   }

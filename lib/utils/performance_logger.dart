@@ -42,15 +42,17 @@ class PerformanceLogger {
     );
     
     // Also print for immediate visibility in debug console
-    print('=== API PERFORMANCE ===');
-    print('Screen: $screen');
-    print('Endpoint: $endpoint');
-    print('Duration: ${duration}ms');
-    print('Status: $statusCode');
-    print('Items: ${itemCount ?? 0}');
-    print('Token exists: $hasToken');
-    if (error != null) print('Error: $error');
-    print('========================');
+    if (kDebugMode) {
+      print('=== API PERFORMANCE ===');
+      print('Screen: $screen');
+      print('Endpoint: $endpoint');
+      print('Duration: ${duration}ms');
+      print('Status: $statusCode');
+      print('Items: ${itemCount ?? 0}');
+      print('Token exists: $hasToken');
+      if (error != null) print('Error: $error');
+      print('========================');
+    }
   }
   
   static void logScreenLoad({
@@ -80,13 +82,15 @@ class PerformanceLogger {
       error: logEntry,
     );
     
-    print('=== SCREEN PERFORMANCE ===');
-    print('Screen: $screen');
-    print('Load time: ${duration}ms');
-    if (metadata != null) {
-      metadata.forEach((key, value) => print('$key: $value'));
+    if (kDebugMode) {
+      print('=== SCREEN PERFORMANCE ===');
+      print('Screen: $screen');
+      print('Load time: ${duration}ms');
+      if (metadata != null) {
+        metadata.forEach((key, value) => print('$key: $value'));
+      }
+      print('==========================');
     }
-    print('==========================');
   }
   
   static void logOperation({
@@ -118,14 +122,16 @@ class PerformanceLogger {
       error: logEntry,
     );
     
-    print('=== OPERATION PERFORMANCE ===');
-    print('Operation: $operation');
-    print('Screen: $screen');
-    print('Duration: ${duration}ms');
-    if (metadata != null) {
-      metadata.forEach((key, value) => print('$key: $value'));
+    if (kDebugMode) {
+      print('=== OPERATION PERFORMANCE ===');
+      print('Operation: $operation');
+      print('Screen: $screen');
+      print('Duration: ${duration}ms');
+      if (metadata != null) {
+        metadata.forEach((key, value) => print('$key: $value'));
+      }
+      print('============================');
     }
-    print('============================');
   }
 }
 

@@ -38,6 +38,7 @@ final String _apiBase = ApiService.baseUrl;
 const String _kCheckedInKeyBase = 'att_checked_in_';
 const String _kCheckInDateKeyBase = 'att_checkin_date_';
 const String _kCheckInTimeKeyBase = 'att_checkin_time_';
+const String _kCheckInSourceKeyBase = 'att_checkin_source_';
 
 // ---- Check-in time cache keys ----
 const String _kCheckInTimeCacheKeyBase = 'attendance_checkin_';
@@ -82,6 +83,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   bool _reasonsLoading = false;
   bool _isAttendanceStatusLoading = false;
   bool _hasAttendanceApiConfirmed = false;
+  // ✅ FIX: Track if check-in source is being restored from cache
+  bool _isAttendanceSourceLoading = false;
 
   // ✅ SAFETY: Cache the user info future to prevent duplicate calls
   Future<void>? _loadUserInfoFuture;
@@ -89,6 +92,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   // ✅ FIX: prevent multiple checkout taps / duplicate API calls
   bool _checkoutInProgress = false;
+
+  // ✅ SAFETY: only allow manual checkout by explicit user action
+  bool _manualCheckOutOnly = true;
+
   _Branch? _cachedBranch;
 
   DateTime? _lastStatusFetch;
@@ -190,35 +197,17 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     _checkLocationPermission();
   }
 
-  // Load cached check-in time and start timer immediately if found
+  // Load cached check-in state and sync with API for actual check-in time
   Future<void> _loadCachedCheckInAndStartTimer() async {
-    debugPrint('[Cache] Loading cached check-in time...');
-    
-    // First try to get cached check-in time
-    final cachedCheckInTime = await _getCachedCheckInTime();
-    
-    if (cachedCheckInTime != null && _isCachedTimeForToday(cachedCheckInTime)) {
-      debugPrint('[Cache] Using cached check-in time: $cachedCheckInTime');
-      
-      // Set check-in time from cache and start timer immediately
-      _checkInTime = cachedCheckInTime;
-      _checkOutTime = null;
-      
-      // Start timer with cached time
-      _startWorkTimer();
-      
-      // Then call API to sync with server in background
-      _loadTodayStatus();
-    } else {
-      debugPrint('[Cache] No valid cached check-in time found, loading from API');
-      
-      // No cached time, load from API normally
-      await _restoreCheckInFromPrefs();
-      _loadTodayStatus();
-    }
+    debugPrint('[Cache] Loading cached check-in state...');
+
+    // Restore only safe local state/source. Do not start the timer from local time.
+    // The timer must start only after /attendance/live confirms the real server check-in time.
+    await _restoreCheckInFromPrefs();
+    await _loadTodayStatus();
   }
 
-  @override
+    @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
@@ -230,12 +219,15 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (state == AppLifecycleState.resumed) {
       if (_authInProgress) return;
       
-      // ✅ SAFETY: Use cached future to prevent duplicate auth/me calls
-      if (_loadUserInfoFuture != null) {
-        _loadUserInfoFuture!.then((_) => _loadTodayStatus());
-      } else {
-        _restoreCheckInFromPrefs().then((_) => _loadTodayStatus());
-      }
+      // ✅ FIX: Restore check-in source and then load status
+      _restoreCheckInSourceFromPrefs().then((_) {
+        // ✅ SAFETY: Use cached future to prevent duplicate auth/me calls
+        if (_loadUserInfoFuture != null) {
+          _loadUserInfoFuture!.then((_) => _loadTodayStatus());
+        } else {
+          _loadTodayStatus();
+        }
+      });
     }
   }
 
@@ -261,6 +253,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     await prefs.setBool(_key(_kCheckedInKeyBase), true);
     await prefs.setString(_key(_kCheckInDateKeyBase), ymd);
     await prefs.setString(_key(_kCheckInTimeKeyBase), hms);
+    if (_checkInSource.isNotEmpty) {
+      await prefs.setString(_key(_kCheckInSourceKeyBase), _checkInSource);
+    } else {
+      await prefs.remove(_key(_kCheckInSourceKeyBase));
+    }
+    debugPrint('[Cache] Saved check-in source: $_checkInSource');
   }
 
   Future<void> _clearCheckInFromPrefs() async {
@@ -269,6 +267,102 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     await prefs.remove(_key(_kCheckedInKeyBase));
     await prefs.remove(_key(_kCheckInDateKeyBase));
     await prefs.remove(_key(_kCheckInTimeKeyBase));
+    await prefs.remove(_key(_kCheckInSourceKeyBase));
+  }
+
+
+  DateTime? _todayDateTimeFromHms(String? hhmmss) {
+    final value = (hhmmss ?? '').trim();
+    if (value.isEmpty) return null;
+
+    final parts = value.split(':');
+    if (parts.length < 2) return null;
+
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
+    final second = parts.length > 2 ? int.tryParse(parts[2]) ?? 0 : 0;
+
+    if (hour == null || minute == null) return null;
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) {
+      return null;
+    }
+
+    final today = DateTime.now();
+    return DateTime(today.year, today.month, today.day, hour, minute, second);
+  }
+
+  void _startTimerFromCheckInTime(DateTime checkInDateTime) {
+    final now = DateTime.now();
+    final diff = now.difference(checkInDateTime).inSeconds;
+    final startSeconds = diff > 0 ? diff : 0;
+
+    _timer?.cancel();
+    _timer = null;
+
+    _checkInTime = checkInDateTime;
+    _checkOutTime = null;
+
+    if (!mounted) return;
+    setState(() {
+      isCheckedIn = true;
+      isTimerRunning = true;
+      totalSeconds = startSeconds;
+      hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
+      minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
+      seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+    });
+
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() {
+        totalSeconds++;
+        hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
+        minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
+        seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+      });
+    });
+  }
+
+  // ✅ FIX: Separate method to restore only check-in source for quick restoration
+  Future<void> _restoreCheckInSourceFromPrefs() async {
+    if (userId.isEmpty) return;
+    
+    if (!mounted) return;
+    setState(() => _isAttendanceSourceLoading = true);
+    
+    try {
+      final prefs = await _prefs();
+      final sourceStr = prefs.getString(_key(_kCheckInSourceKeyBase))?.toLowerCase();
+      final locallyCheckedIn = prefs.getBool(_key(_kCheckedInKeyBase)) ?? false;
+      final dateStr = prefs.getString(_key(_kCheckInDateKeyBase));
+      
+      if (!locallyCheckedIn || dateStr == null) {
+        if (mounted) setState(() => _checkInSource = '');
+        return;
+      }
+      
+      // Check if cache is for today
+      final today = DateTime.now();
+      final todayStr = '${today.year.toString().padLeft(4, '0')}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+      
+      if (dateStr != todayStr) {
+        await prefs.remove(_key(_kCheckInSourceKeyBase));
+        if (mounted) setState(() => _checkInSource = '');
+        return;
+      }
+      
+      if (mounted) {
+        setState(() {
+          _checkInSource = (sourceStr == 'biometric' || sourceStr == 'manual') ? sourceStr! : '';
+          debugPrint('[Cache] Restored check-in source from prefs: $_checkInSource');
+        });
+      }
+    } catch (e) {
+      debugPrint('[Cache] Error restoring check-in source: $e');
+      if (mounted) setState(() => _checkInSource = '');
+    } finally {
+      if (mounted) setState(() => _isAttendanceSourceLoading = false);
+    }
   }
 
   Future<void> _restoreCheckInFromPrefs() async {
@@ -276,70 +370,33 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final prefs = await _prefs();
     final locallyCheckedIn = prefs.getBool(_key(_kCheckedInKeyBase)) ?? false;
     final dateStr = prefs.getString(_key(_kCheckInDateKeyBase));
-    final timeStr = prefs.getString(_key(_kCheckInTimeKeyBase));
-    if (!locallyCheckedIn || dateStr == null || timeStr == null) return;
+    final sourceStr = prefs.getString(_key(_kCheckInSourceKeyBase))?.toLowerCase();
+
+    if (!locallyCheckedIn || dateStr == null) return;
 
     final today = DateTime.now();
     final todayStr =
         '${today.year.toString().padLeft(4, '0')}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+
     if (dateStr != todayStr) {
       await _clearCheckInFromPrefs();
+      await _clearCheckInCache();
+      _checkInSource = '';
       return;
     }
 
-    try {
-      final hms = timeStr.split(':');
-      final inDT = DateTime(
-        today.year,
-        today.month,
-        today.day,
-        int.parse(hms[0]),
-        int.parse(hms[1]),
-        int.parse(hms[2]),
-      );
-      
-      // Set _checkInTime first - this is the source of truth
-      _checkInTime = inDT;
-      _checkOutTime = null;
-      
-      final diff = DateTime.now().difference(inDT).inSeconds;
-      final startSeconds = diff > 0 ? diff : 0;
-      
-      if (!mounted) return;
-      setState(() {
-        isCheckedIn = true;
-        isTimerRunning = true;
-        totalSeconds = startSeconds;
-        hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
-        minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
-        seconds = (totalSeconds % 60).toString().padLeft(2, '0');
-      });
+    // Restore only check-in state/source from local prefs.
+    // Do not restore or start timer from local time because local time can become stale/wrong.
+    // /attendance/live is the only source of truth for the actual check-in time.
+    _checkInSource = (sourceStr == 'biometric' || sourceStr == 'manual') ? sourceStr! : '';
+    debugPrint('[Cache] Restored check-in source from prefs: $_checkInSource');
 
-      _timer?.cancel();
-      _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (!mounted) return;
-        setState(() {
-          totalSeconds++;
-          hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
-          minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
-          seconds = (totalSeconds % 60).toString().padLeft(2, '0');
-        });
-      });
-    } catch (_) {
-      // If parsing fails, don't start timer - clear invalid state
-      await _clearCheckInFromPrefs();
-      if (!mounted) return;
-      setState(() {
-        isCheckedIn = false;
-        isTimerRunning = false;
-        totalSeconds = 0;
-        hours = "00";
-        minutes = "00";
-        seconds = "00";
-        _checkInTime = null;
-        _checkOutTime = null;
-      });
-    }
+    if (!mounted) return;
+    setState(() {
+      isCheckedIn = true;
+      isTimerRunning = false;
+      _checkOutTime = null;
+    });
   }
 
   // ---- Check-in time cache methods ----
@@ -613,15 +670,15 @@ Future<void> _loadTodayStatus() async {
       orElse: () => const {},
     );
 
-    final checkIn = (me['checkIn']) as String?;
-    final checkOut = (me['checkOut']) as String?;
+    final checkIn = (me['checkIn'] ?? '').toString().trim();
+    final checkOut = (me['checkOut'] ?? '').toString().trim();
     _checkInSource =
         (me['checkInSource'] ?? me['source'] ?? '').toString().toLowerCase();
 
     print("CHECK IN TIME: $_checkInTime");
     print("CHECK OUT TIME: $_checkOutTime");
 
-    if (checkOut != null && checkOut.isNotEmpty) {
+    if (checkOut.isNotEmpty) {
       // User already checked out - clear state and show not checked in
       debugPrint('[Attendance] User already checked out, clearing cache');
       _resetTimerAndState();
@@ -635,10 +692,23 @@ Future<void> _loadTodayStatus() async {
       return;
     }
 
-    if (checkIn != null && checkIn.isNotEmpty) {
-      // User is checked in - apply check-in data and start timer
-      _applyCheckedInFromServer(checkIn);
-      await _saveCheckInToPrefs();
+    if (checkIn.isNotEmpty) {
+      // User is checked in - use only the backend/server check-in time as source of truth.
+      final serverCheckInTime = _applyCheckedInFromServer(checkIn);
+      if (serverCheckInTime == null) {
+        debugPrint('[Attendance] Invalid check-in time from backend: $checkIn');
+        return;
+      }
+      
+      // ✅ SAFETY: If source is missing from backend, default to 'manual' to allow checkout
+      if (_checkInSource.isEmpty) {
+        debugPrint('[Attendance] Backend returned empty check-in source, defaulting to manual');
+        setState(() => _checkInSource = 'manual');
+      }
+      
+      // Save the actual backend check-in time, never DateTime.now().
+      await _saveCheckInToPrefs(at: serverCheckInTime);
+      await _cacheCheckInTime(serverCheckInTime);
       print("WORKING TIMER STARTED");
       return;
     }
@@ -646,6 +716,7 @@ Future<void> _loadTodayStatus() async {
     // No check-in found - reset state and show not checked in
     _resetTimerAndState();
     await _clearCheckInFromPrefs();
+    await _clearCheckInCache();
     if (!mounted) return;
     setState(() {
       isCheckedIn = false;
@@ -667,72 +738,36 @@ Future<void> _loadTodayStatus() async {
     if (!mounted) return;
     setState(() {
       _isAttendanceStatusLoading = false;
+      _isAttendanceSourceLoading = false; // ✅ FIX: Clear source loading state
       _hasAttendanceApiConfirmed = true;
     });
   }
 }
-  void _applyCheckedInFromServer(String hhmmss) {
-    try {
-      final now = DateTime.now();
-      final parts = hhmmss.split(':').map((s) => int.tryParse(s) ?? 0).toList();
-      
-      // Use actual server check-in time, not current time
-      final checkInDateTime = DateTime(now.year, now.month, now.day, parts[0], parts[1],
-          parts.length > 2 ? parts[2] : 0);
-      
-      debugPrint('[Attendance] API check-in time: $checkInDateTime');
-      debugPrint('[Attendance] Current time: $now');
-
-      // Check if server time is different from current check-in time
-      final timeChanged = _checkInTime == null || 
-                         _checkInTime!.hour != checkInDateTime.hour ||
-                         _checkInTime!.minute != checkInDateTime.minute ||
-                         _checkInTime!.second != checkInDateTime.second;
-      
-      if (timeChanged) {
-        debugPrint('[Attendance] Server check-in time differs from current, updating timer');
-        
-        // Update check-in time and cache it
-        _checkInTime = checkInDateTime;
-        _checkOutTime = null;
-        
-        // Cache the server check-in time
-        _cacheCheckInTime(checkInDateTime);
-        
-        // Calculate duration from actual check-in time
-        final diff = now.difference(checkInDateTime).inSeconds;
-        final startSeconds = diff > 0 ? diff : 0;
-        
-        debugPrint('[Attendance] Final timer start time: $startSeconds seconds');
-
-        _timer?.cancel();
-        setState(() {
-          isCheckedIn = true;
-          isTimerRunning = true;
-          totalSeconds = startSeconds;
-          hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
-          minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
-          seconds = (totalSeconds % 60).toString().padLeft(2, '0');
-        });
-
-        _timer = Timer.periodic(const Duration(seconds: 1), (t) {
-          if (!mounted) return;
-          setState(() {
-            totalSeconds++;
-            hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
-            minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
-            seconds = (totalSeconds % 60).toString().padLeft(2, '0');
-          });
-        });
-      } else {
-        debugPrint('[Attendance] Server check-in time matches current, no timer adjustment needed');
-        // Just ensure cache is up to date
-        _cacheCheckInTime(checkInDateTime);
-      }
-    } catch (_) {
-      _startWorkTimer();
-      setState(() => isCheckedIn = true);
+  DateTime? _applyCheckedInFromServer(String hhmmss) {
+    final checkInDateTime = _todayDateTimeFromHms(hhmmss);
+    if (checkInDateTime == null) {
+      debugPrint('[Attendance] Could not parse backend check-in time: $hhmmss');
+      return null;
     }
+
+    final now = DateTime.now();
+    debugPrint('[Attendance] API check-in time: $checkInDateTime');
+    debugPrint('[Attendance] Current time: $now');
+    debugPrint('[Attendance] Current _checkInTime: $_checkInTime');
+
+    final timeChanged = _checkInTime == null ||
+        _checkInTime!.hour != checkInDateTime.hour ||
+        _checkInTime!.minute != checkInDateTime.minute ||
+        _checkInTime!.second != checkInDateTime.second;
+
+    if (timeChanged || !isTimerRunning) {
+      debugPrint('[Attendance] Starting timer from backend check-in time');
+      _startTimerFromCheckInTime(checkInDateTime);
+    } else {
+      debugPrint('[Attendance] Server check-in time matches current, no timer adjustment needed');
+    }
+
+    return checkInDateTime;
   }
 
   void _resetTimerAndState() {
@@ -840,17 +875,16 @@ Future<Position?> _getPositionUsingDemo({
 }  
 
   // High-accuracy location fetching with validation
-   Future<Position?> _getHighAccuracyPosition({
-     bool quiet = false,
-     String actionLabel = 'check-in',
-     double maxAccuracyMeters = 50.0,
-     int maxRetries = 3,
-     Duration timeout = const Duration(seconds: 15),
-   }) async {
-    debugPrint('[GPS] Starting high-accuracy location fetch...');
-    debugPrint('[GPS] Required accuracy: ≤${maxAccuracyMeters}m');
-    
-    // Step 1: Check location permission
+  Future<Position?> _getHighAccuracyPosition({
+    bool quiet = false,
+    String actionLabel = 'check-in',
+    double maxAccuracyMeters = 50.0,
+    Duration collectionDuration = const Duration(seconds: 5),
+  }) async {
+    debugPrint('[GPS] GPS collection started for $actionLabel');
+    debugPrint('[GPS] Required accuracy threshold: ≤${maxAccuracyMeters}m');
+    debugPrint('[GPS] Collecting location samples for ${collectionDuration.inSeconds}s');
+
     final hasPermission = await _ensurePermissionDemo(quiet: quiet);
     if (!hasPermission) {
       debugPrint('[GPS] ❌ Permission denied');
@@ -860,7 +894,6 @@ Future<Position?> _getPositionUsingDemo({
       return null;
     }
 
-    // Step 2: Check if GPS/location service is enabled
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       debugPrint('[GPS] ❌ Location services disabled');
@@ -871,207 +904,79 @@ Future<Position?> _getPositionUsingDemo({
     }
 
     Position? bestPosition;
-    int attempts = 0;
     final startTime = DateTime.now();
+    final endTime = startTime.add(collectionDuration);
+    int attempt = 0;
 
-    // Show improving message if not quiet
-    if (!quiet && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Getting accurate location, please wait...'),
-          duration: Duration(seconds: 3),
-          backgroundColor: Colors.blue,
-        ),
-      );
-    }
+    while (DateTime.now().isBefore(endTime)) {
+      attempt++;
+      final remaining = endTime.difference(DateTime.now());
+      final attemptTimeout = remaining > const Duration(seconds: 5)
+          ? const Duration(seconds: 5)
+          : remaining;
 
-    while (attempts < maxRetries) {
-      attempts++;
-      debugPrint('[GPS] 🔄 Attempt $attempts/$maxRetries');
+      debugPrint('[GPS] 🔄 Sample attempt $attempt - remaining ${remaining.inSeconds}s');
 
       try {
-        // Use best accuracy for navigation
         final pos = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.bestForNavigation,
-          timeLimit: timeout,
+          timeLimit: attemptTimeout,
           forceAndroidLocationManager: false,
         );
 
         debugPrint('[GPS] 📍 Got position: lat=${pos.latitude.toStringAsFixed(6)}, lng=${pos.longitude.toStringAsFixed(6)}, accuracy=${pos.accuracy.toStringAsFixed(1)}m');
 
-        // What is location accuracy: 
-        // Location accuracy (in meters) represents the radius of uncertainty around the reported GPS position.
-        // A 20m accuracy means the actual location is somewhere within a 20-meter radius of the reported coordinates.
-        // Lower accuracy values = more precise location. Higher values = less precise location.
-        // For attendance check-in, we need good accuracy to ensure the employee is actually at the correct location.
+        if (bestPosition == null || pos.accuracy < bestPosition.accuracy) {
+  bestPosition = pos;
+  debugPrint('[GPS] Best location updated: accuracy=${bestPosition.accuracy.toStringAsFixed(1)}m');
+}
 
-        // Validate accuracy
-        if (pos.accuracy <= maxAccuracyMeters) {
-          debugPrint('[GPS] ✅ Good accuracy (${pos.accuracy.toStringAsFixed(1)}m ≤ ${maxAccuracyMeters}m)');
-          bestPosition = pos;
-          break;
-        } else {
-          debugPrint('[GPS] ⚠️ Poor accuracy (${pos.accuracy.toStringAsFixed(1)}m > ${maxAccuracyMeters}m)');
-          
-          // Keep the best position found so far
-          if (bestPosition == null || pos.accuracy < bestPosition.accuracy) {
-            bestPosition = pos;
-            debugPrint('[GPS] 📊 Best position so far: ${bestPosition!.accuracy.toStringAsFixed(1)}m');
-          }
-
-          // Check if we've exceeded total timeout
-          if (DateTime.now().difference(startTime) > const Duration(seconds: 12)) {
-            debugPrint('[GPS] ⏰ Total timeout reached, using best available');
-            break;
-          }
-
-          // Short delay before retry
-          await Future.delayed(const Duration(milliseconds: 1000));
-        }
+if (pos.accuracy <= maxAccuracyMeters) {
+  debugPrint('[GPS] Good accuracy received. Stopping GPS collection early.');
+  return pos;
+}
       } on TimeoutException catch (e) {
-        debugPrint('[GPS] ⏱️ Timeout on attempt $attempts: $e');
-        if (attempts >= maxRetries) break;
-        await Future.delayed(const Duration(milliseconds: 500));
+        debugPrint('[GPS] ⏱️ Attempt $attempt timed out: $e');
       } on LocationServiceDisabledException catch (e) {
-        debugPrint('[GPS] 📡 Location service disabled: $e');
+        debugPrint('[GPS] 📡 Location service disabled during check: $e');
         if (!quiet && mounted) {
           _showLocationServiceDialog();
         }
         return null;
       } on PermissionDeniedException catch (e) {
-        debugPrint('[GPS] 🔒 Permission denied: $e');
+        debugPrint('[GPS] 🔒 Permission denied during check: $e');
         if (!quiet && mounted) {
           _showLocationPermissionDialog();
         }
         return null;
       } catch (e) {
-        debugPrint('[GPS] ❌ Error on attempt $attempts: $e');
-        if (attempts >= maxRetries) break;
-        await Future.delayed(const Duration(milliseconds: 500));
+        debugPrint('[GPS] ❌ Error during location sampling attempt $attempt: $e');
+      }
+
+      if (DateTime.now().isBefore(endTime)) {
+        await Future.delayed(const Duration(milliseconds: 800));
       }
     }
 
-    // Final decision
+    debugPrint('[GPS] 15 seconds completed');
     if (bestPosition != null) {
-      if (bestPosition.accuracy <= maxAccuracyMeters) {
-        debugPrint('[GPS] ✅ ACCEPTED: lat=${bestPosition.latitude.toStringAsFixed(6)}, lng=${bestPosition.longitude.toStringAsFixed(6)}, accuracy=${bestPosition.accuracy.toStringAsFixed(1)}m');
-        
-        // Clear the improving message and show success
-//         if (!quiet && mounted) {
-//           ScaffoldMessenger.of(context).clearSnackBars();
-//           ScaffoldMessenger.of(context).showSnackBar(
-//             SnackBar(
-//               content: Text(
-//   '✅ Location accurate (${bestPosition.accuracy.toStringAsFixed(1)}m) - Proceeding with $actionLabel',
-// ),
-//               backgroundColor: Colors.green,
-//               duration: const Duration(seconds: 2),
-//             ),
-//           );
-//         }
-        
-        return bestPosition;
-      } else {
-        debugPrint('[GPS] ❌ REJECTED: Best accuracy ${bestPosition.accuracy.toStringAsFixed(1)}m > ${maxAccuracyMeters}m');
-        
-        // Show low accuracy warning
-        if (!quiet && mounted) {
-          _showLowAccuracyWarningDialog(bestPosition.accuracy);
-        }
-        
-        return null;
-      }
+      debugPrint('[GPS] Proceeding with best available accuracy: ${bestPosition.accuracy.toStringAsFixed(1)}m');
+      return bestPosition;
     }
 
-    debugPrint('[GPS] ❌ FAILED: Could not get accurate location');
+    debugPrint('[GPS] ❌ FAILED: Could not get any location during 15s collection');
     if (!quiet && mounted) {
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('❌ Unable to get accurate location. Please move to open area and try again.'),
+          content: Text('Unable to get location. Please try again.'),
           backgroundColor: Colors.red,
           duration: Duration(seconds: 4),
         ),
       );
     }
+
     return null;
-  }
-
-  // Show dialog for low accuracy scenarios
-  void _showLowAccuracyDialog(double accuracy) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Location Accuracy Issue'),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Your location accuracy is low. Please retry and click check-in again.'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-            },
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              // Retry with manual trigger
-              _retryLocationFetch();
-            },
-            child: const Text('Retry'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Show low accuracy warning dialog with detailed information
-  void _showLowAccuracyWarningDialog(double accuracy) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Location Accuracy Issue'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Your location accuracy is low (${accuracy.toStringAsFixed(1)}m).'),
-            const SizedBox(height: 8),
-            const Text('For accurate attendance check-in, we need location accuracy within 50 meters.'),
-            const SizedBox(height: 8),
-            const Text('Suggestions to improve accuracy:'),
-            const SizedBox(height: 4),
-            const Text('• Move to an open area with clear sky view'),
-            const Text('• Stay away from tall buildings or trees'),
-            const Text('• Wait a few seconds for GPS to stabilize'),
-            const Text('• Ensure GPS/location services are enabled'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-            },
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              // Retry location fetch
-              _retryLocationFetch();
-            },
-            child: const Text('Retry'),
-          ),
-        ],
-      ),
-    );
   }
 
   // Show location permission dialog
@@ -1722,7 +1627,7 @@ Future<void> _handleManualCheckInTap() async {
   setState(() {});
   
   try {
-    await _performCheckIn('manual');
+    await _performCheckIn('manual', alreadyValidated: true);
   } finally {
     if (mounted) {
       _isManualLoading = false;
@@ -1782,7 +1687,7 @@ Future<void> _authenticateAndCheckIn() async {
     }
 
     if (ok) {
-      await _performCheckIn('biometric');
+      await _performCheckIn('biometric', alreadyValidated: true);
     } else {
       _showErrorDialog('Biometric verification was not completed. Please try again or use manual attendance.');
       _isBiometricLoading = false;
@@ -1844,18 +1749,20 @@ Future<void> _rollbackAfterFailedCheckIn({
     });
   }
 
-  if (wasCheckedIn) {
-    await _saveCheckInToPrefs();
-  } else {
+  if (wasCheckedIn && _checkInTime != null) {
+    await _saveCheckInToPrefs(at: _checkInTime);
+  } else if (!wasCheckedIn) {
     await _clearCheckInFromPrefs();
   }
 }
 
  // 5) UPDATE check-in flow so it also has a second safety check BEFORE reason popup.
 //    This prevents the popup from opening if this method is called from anywhere else.
-Future<void> _performCheckIn(String type) async {
-  final canProceed = await _canProceedWithCheckIn();
-  if (!canProceed) return;
+Future<void> _performCheckIn(String type, {bool alreadyValidated = false}) async {
+  if (!alreadyValidated) {
+    final canProceed = await _canProceedWithCheckIn();
+    if (!canProceed) return;
+  }
 
   // Ensure shift times are loaded before validation
   if (_shiftTimes == null) {
@@ -1929,6 +1836,8 @@ Future<void> _performCheckIn(String type) async {
   final token = CompanyData.token;
   final url = Uri.parse('${ApiService.baseUrl}/attendance/check-in');
 
+  debugPrint('[CHECKIN] Starting check-in with method: $type');
+
   final bodyMap = {
     'empid': userId,
     'name': userName,
@@ -1959,18 +1868,25 @@ Future<void> _performCheckIn(String type) async {
     prevS: seconds,
   );
 
-  final now = DateTime.now();
+  // ✅ FIX: Do NOT set _checkInTime to DateTime.now() before backend confirmation
+  // Only set UI state, let _loadTodayStatus() set the actual backend check-in time
   setState(() {
     _isAttendanceStatusLoading = true;
     _hasAttendanceApiConfirmed = false;
     isCheckedIn = true;
     _checkInSource = type.toLowerCase();
-    _checkInTime = now;
+    // ✅ FIX: Leave _checkInTime as null until backend confirms
+    // _checkInTime will be set by _loadTodayStatus() after successful API response
     _checkOutTime = null;
   });
-  _startWorkTimer();
-  await _saveCheckInToPrefs();
-  await _cacheCheckInTime(now); // Cache check-in time after successful check-in
+  debugPrint('[CHECKIN] Set check-in source: $_checkInSource');
+  debugPrint('[CHECKIN] Waiting for backend confirmation to set actual check-in time');
+  
+  // ✅ FIX: Do NOT start timer yet - wait for backend confirmation
+  // Timer will be started by _loadTodayStatus() after successful API response
+  
+  // Do not save local DateTime.now() here.
+  // Cache/prefs will be saved only after _loadTodayStatus() gets backend check-in time.
 
   if (!mounted) return;
   ScaffoldMessenger.of(context).showSnackBar(
@@ -2022,8 +1938,20 @@ Future<void> _performCheckIn(String type) async {
       
       unawaited(_trackingCheckInAndSeed(pos));
       unawaited(_ensureNotificationPermission());
-      unawaited(_maybePromptBatteryOptimization());
-      unawaited(startFgTracking(empid: userId, token: CompanyData.token));
+      // unawaited(_maybePromptBatteryOptimization());
+      debugPrint('[TRACKING TEST] Calling startFgTracking empid=$userId tokenEmpty=${CompanyData.token.isEmpty}');
+
+      debugPrint(
+  '[CHECKIN TRACKING] before startFgTracking userId=$userId tokenEmpty=${CompanyData.token.isEmpty}',
+);
+
+unawaited(
+  startFgTracking(empid: userId, token: CompanyData.token).then((_) {
+    debugPrint('[TRACKING TEST] startFgTracking completed');
+  }).catchError((e) {
+    debugPrint('[TRACKING TEST] startFgTracking failed: $e');
+  }),
+);
       unawaited(
         scheduleBackgroundTracking(empid: userId, token: CompanyData.token),
       );
@@ -2038,13 +1966,20 @@ Future<void> _performCheckIn(String type) async {
       debugPrint('[TRACKING] Tracking start functions called - UI state: isCheckedIn=$isCheckedIn, isTrackingStarted=false');
 
       _lastStatusFetch = null;
-      await _loadTodayStatus();
 
-      if (!mounted) return;
-      _showSuccessDialog(
-        responseData['message']?.toString() ?? 'Checked in successfully!',
-      );
-      return;
+if (!mounted) return;
+
+_showSuccessDialog(
+  responseData['message']?.toString() ?? 'Checked in successfully!',
+);
+
+/*
+  Do not block the UI here.
+  Load today's status in the background after showing success.
+*/
+unawaited(_loadTodayStatus());
+
+return;
     }
 
     await _rollbackAfterFailedCheckIn(
@@ -2083,6 +2018,12 @@ Future<void> _performCheckIn(String type) async {
   }
 }
   Future<void> _authenticateAndCheckOut() async {
+    if (_checkInSource != 'biometric') {
+      debugPrint('[CHECKOUT] Biometric checkout blocked for source=$_checkInSource');
+      _showInfoDialog('This session requires manual checkout. Please use the checkout button again to proceed.');
+      return;
+    }
+
     try {
       _authInProgress = true;
 
@@ -2111,22 +2052,78 @@ Future<void> _performCheckIn(String type) async {
       );
 
       if (ok) {
-        _confirmCheckOut(proceedAction: () => _performCheckOut());
+        debugPrint('[CHECKOUT] Biometric verification completed for checkout');
+        _confirmCheckOut(proceedAction: () => _performCheckOut(checkoutMethod: 'biometric'));
       } else {
-        _showErrorDialog('Biometric verification was not completed. Please try again or use manual attendance.');
+        _showErrorDialog('Biometric verification was not completed. Please try again.');
       }
     } catch (e) {
       debugPrint('[BIOMETRIC] CheckOut authentication error: $e');
-      _showErrorDialog('Biometric verification was not completed. Please try again or use manual attendance.');
+      _showErrorDialog('Biometric verification was not completed. Please try again.');
     } finally {
-      _authInProgress = false;
-    }
+  _authInProgress = false;
+
+  if (mounted) {
+    _isBiometricLoading = false;
+    setState(() {});
+  }
+}
   }
 
-  Future<void> _performCheckOut({bool silent = false}) async {
-    // ✅ FIX: block multiple checkout calls
+  Future<void> _handleCheckOutTap() async {
+    debugPrint('[CHECKOUT] Checkout button tapped. current source=$_checkInSource');
     if (_checkoutInProgress) return;
+    
+    // ✅ FIX: Check if source is still loading
+    if (_isAttendanceSourceLoading) {
+      _showInfoDialog('Loading checkout method... Please wait.');
+      return;
+    }
+
+    if (_checkInSource == 'biometric') {
+      await _authenticateAndCheckOut();
+      return;
+    }
+
+    if (_checkInSource == 'manual') {
+      debugPrint('[CHECKOUT] Manual checkout flow selected');
+      _confirmCheckOut(proceedAction: () => _performCheckOut(checkoutMethod: 'manual'));
+      return;
+    }
+
+    // ✅ FIX: Show informative error message
+    debugPrint('[CHECKOUT] Check-in source is empty. Source=$_checkInSource, Loading=$_isAttendanceSourceLoading');
+    _showInfoDialog('Checkout method is not available. Please refresh the app or contact support if the issue persists.');
+  }
+
+  Future<void> _performCheckOut({bool silent = false, required String checkoutMethod}) async {
+    if (!_manualCheckOutOnly) {
+      debugPrint('[CHECKOUT] Checkout blocked; user action required');
+      return;
+    }
+
+    if (_checkoutInProgress) return;
+    if (_checkInSource.isEmpty) {
+      debugPrint('[CHECKOUT] No check-in source available, blocking checkout');
+      if (!silent) _showInfoDialog('Unable to determine checkout method. Please refresh the app.');
+      return;
+    }
+
+    if (_checkInSource != checkoutMethod) {
+      debugPrint('[CHECKOUT] Checkout method mismatch: expected=$_checkInSource requested=$checkoutMethod');
+      if (!silent) {
+        if (_checkInSource == 'biometric') {
+          _showErrorDialog('This session requires biometric checkout.');
+        } else {
+          _showInfoDialog('This session requires manual checkout.');
+        }
+      }
+      return;
+    }
+
+    // ✅ FIX: block multiple checkout calls
     _checkoutInProgress = true;
+    debugPrint('[CHECKOUT] Check-out API called with method=$checkoutMethod');
 
     try {
       // Ensure shift times are loaded before validation
@@ -2255,6 +2252,7 @@ Future<void> _performCheckIn(String type) async {
         },
         body: jsonEncode(bodyMap),
       );
+      debugPrint('[CHECKOUT] Check-out request sent: status=${res.statusCode}, method=$checkoutMethod');
 
       if (res.statusCode == 200) {
         await stopFgTracking();
@@ -2626,7 +2624,7 @@ ShiftTimes? _getShiftTimes(String shift) {
                               Text(
                                 !_hasAttendanceApiConfirmed ||
                                         _isAttendanceStatusLoading
-                                    ? 'In: Syncing attendance...'
+                                    ? 'In: Syncing '
                                     : _checkInTime != null
                                         ? 'In: ${_formatTime(_checkInTime)}'
                                         : 'In: Not checked in',
@@ -2641,7 +2639,7 @@ ShiftTimes? _getShiftTimes(String shift) {
                               Text(
                                 !_hasAttendanceApiConfirmed ||
                                         _isAttendanceStatusLoading
-                                    ? 'Out: Syncing attendance...'
+                                    ? 'Out: Syncing '
                                     : _checkOutTime != null
                                         ? 'Out: ${_formatTime(_checkOutTime)}'
                                         : 'Out: Not checked out',
@@ -2699,33 +2697,45 @@ ShiftTimes? _getShiftTimes(String shift) {
                   ),
                 ),
                 const SizedBox(height: 15),
-                // Timer remains as 00:00:00 while attendance time is syncing.
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _buildTimeBox(hours),
-                    const SizedBox(width: 6),
-                    const Text(
-                      ':',
-                      style: TextStyle(
-                          fontSize: 20,
-                          color: Color.fromARGB(255, 169, 163, 182),
-                          fontWeight: FontWeight.bold),
+                // Show syncing text until backend-confirmed check-in time is available.
+                if (!_hasAttendanceApiConfirmed ||
+                    _isAttendanceStatusLoading ||
+                    (isCheckedIn && _checkInTime == null))
+                  const Text(
+                    'Syncing attendance...',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.black87,
+                      fontWeight: FontWeight.w400,
                     ),
-                    const SizedBox(width: 6),
-                    _buildTimeBox(minutes),
-                    const SizedBox(width: 6),
-                    const Text(
-                      ':',
-                      style: TextStyle(
-                          fontSize: 20,
-                          color: Color.fromARGB(255, 169, 163, 182),
-                          fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(width: 6),
-                    _buildTimeBox(seconds),
-                  ],
-                ),
+                  )
+                else
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _buildTimeBox(hours),
+                      const SizedBox(width: 6),
+                      const Text(
+                        ':',
+                        style: TextStyle(
+                            fontSize: 20,
+                            color: Color.fromARGB(255, 169, 163, 182),
+                            fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(width: 6),
+                      _buildTimeBox(minutes),
+                      const SizedBox(width: 6),
+                      const Text(
+                        ':',
+                        style: TextStyle(
+                            fontSize: 20,
+                            color: Color.fromARGB(255, 169, 163, 182),
+                            fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(width: 6),
+                      _buildTimeBox(seconds),
+                    ],
+                  ),
                 const SizedBox(height: 20),
                 Container(
                   padding:
@@ -2865,15 +2875,10 @@ ShiftTimes? _getShiftTimes(String shift) {
                         width: double.infinity,
                         height: 50,
                         child: ElevatedButton(
-                          onPressed: _checkoutInProgress
+                          // ✅ FIX: Disable button while source is loading or checkout is in progress
+                          onPressed: (_checkoutInProgress || _isAttendanceSourceLoading || _checkInSource.isEmpty)
                               ? null
-                              : () {
-                                  if (_checkInSource == 'biometric') {
-                                    _authenticateAndCheckOut();
-                                  } else {
-                                    _confirmCheckOut(proceedAction: () => _performCheckOut());
-                                  }
-                                },
+                              : _handleCheckOutTap,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFFFF6B6B),
                             shape: RoundedRectangleBorder(
@@ -2881,16 +2886,29 @@ ShiftTimes? _getShiftTimes(String shift) {
                             ),
                             elevation: 2,
                           ),
-                          child: const Row(
+                          child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.logout, color: kTextColor, size: 13),
-                              SizedBox(width: 8),
-                              Text('Check Out',
-                                  style: TextStyle(
-                                      color: kTextColor,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500)),
+                              // ✅ FIX: Show loading indicator when source is being loaded or checkout in progress
+                              if (_isAttendanceSourceLoading || _checkoutInProgress)
+                                const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(kTextColor),
+                                  ),
+                                )
+                              else
+                                const Icon(Icons.logout, color: kTextColor, size: 13),
+                              const SizedBox(width: 8),
+                              Text(
+                                _isAttendanceSourceLoading ? 'Loading...' : (_checkoutInProgress ? 'Checking out...' : 'Check Out'),
+                                style: const TextStyle(
+                                    color: kTextColor,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500),
+                              ),
                             ],
                           ),
                         ),

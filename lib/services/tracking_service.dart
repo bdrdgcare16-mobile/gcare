@@ -32,6 +32,7 @@ class TrackingService {
   static const double kTargetAccuracyMeters =
       20.0; // Reduced from 100m to 20m for better precision
   static const String _kPendingLocationsKey = 'tracking_pending_locations';
+  static const String _kLastLocationEnabledKey = 'tracking_last_location_enabled';
 
   TrackingService({
     required this.apiBase,
@@ -48,7 +49,9 @@ class TrackingService {
       return;
     }
 
-    print('[TrackingService] LOG: Starting tracking service for empId: $empId');
+    if (kDebugMode) {
+      print('[TrackingService] LOG: Starting tracking service for empId: $empId');
+    }
     await _ensureLocationPermission();
     await _syncPendingLocations();
 
@@ -69,7 +72,13 @@ class TrackingService {
     }
 
     // Immediate first capture after check-in
-    if (!_sending) {
+    final locationEnabled = await Geolocator.isLocationServiceEnabled();
+    await _updateLocationEnabledEventState(locationEnabled, 'foreground-service');
+    if (!locationEnabled) {
+      if (kDebugMode) {
+        print('[TrackingService] location services disabled at startup, skipping initial capture');
+      }
+    } else if (!_sending) {
       _sending = true;
       try {
         await _captureBestFixAndSend();
@@ -279,7 +288,7 @@ class TrackingService {
       }
 
       if (kDebugMode) {
-        print('[TrackingService] selected best position: acc=${bestPosition.accuracy.toStringAsFixed(1)}m lat=${bestPosition.latitude} lng=${bestPosition.longitude}');
+        print('[TrackingService] selected best position: acc=${bestPosition.accuracy.toStringAsFixed(1)}m');
       }
       return bestPosition;
     } catch (e) {
@@ -311,6 +320,21 @@ class TrackingService {
       if (kDebugMode) {
         print('[TrackingService] initial check-in location rejected due to poor accuracy');
       }
+    }
+  }
+
+  Future<bool> _hasInternet() async {
+    try {
+      final online = await ConnectivityService.I.isOnline;
+      if (kDebugMode) {
+        print('[TrackingService] internet status before post: $online');
+      }
+      return online;
+    } catch (e) {
+      if (kDebugMode) {
+        print('[TrackingService] internet check failed: $e');
+      }
+      return false;
     }
   }
 
@@ -387,6 +411,20 @@ class TrackingService {
       'ts': DateTime.now().toIso8601String(),
     };
 
+    final online = await _hasInternet();
+    if (!online) {
+      if (kDebugMode) {
+        print('[TrackingService] offline detected, queueing location payload (no /tracking/pos call)');
+      }
+      await _enqueuePendingLocation(payload);
+      return;
+    }
+
+    if (kDebugMode) {
+      print('[TrackingService] online detected, syncing pending locations before fresh post');
+    }
+    await _syncPendingLocations();
+
     try {
       final response = await http.post(
         Uri.parse('${ApiService.baseUrl}/tracking/pos'),
@@ -396,21 +434,24 @@ class TrackingService {
 
       if (kDebugMode) {
         print(
-          '[TrackingService] posted lat=${p.latitude}, lng=${p.longitude}, acc=${p.accuracy}m ($tag), status=${response.statusCode}',
+          '[TrackingService] posted location with acc=${p.accuracy}m ($tag), status=${response.statusCode}',
         );
-        // print('[TrackingService] response body: ${response.body}');
       }
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
         if (kDebugMode) {
-          print('[TrackingService] post failed, queuing payload');
+          print('[TrackingService] fresh location post failed, queueing payload');
         }
         await _enqueuePendingLocation(payload);
+      } else {
+        if (kDebugMode) {
+          print('[TrackingService] fresh location posted successfully');
+        }
       }
     } catch (e) {
       if (kDebugMode) {
         print('[TrackingService] post error: $e');
-        print('[TrackingService] queuing payload for retry');
+        print('[TrackingService] queueing payload after failure');
       }
       await _enqueuePendingLocation(payload);
     }
@@ -432,10 +473,99 @@ class TrackingService {
     await prefs.setStringList(_kPendingLocationsKey, encoded);
   }
 
-  Future<void> _enqueuePendingLocation(Map<String, dynamic> payload) async {
+  Future<void> _enqueuePendingPayload(Map<String, dynamic> payload) async {
     final pending = await _loadPendingLocations();
     pending.add(payload);
     await _savePendingLocations(pending);
+  }
+
+  Future<void> _enqueuePendingLocation(Map<String, dynamic> payload) async {
+    final lat = payload['lat'];
+    final lng = payload['lng'];
+    if (lat == null || lng == null || lat is! num || lng is! num) {
+      if (kDebugMode) {
+        print('[TrackingService] skipped queueing payload without lat/lng');
+      }
+      return;
+    }
+    await _enqueuePendingPayload(payload);
+  }
+
+  Future<void> _enqueuePendingEvent(Map<String, dynamic> payload) async {
+    await _enqueuePendingPayload(payload);
+  }
+
+  Future<bool?> _loadLastLocationEnabledState() async {
+    final prefs = await _prefs();
+    return prefs.getBool(_kLastLocationEnabledKey);
+  }
+
+  Future<void> _saveLastLocationEnabledState(bool enabled) async {
+    final prefs = await _prefs();
+    await prefs.setBool(_kLastLocationEnabledKey, enabled);
+  }
+
+  Future<void> _updateLocationEnabledEventState(bool enabled, String source) async {
+    final previous = await _loadLastLocationEnabledState();
+    if (previous == enabled) {
+      await _saveLastLocationEnabledState(enabled);
+      return;
+    }
+
+    if (previous == null && !enabled) {
+      await _appendTrackingEvent('location_disabled', 'Location Disabled by User', source);
+    } else if (previous == null && enabled) {
+      await _saveLastLocationEnabledState(enabled);
+      return;
+    } else if (previous == false && enabled) {
+      await _appendTrackingEvent('location_enabled', 'Location Enabled by User', source);
+    } else if (previous == true && !enabled) {
+      await _appendTrackingEvent('location_disabled', 'Location Disabled by User', source);
+    }
+
+    await _saveLastLocationEnabledState(enabled);
+  }
+
+  Future<void> _appendTrackingEvent(String type, String message, String source) async {
+    final payload = {
+      'empid': empId,
+      'type': type,
+      'message': message,
+      'source': source,
+      'ts': DateTime.now().toIso8601String(),
+    };
+
+    final online = await _hasInternet();
+    if (!online) {
+      if (kDebugMode) {
+        print('[TrackingService] offline detected, queueing tracking event $type');
+      }
+      await _enqueuePendingEvent(payload);
+      return;
+    }
+
+    try {
+      final uri = Uri.parse('${ApiService.baseUrl}/tracking/event');
+      final response = await http.post(
+        uri,
+        headers: _headers(),
+        body: jsonEncode(payload),
+      );
+      if (kDebugMode) {
+        print('[TrackingService] /tracking/event response status=${response.statusCode}');
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        if (kDebugMode) {
+          print('[TrackingService] event post failed, queueing event $type');
+        }
+        await _enqueuePendingEvent(payload);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('[TrackingService] event post error: $e');
+      }
+      await _enqueuePendingEvent(payload);
+    }
   }
 
   Future<void> _syncPendingLocations() async {
@@ -449,14 +579,15 @@ class TrackingService {
     final kept = <Map<String, dynamic>>[];
     for (final item in pending) {
       try {
+        final isEvent = item.containsKey('type') && !(item.containsKey('lat') && item.containsKey('lng'));
         final response = await http.post(
-          Uri.parse('${ApiService.baseUrl}/tracking/pos'),
+          Uri.parse('${ApiService.baseUrl}/${isEvent ? 'tracking/event' : 'tracking/pos'}'),
           headers: _headers(),
           body: jsonEncode(item),
         );
 
         if (kDebugMode) {
-          print('[TrackingService] sync pending status=${response.statusCode} item=$item');
+          print('[TrackingService] sync pending status=${response.statusCode}');
         }
 
         if (response.statusCode < 200 || response.statusCode >= 300) {

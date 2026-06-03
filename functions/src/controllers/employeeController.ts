@@ -51,10 +51,21 @@ async function trackEmployeeUsage(
   }
 }
 
+function normalizePhoneDigits(value?: string): string {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (digits.length >= 10) {
+    return digits.substring(digits.length - 10);
+  }
+  return digits;
+}
+
+function isValidIndianMobileNumber(value: string): boolean {
+  return /^[6-9][0-9]{9}$/.test(value);
+}
+
 // Create a new employee (Admin only)
 export const createEmployee = async (req: Request, res: Response): Promise<Response> => {
   try {
-
     const tokenCompanyId = (req as any).user?.companyId;
     const currentUserId = (req as any).user?.userId;
 
@@ -90,26 +101,51 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    if (!companyId || !empid || !email || !name) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    if (!companyId || !empid || !email || !name || !phone) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        requiredFields: ['companyId', 'empid', 'email', 'name', 'phone'],
+      });
     }
 
-    if (companyId !== tokenCompanyId) {
-      return res.status(403).json({ error: 'Invalid companyId' });
+    const normalizedCompanyId = String(companyId).trim();
+    const normalizedTokenCompanyId = String(tokenCompanyId).trim();
+
+    if (normalizedCompanyId !== normalizedTokenCompanyId) {
+      return res.status(403).json({
+        error: 'Invalid companyId',
+        bodyCompanyId: normalizedCompanyId,
+        tokenCompanyId: normalizedTokenCompanyId,
+      });
     }
 
-    // Normalize email and empid
-    const normalizedEmail = String(email || '').trim().toLowerCase();
-    const normalizedEmpid = String(empid || '').trim();
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const normalizedEmpid = String(empid).trim();
+    const normalizedPhone = String(phone || '').trim();
+    const normalizedPhoneDigits = normalizePhoneDigits(normalizedPhone);
 
-    // Add backend logs
-    console.log('[CREATE EMPLOYEE] companyId:', companyId);
+    if (!isValidIndianMobileNumber(normalizedPhoneDigits)) {
+      return res.status(400).json({
+        error: 'Enter valid mobile number',
+        field: 'phone',
+      });
+    }
+
+    console.log('[CREATE EMPLOYEE] request body:', {
+      ...req.body,
+      password: password ? '********' : undefined,
+    });
+    console.log('[CREATE EMPLOYEE] tokenCompanyId:', normalizedTokenCompanyId);
+    console.log('[CREATE EMPLOYEE] currentUserId:', currentUserId);
+    console.log('[CREATE EMPLOYEE] companyId:', normalizedCompanyId);
     console.log('[CREATE EMPLOYEE] email:', normalizedEmail);
     console.log('[CREATE EMPLOYEE] empid:', normalizedEmpid);
+    console.log('[CREATE EMPLOYEE] phone:', normalizedPhone);
+    console.log('[CREATE EMPLOYEE] normalizedPhoneDigits:', normalizedPhoneDigits);
 
-    // Check duplicate email with companyId filter
-    const emailSnap = await db.collection('employees')
-      .where('companyId', '==', companyId)
+    const emailSnap = await db
+      .collection(EMPLOYEES)
+      .where('companyId', '==', normalizedCompanyId)
       .where('email', '==', normalizedEmail)
       .limit(1)
       .get();
@@ -117,12 +153,17 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
     console.log('[CREATE EMPLOYEE] duplicate email count:', emailSnap.size);
 
     if (!emailSnap.empty) {
-      return res.status(409).json({ error: 'Email already exists for this company' });
+      console.log('[CREATE EMPLOYEE] duplicate email found');
+
+      return res.status(409).json({
+        error: 'Email already exists for this company',
+        field: 'email',
+      });
     }
 
-    // Check duplicate empid with companyId filter
-    const empidSnap = await db.collection('employees')
-      .where('companyId', '==', companyId)
+    const empidSnap = await db
+      .collection(EMPLOYEES)
+      .where('companyId', '==', normalizedCompanyId)
       .where('empid', '==', normalizedEmpid)
       .limit(1)
       .get();
@@ -130,18 +171,46 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
     console.log('[CREATE EMPLOYEE] duplicate empid count:', empidSnap.size);
 
     if (!empidSnap.empty) {
-      return res.status(409).json({ error: 'Employee ID already exists for this company' });
+      console.log('[CREATE EMPLOYEE] duplicate empid found');
+
+      return res.status(409).json({
+        error: 'Employee ID already exists for this company',
+        field: 'empid',
+      });
+    }
+
+    const companyEmployeesSnap = await db
+      .collection(EMPLOYEES)
+      .where('companyId', '==', normalizedCompanyId)
+      .get();
+
+    const duplicatePhoneDoc = companyEmployeesSnap.docs.find((employeeDoc) => {
+      const data = employeeDoc.data();
+      const existingPhoneDigits =
+        data.phoneDigits || normalizePhoneDigits(data.phone);
+
+      return existingPhoneDigits === normalizedPhoneDigits;
+    });
+
+    console.log('[CREATE EMPLOYEE] duplicatePhoneDoc:', duplicatePhoneDoc?.id || null);
+
+    if (duplicatePhoneDoc) {
+      return res.status(409).json({
+        error: 'Mobile number already exists for this company',
+        field: 'phone',
+      });
     }
 
     const now = Timestamp.now();
 
-    const employeeData: Employee = {
-      companyId: tokenCompanyId,
+    const employeeData: Employee & { phoneDigits?: string } = {
+      companyId: normalizedTokenCompanyId,
       empid: normalizedEmpid,
-      name,
+      name: String(name).trim(),
       email: normalizedEmail,
       emailLower: normalizedEmail,
-      phone,
+      phone: normalizedPhone,
+      phoneDigits: normalizedPhoneDigits,
       location,
       dept,
       designation,
@@ -162,7 +231,6 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
     const ref = await db.collection(EMPLOYEES).add(employeeData);
     const doc = await ref.get();
 
-    // Track usage after successful employee creation
     await trackEmployeeUsage(req, {
       writeCount: 1,
       apiCalls: 1,
@@ -170,18 +238,16 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
 
     return res.status(201).json({
       id: ref.id,
-      ...doc.data()
+      ...doc.data(),
     });
-
   } catch (error) {
-    console.error(error);
+    console.error('[CREATE EMPLOYEE] error:', error);
     return res.status(500).json({ error: 'Failed to create employee' });
   }
 };
 
 export const getEmployees = async (req: Request, res: Response): Promise<Response> => {
   try {
-
     const companyId = (req as any).user?.companyId;
 
     if (!companyId) {
@@ -190,31 +256,29 @@ export const getEmployees = async (req: Request, res: Response): Promise<Respons
 
     const snap = await db
       .collection(EMPLOYEES)
-      .where('companyId', '==', companyId) // 
+      .where('companyId', '==', companyId)
       .get();
 
-    const data = snap.docs.map(doc => ({
+    const data = snap.docs.map((doc) => ({
       id: doc.id,
-      ...doc.data()
+      ...doc.data(),
     }));
 
-    // Track usage after successful employees read
     await trackEmployeeUsage(req, {
       readCount: 1,
       apiCalls: 1,
     });
 
     return res.status(200).json(data);
-
   } catch (error) {
-    console.error(error);
+    console.error('[GET EMPLOYEES] error:', error);
     return res.status(500).json({ error: 'Failed to fetch employees' });
   }
 };
+
 // Get employee by document ID
 export const getEmployeeById = async (req: Request, res: Response): Promise<Response> => {
   try {
-
     const companyId = (req as any).user?.companyId;
     const { id } = req.params;
 
@@ -230,7 +294,6 @@ export const getEmployeeById = async (req: Request, res: Response): Promise<Resp
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    // Track usage after successful employee read
     await trackEmployeeUsage(req, {
       readCount: 1,
       apiCalls: 1,
@@ -238,18 +301,17 @@ export const getEmployeeById = async (req: Request, res: Response): Promise<Resp
 
     return res.status(200).json({
       id: doc.id,
-      ...data
+      ...data,
     });
-
   } catch (error) {
-    console.error(error);
+    console.error('[GET EMPLOYEE BY ID] error:', error);
     return res.status(500).json({ error: 'Failed' });
   }
 };
+
 // Update employee (Admin only)
 export const updateEmployee = async (req: Request, res: Response): Promise<Response> => {
   try {
-
     const companyId = (req as any).user?.companyId;
     const { id } = req.params;
 
@@ -264,21 +326,125 @@ export const updateEmployee = async (req: Request, res: Response): Promise<Respo
       return res.status(403).json({ error: 'Access denied' });
     }
 
+    const { email, empid, phone } = req.body as {
+      email?: string;
+      empid?: string;
+      phone?: string;
+    };
+
+    const normalizedEmail = email ? String(email).trim().toLowerCase() : undefined;
+    const normalizedEmpid = empid ? String(empid).trim() : undefined;
+    const normalizedPhone = phone ? String(phone).trim() : undefined;
+    const normalizedPhoneDigits = normalizedPhone ? normalizePhoneDigits(normalizedPhone) : undefined;
+
+    if (normalizedEmail) {
+      const emailSnap = await db
+        .collection(EMPLOYEES)
+        .where('companyId', '==', companyId)
+        .where('email', '==', normalizedEmail)
+        .get();
+
+      const duplicateEmailDoc = emailSnap.docs.find((emailDoc) => emailDoc.id !== id);
+
+      if (duplicateEmailDoc) {
+        console.log('[UPDATE EMPLOYEE] duplicate email found');
+
+        return res.status(409).json({
+          error: 'Email already exists for this company',
+          field: 'email',
+        });
+      }
+    }
+
+    if (normalizedEmpid) {
+      const empidSnap = await db
+        .collection(EMPLOYEES)
+        .where('companyId', '==', companyId)
+        .where('empid', '==', normalizedEmpid)
+        .get();
+
+      const duplicateEmpidDoc = empidSnap.docs.find((empidDoc) => empidDoc.id !== id);
+
+      if (duplicateEmpidDoc) {
+        console.log('[UPDATE EMPLOYEE] duplicate empid found');
+
+        return res.status(409).json({
+          error: 'Employee ID already exists for this company',
+          field: 'empid',
+        });
+      }
+    }
+
+    if (normalizedPhoneDigits) {
+      if (!isValidIndianMobileNumber(normalizedPhoneDigits)) {
+        return res.status(400).json({
+          error: 'Enter valid mobile number',
+          field: 'phone',
+        });
+      }
+
+      const companyEmployeesSnap = await db
+        .collection(EMPLOYEES)
+        .where('companyId', '==', companyId)
+        .get();
+
+      const duplicatePhoneDoc = companyEmployeesSnap.docs.find((employeeDoc) => {
+        if (employeeDoc.id === id) {
+          return false;
+        }
+        const data = employeeDoc.data();
+        const existingPhoneDigits =
+          data.phoneDigits || normalizePhoneDigits(data.phone);
+
+        return existingPhoneDigits === normalizedPhoneDigits;
+      });
+
+      console.log('[UPDATE EMPLOYEE] duplicatePhoneDoc:', duplicatePhoneDoc?.id || null);
+
+      if (duplicatePhoneDoc) {
+        return res.status(409).json({
+          error: 'Mobile number already exists for this company',
+          field: 'phone',
+        });
+      }
+    }
+
+    const updates: any = { ...req.body };
+    delete updates.companyId;
+
+    if (normalizedEmail) {
+      updates.email = normalizedEmail;
+      updates.emailLower = normalizedEmail;
+    }
+
+    if (normalizedEmpid) {
+      updates.empid = normalizedEmpid;
+    }
+
+    if (normalizedPhone) {
+      updates.phone = normalizedPhone;
+      updates.phoneDigits = normalizedPhoneDigits;
+    }
+
+    if (updates.password) {
+      updates.password = await bcrypt.hash(String(updates.password), 10);
+    } else {
+      delete updates.password;
+    }
+
     await ref.update({
-      ...req.body,
-      updatedAt: Timestamp.now()
+      ...updates,
+      updatedAt: Timestamp.now(),
     });
 
-    // Track usage after successful employee update
     await trackEmployeeUsage(req, {
       writeCount: 1,
       apiCalls: 1,
     });
 
     return res.status(200).json({ message: 'Updated successfully' });
-
   } catch (error) {
-    console.error(error);
+    console.error('[UPDATE EMPLOYEE] error:', error);
     return res.status(500).json({ error: 'Failed' });
   }
 };

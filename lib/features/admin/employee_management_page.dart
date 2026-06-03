@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl_phone_field/intl_phone_field.dart';
 
@@ -55,6 +56,39 @@ class Employee {
   });
 
   factory Employee.fromServer(Map<String, dynamic> j) {
+    final rawStatusValue = j['status'] ?? j['isActive'];
+    String normalizedStatus;
+
+    if (rawStatusValue is bool) {
+      normalizedStatus = rawStatusValue ? 'active' : 'inactive';
+    } else {
+      normalizedStatus =
+          rawStatusValue?.toString().trim().toLowerCase() ?? 'active';
+    }
+
+    String statusLabel;
+    switch (normalizedStatus) {
+      case 'active':
+        statusLabel = 'Active';
+        break;
+      case 'inactive':
+        statusLabel = 'Inactive';
+        break;
+      case 'suspended':
+        statusLabel = 'Suspended';
+        break;
+      case 'relieved':
+        statusLabel = 'Relieved';
+        break;
+      default:
+        if (normalizedStatus.isEmpty) {
+          statusLabel = 'Active';
+        } else {
+          statusLabel =
+              normalizedStatus[0].toUpperCase() + normalizedStatus.substring(1);
+        }
+    }
+
     return Employee(
       companyId: (j['companyId'] ?? '').toString(),
       docId: j['id']?.toString(),
@@ -66,9 +100,7 @@ class Employee {
       dept: (j['dept'] ?? '').toString(),
       designation: (j['designation'] ?? '').toString(),
       shiftGroup: (j['shiftGroup'] ?? '').toString(),
-      status: ((j['status'] ?? 'active').toString().toLowerCase() == 'active')
-          ? 'Active'
-          : 'Inactive',
+      status: statusLabel,
       role: (j['role'] ?? 'employee').toString(),
     );
   }
@@ -85,6 +117,7 @@ class Employee {
       'dept': dept,
       'designation': designation,
       'shiftGroup': shiftGroup.isEmpty ? null : shiftGroup,
+      'status': status.toLowerCase(),
       'role': role,
     };
   }
@@ -185,14 +218,15 @@ class EmployeeService {
 
       return {
         'employees': employees,
-        'lastDocId': decoded is Map<String, dynamic> ? decoded['lastDocId'] : null,
+        'lastDocId':
+            decoded is Map<String, dynamic> ? decoded['lastDocId'] : null,
       };
     }
 
     throw Exception('Failed to fetch employees (${res.statusCode})');
   }
 
-  static Future<String> createEmployee(Employee e) async {
+  static Future<Map<String, dynamic>> createEmployee(Employee e) async {
     final res = await http.post(
       Uri.parse('${ApiService.baseUrl}/employees'),
       headers: _headers(),
@@ -201,18 +235,12 @@ class EmployeeService {
 
     if (res.statusCode == 201) {
       final j = jsonDecode(res.body) as Map<String, dynamic>;
-      if (j['id'] != null) return j['id'].toString();
-
-      if (j['data'] is Map && (j['data'] as Map)['id'] != null) {
-        return (j['data'] as Map)['id'].toString();
-      }
-
-      return '';
+      return {'success': true, 'data': j};
     }
 
-    if (res.statusCode == 400) {
+    if (res.statusCode == 400 || res.statusCode == 409) {
       final j = jsonDecode(res.body) as Map<String, dynamic>;
-      return j['error']?.toString() ?? 'Validation failed';
+      return {'success': false, 'error': j['error']?.toString() ?? 'Validation failed', 'field': j['field']?.toString()};
     }
 
     throw Exception('Create failed (${res.statusCode}): ${res.body}');
@@ -321,14 +349,17 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
     }
 
     try {
-      final result = await EmployeeService.fetchEmployees();
+      final result = await EmployeeService.fetchEmployees(limit: 1000);
       final List<Employee> newEmployees = result['employees'];
+
+      _debugEmployeeList(newEmployees);
+      final uniqueEmployees = _dedupeEmployees(newEmployees);
 
       if (!mounted) return;
 
       setState(() {
-        employees = newEmployees;
-        filtered = newEmployees;
+        employees = uniqueEmployees;
+        filtered = uniqueEmployees;
         _hasMore = false;
         _loading = false;
       });
@@ -343,6 +374,40 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
       });
     } finally {
       _isFetching = false;
+    }
+  }
+
+  List<Employee> _dedupeEmployees(List<Employee> employeeList) {
+    final seenEmails = <String>{};
+    final seenEmpIds = <String>{};
+    final deduped = <Employee>[];
+
+    for (final employee in employeeList.reversed) {
+      final emailKey = employee.email.trim().toLowerCase();
+      final empidKey = employee.id.trim().toLowerCase();
+
+      if (emailKey.isNotEmpty && seenEmails.contains(emailKey)) {
+        continue;
+      }
+      if (empidKey.isNotEmpty && seenEmpIds.contains(empidKey)) {
+        continue;
+      }
+
+      if (emailKey.isNotEmpty) seenEmails.add(emailKey);
+      if (empidKey.isNotEmpty) seenEmpIds.add(empidKey);
+
+      deduped.add(employee);
+    }
+
+    return deduped.reversed.toList();
+  }
+
+  void _debugEmployeeList(List<Employee> employeeList) {
+    _log('Fetched ${employeeList.length} employee records from API');
+    for (final employee in employeeList) {
+      _log(
+        'Employee docId=${employee.docId} empid=${employee.id} email=${employee.email} name=${employee.name} status=${employee.status}',
+      );
     }
   }
 
@@ -421,14 +486,14 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
     final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => const CreateEmployeeScreen(),
+        builder: (_) => CreateEmployeeScreen(
+          existingEmployees: employees,
+        ),
       ),
     );
 
     if (result != true) return;
 
-    // Employee was created successfully in CreateEmployeeScreen
-    // Just reload the employee list and show success message
     await _loadEmployees();
 
     if (!mounted) return;
@@ -489,49 +554,25 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
   }
 
   Future<void> _editEmployee(Employee e) async {
-    final edited = await Navigator.push<Employee>(
+    final updated = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => CreateEmployeeScreen(editEmployee: e),
+        builder: (_) => CreateEmployeeScreen(
+          editEmployee: e,
+          existingEmployees: employees,
+        ),
       ),
     );
 
-    if (edited == null) return;
+    if (updated != true) return;
 
-    if (e.docId == null || e.docId!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Missing server id for this employee')),
-      );
-      return;
-    }
+    await _loadEmployees();
 
-    try {
-      await EmployeeService.updateEmployee(e.docId!, {
-        'name': edited.name,
-        'empid': edited.id,
-        'email': edited.email,
-        'phone': edited.mobile,
-        'location': edited.location,
-        'dept': edited.dept,
-        'designation': edited.designation,
-        'shiftGroup': edited.shiftGroup,
-        'status': edited.status.toLowerCase(),
-      });
+    if (!mounted) return;
 
-      await _loadEmployees();
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Employee updated')),
-      );
-    } catch (err) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Update failed: $err')),
-      );
-    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Employee updated')),
+    );
   }
 
   Widget _buildTableHeader() {
@@ -554,7 +595,8 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
           ),
           Expanded(
             flex: 7,
-            child: Text('Mobile', style: TextStyle(fontWeight: FontWeight.bold)),
+            child:
+                Text('Mobile', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
           Expanded(
             flex: 6,
@@ -586,7 +628,8 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
           ),
           Expanded(
             flex: 4,
-            child: Text('Status', style: TextStyle(fontWeight: FontWeight.bold)),
+            child:
+                Text('Status', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
           Expanded(
             flex: 5,
@@ -743,19 +786,19 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
               ),
               const SizedBox(height: 16),
               Center(
-  child: Wrap(
-    alignment: WrapAlignment.center,
-    spacing: 10,
-    runSpacing: 10,
-    children: [
-      statButton('Total', 22),
-      statButton('Active', 21),
-      statButton('Inactive', 1),
-      statButton('Suspended', 0),
-      statButton('Relived', 0),
-    ],
-  ),
-),
+                child: Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    statButton('Total', employees.length),
+                    statButton('Active', countStatus('Active')),
+                    statButton('Inactive', countStatus('Inactive')),
+                    statButton('Suspended', countStatus('Suspended')),
+                    statButton('Relived', countStatus('Relieved')),
+                  ],
+                ),
+              ),
               const SizedBox(height: 12),
               Center(
                 child: SizedBox(
@@ -836,10 +879,12 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
 
 class CreateEmployeeScreen extends StatefulWidget {
   final Employee? editEmployee;
+  final List<Employee> existingEmployees;
 
   const CreateEmployeeScreen({
     super.key,
     this.editEmployee,
+    this.existingEmployees = const [],
   });
 
   @override
@@ -869,6 +914,7 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
   String? _shiftsError;
   String? _emailError;
   String? _empidError;
+  String? _phoneError;
 
   @override
   void initState() {
@@ -933,6 +979,19 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
       child: TextFormField(
         controller: ctrl,
         keyboardType: type,
+        onChanged: (value) {
+          if (label == 'Email' && _emailError != null) {
+            setState(() {
+              _emailError = null;
+            });
+          }
+
+          if (label == 'Employee ID' && _empidError != null) {
+            setState(() {
+              _empidError = null;
+            });
+          }
+        },
         validator: (v) {
           if (v == null || v.trim().isEmpty) return 'Required';
 
@@ -945,13 +1004,11 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
               return 'Enter valid email';
             }
 
-            // Show email error if exists
             if (_emailError != null) {
               return _emailError;
             }
           }
 
-          // Show employee ID error if exists
           if (label == 'Employee ID' && _empidError != null) {
             return _empidError;
           }
@@ -1055,7 +1112,7 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
           });
         },
         validator: (value) {
-          return value == null || value.isEmpty ? 'Required' : null;
+          return value == null || value.trim().isEmpty ? 'Required' : null;
         },
         decoration: InputDecoration(
           label: RichText(
@@ -1080,17 +1137,24 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
   }
 
   Future<void> submit() async {
+    setState(() {
+      _emailError = null;
+      _empidError = null;
+      _phoneError = null;
+    });
+
+    await Future.delayed(Duration.zero);
+
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    // Clear previous email error
-    setState(() => _emailError = null);
+    final fullMobileNumber = '$dialCode ${mobile.text.trim()}';
 
     final newEmp = Employee(
       companyId: companyId.text.trim(),
       name: name.text.trim(),
       id: id.text.trim(),
       email: email.text.trim().toLowerCase(),
-      mobile: '$dialCode ${mobile.text.trim()}',
+      mobile: fullMobileNumber,
       shiftGroup: shiftgroup.text.trim(),
       location: location.text.trim(),
       dept: dept.text.trim(),
@@ -1100,40 +1164,99 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
       role: 'employee',
     );
 
+    final isEdit = widget.editEmployee != null;
+    final docId = widget.editEmployee?.docId;
+
+    debugPrint('[SUBMIT] isEdit: $isEdit');
+    debugPrint('[SUBMIT] editEmployee: ${widget.editEmployee}');
+    debugPrint('[SUBMIT] docId: $docId');
+
     try {
-      final response = await EmployeeService.createEmployee(newEmp);
-      
-      // Handle backend duplicate email response
-      if (response.contains('Email already exists for this company')) {
-        setState(() => _emailError = 'Email already exists for this company');
-        _formKey.currentState?.validate(); // Revalidate to show error
-        return;
-      }
-      
-      // Handle backend duplicate employee ID response
-      if (response.contains('Employee ID already exists for this company')) {
-        setState(() => _empidError = 'Employee ID already exists for this company');
-        _formKey.currentState?.validate(); // Revalidate to show error
-        return;
-      }
-      
-      // Handle other validation errors from backend
-      if (response.contains('already exists')) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(response)),
+      if (isEdit) {
+        if (docId == null || docId.isEmpty) {
+          debugPrint('[SUBMIT] ERROR: docId is null or empty in edit mode');
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Error: Missing employee ID for update'),
+            ),
+          );
+          return;
+        }
+
+        debugPrint('[SUBMIT] Calling updateEmployee with docId: $docId');
+        await EmployeeService.updateEmployee(
+          docId,
+          {
+            'name': name.text.trim(),
+            'empid': id.text.trim(),
+            'email': email.text.trim().toLowerCase(),
+            'phone': fullMobileNumber,
+            'location': location.text.trim(),
+            'dept': dept.text.trim(),
+            'designation': desig.text.trim(),
+            'shiftGroup': shiftgroup.text.trim(),
+            'status': status.toLowerCase(),
+            if (password.text.trim().isNotEmpty)
+              'password': password.text.trim(),
+          },
         );
+
+        if (!mounted) return;
+        Navigator.pop(context, true);
         return;
+      } else {
+        final response = await EmployeeService.createEmployee(newEmp);
+
+        if (response['success'] == true) {
+          if (!mounted) return;
+          Navigator.pop(context, true);
+          return;
+        }
+
+        final error = response['error'] as String?;
+        final field = response['field'] as String?;
+
+        if (field == 'email') {
+          setState(() => _emailError = error ?? 'Email already exists for this company');
+          _formKey.currentState?.validate();
+          return;
+        }
+
+        if (field == 'empid') {
+          setState(() => _empidError = error ?? 'Employee ID already exists for this company');
+          _formKey.currentState?.validate();
+          return;
+        }
+
+        if (field == 'phone') {
+          setState(() => _phoneError = error ?? 'Mobile number already exists for this company');
+          _formKey.currentState?.validate();
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(error ?? 'Mobile number already exists for this company')),
+          );
+          return;
+        }
+
+        if (error != null) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(error)),
+          );
+          return;
+        }
+
+        if (!mounted) return;
+        Navigator.pop(context, true);
       }
-      
-      // Success - navigate back with success flag
-      if (!mounted) return;
-      Navigator.pop(context, true);
-      
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Create failed: $e')),
+        SnackBar(
+          content: Text(
+            isEdit ? 'Update failed: $e' : 'Create failed: $e',
+          ),
+        ),
       );
     }
   }
@@ -1190,6 +1313,34 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
                 IntlPhoneField(
                   initialCountryCode: 'IN',
                   initialValue: mobile.text,
+                  disableLengthCheck: true,
+                  keyboardType: TextInputType.phone,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(10),
+                  ],
+                  validator: (phone) {
+                    if (phone == null || phone.number.trim().isEmpty) {
+                      return 'Required';
+                    }
+
+                    final digits =
+                        phone.number.replaceAll(RegExp(r'[^0-9]'), '');
+
+                    if (digits.length != 10) {
+                      return 'Enter valid 10 digit mobile number';
+                    }
+
+                    if (!RegExp(r'^[6-9][0-9]{9}$').hasMatch(digits)) {
+                      return 'Enter valid mobile number';
+                    }
+
+                    if (_phoneError != null) {
+                      return _phoneError;
+                    }
+
+                    return null;
+                  },
                   decoration: InputDecoration(
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
@@ -1213,6 +1364,12 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
                   onChanged: (phone) {
                     dialCode = phone.countryCode;
                     mobile.text = phone.number;
+
+                    if (_phoneError != null) {
+                      setState(() {
+                        _phoneError = null;
+                      });
+                    }
                   },
                 ),
                 shiftDropdownField(),
@@ -1243,6 +1400,28 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
                       },
                     ),
                     const Text('Inactive'),
+                    if (isEdit) ...[
+                      Radio<String>(
+                        value: 'Suspended',
+                        groupValue: status,
+                        onChanged: (val) {
+                          setState(() {
+                            status = val!;
+                          });
+                        },
+                      ),
+                      const Text('Suspended'),
+                      Radio<String>(
+                        value: 'Relieved',
+                        groupValue: status,
+                        onChanged: (val) {
+                          setState(() {
+                            status = val!;
+                          });
+                        },
+                      ),
+                      const Text('Relieved'),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 20),
