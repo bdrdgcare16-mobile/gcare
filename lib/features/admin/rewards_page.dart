@@ -1,283 +1,3 @@
-// import 'package:flutter/material.dart';
-// import 'package:http/http.dart' as http;
-// import 'dart:convert';
-// import 'package:serv_app/html_stub.dart'
-//     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
-
-// // If you keep the JWT centrally after login, import it.
-// // Adjust the path if your project structure differs.
-// import 'package:serv_app/models/company_data.dart';
-// import 'package:serv_app/services/api_service.dart';
-
-// import 'package:serv_app/config/api_config.dart';
-
-// // ---- THEME ----
-// const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
-// const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-// const Color kTextColor = Colors.white;
-// const Color kHighlightBoxColor = Color(0xFF655193);
-
-// // ---- API ----
-// final String apiBase = ApiConfig.baseUrl;
-
-// class RewardsPage extends StatefulWidget {
-//   const RewardsPage({super.key});
-
-//   @override
-//   State<RewardsPage> createState() => _RewardsPageState();
-// }
-
-// class _RewardsPageState extends State<RewardsPage> {
-//   final TextEditingController nameController = TextEditingController();
-//   final TextEditingController employeeIdController = TextEditingController();
-//   final TextEditingController emailController =
-//       TextEditingController(); // used for Department
-//   final TextEditingController descriptionController = TextEditingController();
-
-//   // ---------------- JWT helpers ----------------
-//   bool _looksLikeJwt(String v) =>
-//       RegExp(r'^[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+$')
-//           .hasMatch(v);
-
-//   Future<String?> _getJwt() async {
-//     // 1) From a central holder if your login sets it (recommended for Flutter Web)
-//     try {
-//       if (CompanyData.token != null && CompanyData.token!.isNotEmpty) {
-//         // also persist so other pages can pick it up
-//         html.window.localStorage['token'] = CompanyData.token!;
-//         return CompanyData.token!;
-//       }
-//     } catch (_) {
-//       // ignore if not available
-//     }
-
-//     // 2) From localStorage under common keys
-//     const keys = ['token', 'jwt', 'access_token', 'auth_token'];
-//     for (final k in keys) {
-//       final v = html.window.localStorage[k];
-//       if (v != null && v.isNotEmpty) return v;
-//     }
-
-//     // 3) Scan all keys for something JWT-shaped
-//     for (final k in html.window.localStorage.keys) {
-//       final v = html.window.localStorage[k];
-//       if (v != null && _looksLikeJwt(v)) return v;
-//     }
-//     return null;
-//   }
-
-//   // ---------------- submit ----------------
-//   Future<void> _handleSubmit() async {
-//     final name = nameController.text.trim();
-//     final empid = employeeIdController.text.trim();
-//     final department =
-//         emailController.text.trim(); // field labeled "Department"
-//     final description = descriptionController.text.trim();
-
-//     if (name.isEmpty ||
-//         empid.isEmpty ||
-//         department.isEmpty ||
-//         description.isEmpty) {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         const SnackBar(
-//           content: Text("Please fill all fields."),
-//           backgroundColor: Colors.red,
-//         ),
-//       );
-//       return;
-//     }
-
-//     final token = await _getJwt();
-//     if (token == null || token.isEmpty) {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         const SnackBar(
-//           content: Text("Not logged in: No token provided"),
-//           backgroundColor: Colors.red,
-//         ),
-//       );
-//       return;
-//     }
-
-//     // Build payload expected by backend
-//     String adminName = 'Admin';
-//     try {
-//       adminName = (CompanyData.userName ??
-//               CompanyData.name ??
-//               CompanyData.email ??
-//               'Admin')
-//           .toString();
-//     } catch (_) {}
-
-//     final body = {
-//       "empid": empid,
-//       "name": name,
-//       "department": department,
-//       "description": description,
-//       "adminname": adminName,
-//       "date": DateTime.now().toIso8601String(),
-//     };
-
-//     final uri = Uri.parse('${ApiService.baseUrl}/rewards');
-
-//     try {
-//       final resp = await http.post(
-//         uri,
-//         headers: {
-//           'Content-Type': 'application/json',
-//           'Authorization': 'Bearer $token',
-//         },
-//         body: jsonEncode(body),
-//       );
-
-//       if (resp.statusCode == 201) {
-//         ScaffoldMessenger.of(context).showSnackBar(
-//           const SnackBar(
-//             content: Text("Reward entry submitted successfully!"),
-//             backgroundColor: Color.fromARGB(255, 56, 58, 56),
-//           ),
-//         );
-//         nameController.clear();
-//         employeeIdController.clear();
-//         emailController.clear();
-//         descriptionController.clear();
-//       } else if (resp.statusCode == 401 || resp.statusCode == 403) {
-//         ScaffoldMessenger.of(context).showSnackBar(
-//           SnackBar(
-//             content: Text("Unauthorized (${resp.statusCode}): ${resp.body}"),
-//             backgroundColor: Colors.red,
-//           ),
-//         );
-//       } else {
-//         ScaffoldMessenger.of(context).showSnackBar(
-//           SnackBar(
-//             content:
-//                 Text("Submission failed (${resp.statusCode}): ${resp.body}"),
-//             backgroundColor: Colors.red,
-//           ),
-//         );
-//       }
-//     } catch (e) {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         SnackBar(
-//           content: Text("Network error: $e"),
-//           backgroundColor: Colors.red,
-//         ),
-//       );
-//     }
-//   }
-
-//   // ---------------- UI ----------------
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       backgroundColor:
-//           Colors.transparent, // ensure no scaffold color peeks through
-//       extendBody: true, // let body extend to bottom
-//       appBar: AppBar(
-//         backgroundColor: kHighlightBoxColor,
-//         leading: IconButton(
-//           icon: const Icon(Icons.arrow_back, color: kTextColor),
-//           onPressed: () => Navigator.pop(context),
-//         ),
-//         title: const Text(
-//           'Rewards',
-//           style: TextStyle(
-//             color: kTextColor,
-//             fontWeight: FontWeight.bold,
-//             fontSize: 20,
-//           ),
-//         ),
-//         elevation: 0,
-//       ),
-//       body: Container(
-//         // 🔑 make the gradient fill the whole screen
-//         constraints: const BoxConstraints.expand(),
-//         decoration: const BoxDecoration(
-//           gradient: LinearGradient(
-//             begin: Alignment.topCenter,
-//             end: Alignment.bottomCenter,
-//             colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
-//           ),
-//         ),
-//         child: SafeArea(
-//           bottom: false, // 🔑 allow the gradient to cover the bottom area
-//           child: Padding(
-//             padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10),
-//             child: SingleChildScrollView(
-//               child: Column(
-//                 crossAxisAlignment: CrossAxisAlignment.start,
-//                 children: [
-//                   const SizedBox(height: 20),
-//                   const SizedBox(height: 20),
-
-//                   // 🔽 Form (UI unchanged)
-//                   TextField(
-//                     controller: nameController,
-//                     decoration: const InputDecoration(
-//                       labelText: 'Name',
-//                       border: OutlineInputBorder(),
-//                     ),
-//                   ),
-//                   const SizedBox(height: 16),
-//                   TextField(
-//                     controller: employeeIdController,
-//                     decoration: const InputDecoration(
-//                       labelText: 'Employee ID',
-//                       border: OutlineInputBorder(),
-//                     ),
-//                   ),
-//                   const SizedBox(height: 16),
-//                   TextField(
-//                     controller: emailController, // used as Department
-//                     decoration: const InputDecoration(
-//                       labelText: 'Department',
-//                       border: OutlineInputBorder(),
-//                     ),
-//                     keyboardType: TextInputType.text,
-//                   ),
-//                   const SizedBox(height: 16),
-//                   TextField(
-//                     controller: descriptionController,
-//                     maxLines: 3,
-//                     decoration: const InputDecoration(
-//                       labelText: 'Description',
-//                       border: OutlineInputBorder(),
-//                     ),
-//                   ),
-//                   const SizedBox(height: 20),
-//                   Center(
-//                     child: ElevatedButton(
-//                       onPressed: _handleSubmit,
-//                       style: ElevatedButton.styleFrom(
-//                         backgroundColor: kHighlightBoxColor,
-//                         foregroundColor: kTextColor,
-//                         padding: const EdgeInsets.symmetric(
-//                           horizontal: 40,
-//                           vertical: 16,
-//                         ),
-//                         shape: RoundedRectangleBorder(
-//                           borderRadius: BorderRadius.circular(12),
-//                         ),
-//                       ),
-//                       child: const Text(
-//                         "Submit",
-//                         style: TextStyle(
-//                           fontSize: 16,
-//                           fontWeight: FontWeight.bold,
-//                         ),
-//                       ),
-//                     ),
-//                   ),
-//                   const SizedBox(height: 20),
-//                 ],
-//               ),
-//             ),
-//           ),
-//         ),
-//       ),
-//     );
-//   }
-// }
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -313,6 +33,7 @@ class _RewardsPageState extends State<RewardsPage> {
   final TextEditingController employeeIdController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController descriptionController = TextEditingController();
+
   bool _isLoading = false;
 
   // ---------------- JWT helpers ----------------
@@ -329,6 +50,7 @@ class _RewardsPageState extends State<RewardsPage> {
     } catch (_) {}
 
     const keys = ['token', 'jwt', 'access_token', 'auth_token'];
+
     for (final k in keys) {
       final v = html.window.localStorage[k];
       if (v != null && v.isNotEmpty) return v;
@@ -338,6 +60,7 @@ class _RewardsPageState extends State<RewardsPage> {
       final v = html.window.localStorage[k];
       if (v != null && _looksLikeJwt(v)) return v;
     }
+
     return null;
   }
 
@@ -357,6 +80,7 @@ class _RewardsPageState extends State<RewardsPage> {
     }
 
     final token = await _getJwt();
+
     if (token == null || token.isEmpty) {
       _showSnackBar("Not logged in: No token provided", isError: true);
       return;
@@ -365,6 +89,7 @@ class _RewardsPageState extends State<RewardsPage> {
     setState(() => _isLoading = true);
 
     String adminName = 'Admin';
+
     try {
       adminName = (CompanyData.userName ??
               CompanyData.name ??
@@ -396,17 +121,21 @@ class _RewardsPageState extends State<RewardsPage> {
 
       if (resp.statusCode == 201) {
         _showSnackBar("Reward submitted successfully!", isError: false);
+
         nameController.clear();
         employeeIdController.clear();
         emailController.clear();
         descriptionController.clear();
       } else if (resp.statusCode == 401 || resp.statusCode == 403) {
-        _showSnackBar("Unauthorized (${resp.statusCode}): ${resp.body}",
-            isError: true);
+        _showSnackBar(
+          "Unauthorized (${resp.statusCode}): ${resp.body}",
+          isError: true,
+        );
       } else {
         _showSnackBar(
-            "Submission failed (${resp.statusCode}): ${resp.body}",
-            isError: true);
+          "Submission failed (${resp.statusCode}): ${resp.body}",
+          isError: true,
+        );
       }
     } catch (e) {
       _showSnackBar("Network error: $e", isError: true);
@@ -427,7 +156,9 @@ class _RewardsPageState extends State<RewardsPage> {
         ),
         backgroundColor: isError ? const Color(0xFFD32F2F) : kBrand,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
         margin: const EdgeInsets.all(16),
         duration: const Duration(seconds: 3),
       ),
@@ -438,21 +169,35 @@ class _RewardsPageState extends State<RewardsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: kSurface,
       appBar: _buildAppBar(),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildPageHeader(),
-              const SizedBox(height: 24),
-              _buildFormCard(),
-              const SizedBox(height: 24),
-              _buildSubmitButton(),
-              const SizedBox(height: 32),
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFFFFFFFF),
+              Color(0xFFF8F5FC),
+              Color(0xFFEDE7F6),
             ],
+          ),
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildPageHeader(),
+                const SizedBox(height: 24),
+                _buildFormCard(),
+                const SizedBox(height: 24),
+                _buildSubmitButton(),
+                const SizedBox(height: 32),
+              ],
+            ),
           ),
         ),
       ),
@@ -460,48 +205,34 @@ class _RewardsPageState extends State<RewardsPage> {
   }
 
   PreferredSizeWidget _buildAppBar() {
-    return AppBar(
-      backgroundColor: kCardBg,
-      surfaceTintColor: Colors.transparent,
-      elevation: 0,
-      shadowColor: Colors.transparent,
-      bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(1),
-        child: Container(height: 1, color: kBorder),
+  return AppBar(
+    backgroundColor: const Color(0xFF6A1B9A), // SERV lavender shade
+    centerTitle: false,
+    leading: IconButton(
+      icon: const Icon(
+        Icons.arrow_back_ios_new_rounded,
+        color: Colors.white,
+        size: 18,
       ),
-      leading: IconButton(
-        icon: const Icon(Icons.arrow_back_ios_new_rounded,
-            color: kTextPrimary, size: 18),
-        onPressed: () => Navigator.pop(context),
+      onPressed: () => Navigator.pop(context),
+    ),
+    title: const Text(
+      'Rewards',
+      style: TextStyle(
+        color: Colors.white,
+        fontWeight: FontWeight.w600,
+        fontSize: 18,
+        letterSpacing: -0.3,
       ),
-      title: const Text(
-        'Rewards',
-        style: TextStyle(
-          color: kTextPrimary,
-          fontWeight: FontWeight.w600,
-          fontSize: 18,
-          letterSpacing: -0.3,
-        ),
-      ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildPageHeader() {
-    return Column(
+    return const Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: kBrandLight,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Icon(Icons.workspace_premium_rounded,
-              color: kBrand, size: 22),
-        ),
-        const SizedBox(height: 14),
-        const Text(
+        Text(
           'Nominate an Employee',
           style: TextStyle(
             color: kTextPrimary,
@@ -510,8 +241,8 @@ class _RewardsPageState extends State<RewardsPage> {
             letterSpacing: -0.5,
           ),
         ),
-        const SizedBox(height: 6),
-        const Text(
+        SizedBox(height: 6),
+        Text(
           'Recognise outstanding work by submitting a reward nomination.',
           style: TextStyle(
             color: kTextSecondary,
@@ -529,6 +260,13 @@ class _RewardsPageState extends State<RewardsPage> {
         color: kCardBg,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: kBorder, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -603,7 +341,11 @@ class _RewardsPageState extends State<RewardsPage> {
               fontSize: 14,
             ),
             prefixIcon: maxLines == 1
-                ? Icon(icon, color: kTextSecondary, size: 18)
+                ? Icon(
+                    icon,
+                    color: kTextSecondary,
+                    size: 18,
+                  )
                 : null,
             contentPadding: EdgeInsets.symmetric(
               horizontal: 14,
@@ -613,11 +355,17 @@ class _RewardsPageState extends State<RewardsPage> {
             fillColor: kSurface,
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: kBorder, width: 1),
+              borderSide: const BorderSide(
+                color: kBorder,
+                width: 1,
+              ),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: kBrand, width: 1.5),
+              borderSide: const BorderSide(
+                color: kBrand,
+                width: 1.5,
+              ),
             ),
           ),
         ),
@@ -650,20 +398,13 @@ class _RewardsPageState extends State<RewardsPage> {
                   valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                 ),
               )
-            : const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.send_rounded, size: 18),
-                  SizedBox(width: 8),
-                  Text(
-                    'Submit Nomination',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.2,
-                    ),
-                  ),
-                ],
+            : const Text(
+                'Submit Nomination',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.2,
+                ),
               ),
       ),
     );

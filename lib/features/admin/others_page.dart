@@ -7,7 +7,7 @@ import 'event_update_page.dart';
 // ✅ Color constants (unchanged)
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-const Color kAppBarColor = Color(0xFF8C6EAF);
+const Color kAppBarColor = Color(0xFF6A1B9A);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
@@ -129,17 +129,7 @@ class OthersPage extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(height: 4),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 52),
-                        child: Text(
-                          'Everything you need, right here',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey.shade500,
-                            fontWeight: FontWeight.w400,
-                          ),
-                        ),
-                      ),
+                      
                     ],
                   ),
                 ),

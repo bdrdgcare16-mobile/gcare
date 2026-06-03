@@ -14,7 +14,7 @@ import 'package:serv_app/services/api_service.dart';
 // App-wide theme colors
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF); // White
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9); // Light purple
-const Color kAppBarColor = Color(0xFF8C6EAF);
+const Color kAppBarColor = Color(0xFF6A1B9A);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 

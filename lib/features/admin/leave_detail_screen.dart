@@ -10,7 +10,7 @@ import 'package:serv_app/services/api_service.dart';
 final String apiBase = ApiService.baseUrl;
 
 // ── Colour tokens ──────────────────────────────────────────────────────────────
-const Color kAppBarBg          = Color(0xFF7C5FA0);
+const Color kAppBarBg          = Color(0xFF6A1B9A);
 const Color kBtnPrimary        = Color(0xFF7C5FA0);
 const Color kBtnBranch         = Color(0xFF5B9C7A);
 const Color kBtnReject         = Color(0xFFE35D6A);

@@ -596,7 +596,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const kAppBarColor = Color(0xFF7C63A8);
+    const kAppBarColor = Color(0xFF6A1B9A);
     const kTextPrimary = Color(0xFF2D2438);
     const kTextSecondary = Color(0xFF6E647D);
     const kSurface = Colors.white;

@@ -16,7 +16,7 @@ import 'package:serv_app/models/company_data.dart'; // shared model with static 
 // ===== Theme colors (unchanged) =====
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-const Color kAppBarColor = Color(0xFF8C6EAF);
+const Color kAppBarColor = Color(0xFF6A1B9A);
 const Color kButtonColor = Color(0xFF655193);
 const Color kTextColor = Colors.white;
 
