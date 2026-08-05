@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:serv_app/shared/app_theme.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:serv_app/features/admin/admin_dashboard_page.dart';
@@ -10,12 +11,11 @@ import 'package:serv_app/services/api_service.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:serv_app/models/company_profile.dart';
 
-// Theme colors
-const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
-const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-const Color kAppBarColor = Color(0xFF8C6EAF);
-const Color kButtonColor = Color(0xFF655193);
-const Color kTextColor = Colors.white;
+// Theme colors (mapped to shared `app_theme`)
+const Color kPrimaryBackgroundTop = Colors.white;
+const Color kPrimaryBackgroundBottom = kPrimaryLight;
+const Color kAppBarColor = kPrimary;
+const Color kButtonColor = kPrimaryDark;
 
 class CompanyDetailsFormPage extends StatefulWidget {
   const CompanyDetailsFormPage({super.key});

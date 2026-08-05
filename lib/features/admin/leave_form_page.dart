@@ -3,6 +3,7 @@ import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart'
     as html; // token from localStorage on web
 import 'package:flutter/material.dart';
+import 'package:serv_app/shared/app_theme.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,11 +14,10 @@ import 'package:serv_app/services/api_service.dart';
 
 import 'package:serv_app/config/api_config.dart';
 
-const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
-const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-const Color kAppBarColor = Color(0xFF8C6EAF);
-const Color kButtonColor = Color(0xFF655193);
-const Color kTextColor = Colors.white;
+const Color kPrimaryBackgroundTop = Colors.white;
+const Color kPrimaryBackgroundBottom = kPrimaryLight;
+const Color kAppBarColor = kPrimary;
+const Color kButtonColor = kPrimaryDark;
 
 final String apiBase = ApiConfig.baseUrl;
 

@@ -11,13 +11,14 @@
     "resolveJsonModule": true,
     "moduleResolution": "node",
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": ["node", "jest"]
   },
   "compileOnSave": true,
   "include": [
     "src", "src/types"
 , "src/scripts"  ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "**/*.test.ts"
   ]
 }

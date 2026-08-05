@@ -20,7 +20,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 void _log(String message) {
   if (kDebugMode) {
-    debugPrint(message);
+    debugPrint('[${DateTime.now().toIso8601String()}] $message');
   }
 }
 
@@ -852,18 +852,22 @@ Future<Position?> _getPositionUsingDemo({
     
     // Step 1: Check location permission
     final hasPermission = await _ensurePermissionDemo(quiet: quiet);
+    _log('[Permission] Final permission check result: $hasPermission');
     if (!hasPermission) {
-      debugPrint('[GPS] ❌ Permission denied');
+      _log('[Permission] Permission denied or unavailable for manual attendance');
       if (!quiet && mounted) {
-        _showLocationPermissionDialog();
+        _showErrorDialog(
+          'Location permission is required for attendance check-in. Please grant permission in app settings and try again.',
+        );
       }
       return null;
     }
 
     // Step 2: Check if GPS/location service is enabled
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    _log('[LocationService] Enabled=$serviceEnabled');
     if (!serviceEnabled) {
-      debugPrint('[GPS] ❌ Location services disabled');
+      _log('[LocationService] Disabled before current location request');
       if (!quiet && mounted) {
         _showLocationServiceDialog();
       }
@@ -887,7 +891,8 @@ Future<Position?> _getPositionUsingDemo({
 
     while (attempts < maxRetries) {
       attempts++;
-      debugPrint('[GPS] 🔄 Attempt $attempts/$maxRetries');
+      _log('[CurrentLocation] Attempt $attempts/$maxRetries starting');
+      final requestStart = DateTime.now();
 
       try {
         // Use best accuracy for navigation
@@ -897,55 +902,49 @@ Future<Position?> _getPositionUsingDemo({
           forceAndroidLocationManager: false,
         );
 
-        debugPrint('[GPS] 📍 Got position: lat=${pos.latitude.toStringAsFixed(6)}, lng=${pos.longitude.toStringAsFixed(6)}, accuracy=${pos.accuracy.toStringAsFixed(1)}m');
+        final requestDuration = DateTime.now().difference(requestStart);
+        _log('[CurrentLocation] Success attempt $attempts, duration=${requestDuration.inMilliseconds}ms, lat=${pos.latitude.toStringAsFixed(6)}, lng=${pos.longitude.toStringAsFixed(6)}, accuracy=${pos.accuracy.toStringAsFixed(1)}m');
 
-        // What is location accuracy: 
-        // Location accuracy (in meters) represents the radius of uncertainty around the reported GPS position.
-        // A 20m accuracy means the actual location is somewhere within a 20-meter radius of the reported coordinates.
-        // Lower accuracy values = more precise location. Higher values = less precise location.
-        // For attendance check-in, we need good accuracy to ensure the employee is actually at the correct location.
-
-        // Validate accuracy
         if (pos.accuracy <= maxAccuracyMeters) {
-          debugPrint('[GPS] ✅ Good accuracy (${pos.accuracy.toStringAsFixed(1)}m ≤ ${maxAccuracyMeters}m)');
+          _log('[CurrentLocation] Accuracy accepted (${pos.accuracy.toStringAsFixed(1)}m ≤ ${maxAccuracyMeters}m)');
           bestPosition = pos;
           break;
         } else {
-          debugPrint('[GPS] ⚠️ Poor accuracy (${pos.accuracy.toStringAsFixed(1)}m > ${maxAccuracyMeters}m)');
-          
-          // Keep the best position found so far
+          _log('[CurrentLocation] Accuracy too low (${pos.accuracy.toStringAsFixed(1)}m > ${maxAccuracyMeters}m)');
           if (bestPosition == null || pos.accuracy < bestPosition.accuracy) {
             bestPosition = pos;
-            debugPrint('[GPS] 📊 Best position so far: ${bestPosition!.accuracy.toStringAsFixed(1)}m');
+            _log('[CurrentLocation] Best position so far accuracy=${bestPosition!.accuracy.toStringAsFixed(1)}m');
           }
 
-          // Check if we've exceeded total timeout
-          if (DateTime.now().difference(startTime) > const Duration(seconds: 12)) {
-            debugPrint('[GPS] ⏰ Total timeout reached, using best available');
+          if (DateTime.now().difference(startTime) > timeout * maxRetries) {
+            _log('[CurrentLocation] Total location acquisition timeout reached');
             break;
           }
 
-          // Short delay before retry
           await Future.delayed(const Duration(milliseconds: 1000));
         }
-      } on TimeoutException catch (e) {
-        debugPrint('[GPS] ⏱️ Timeout on attempt $attempts: $e');
+      } on TimeoutException catch (e, st) {
+        _log('[CurrentLocation] Timeout on attempt $attempts: $e');
+        debugPrintStack(label: '[CurrentLocation] Timeout stacktrace', stackTrace: st);
         if (attempts >= maxRetries) break;
         await Future.delayed(const Duration(milliseconds: 500));
-      } on LocationServiceDisabledException catch (e) {
-        debugPrint('[GPS] 📡 Location service disabled: $e');
+      } on LocationServiceDisabledException catch (e, st) {
+        _log('[CurrentLocation] LocationServiceDisabledException: $e');
+        debugPrintStack(label: '[CurrentLocation] Location service disabled stacktrace', stackTrace: st);
         if (!quiet && mounted) {
           _showLocationServiceDialog();
         }
         return null;
-      } on PermissionDeniedException catch (e) {
-        debugPrint('[GPS] 🔒 Permission denied: $e');
+      } on PermissionDeniedException catch (e, st) {
+        _log('[CurrentLocation] PermissionDeniedException: $e');
+        debugPrintStack(label: '[CurrentLocation] Permission denied stacktrace', stackTrace: st);
         if (!quiet && mounted) {
           _showLocationPermissionDialog();
         }
         return null;
-      } catch (e) {
-        debugPrint('[GPS] ❌ Error on attempt $attempts: $e');
+      } catch (e, st) {
+        _log('[CurrentLocation] Unknown error on attempt $attempts: $e');
+        debugPrintStack(label: '[CurrentLocation] Unknown error stacktrace', stackTrace: st);
         if (attempts >= maxRetries) break;
         await Future.delayed(const Duration(milliseconds: 500));
       }
@@ -983,12 +982,12 @@ Future<Position?> _getPositionUsingDemo({
       }
     }
 
-    debugPrint('[GPS] ❌ FAILED: Could not get accurate location');
+    _log('[CurrentLocation] FAILED: Could not get accurate location');
     if (!quiet && mounted) {
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('❌ Unable to get accurate location. Please move to open area and try again.'),
+          content: Text('Unable to get a stable GPS fix. Please move to an open area and try again.'),
           backgroundColor: Colors.red,
           duration: Duration(seconds: 4),
         ),
@@ -1103,7 +1102,8 @@ Future<Position?> _getPositionUsingDemo({
             onPressed: () async {
               Navigator.of(context).pop();
               // Request permission
-              final permission = await Geolocator.requestPermission();
+                      final permission = await Geolocator.requestPermission();
+              _log('[PermissionDialog] User selected grant, result: $permission');
               if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -1183,16 +1183,21 @@ Future<Position?> _getPositionUsingDemo({
 
   Future<void> _checkLocationPermission() async {
     final permission = await Geolocator.checkPermission();
+    final granted = permission == LocationPermission.always || permission == LocationPermission.whileInUse;
+    debugPrint('[GPS] Initial location permission status: $permission, granted=$granted');
     if (mounted) {
       setState(() {
-        _locationPermissionGranted = permission == LocationPermission.always;
+        _locationPermissionGranted = granted;
       });
     }
   }
 
   
   Future<bool> _ensurePermissionDemo({bool quiet = false}) async {
+    _log('[Permission] Ensure permission flow start. quiet=$quiet');
+
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    _log('[LocationService] Enabled=$serviceEnabled');
     if (!serviceEnabled) {
       if (quiet) return false;
       if (!mounted) return false;
@@ -1218,21 +1223,30 @@ Future<Position?> _getPositionUsingDemo({
         ),
       );
 
-      if (go != true) return false;
+      if (go != true) {
+        debugPrint('[GPS] User cancelled location settings flow');
+        return false;
+      }
       serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      debugPrint('[GPS] Location service enabled after settings: $serviceEnabled');
       if (!serviceEnabled) return false;
     }
 
     LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
+    _log('[Permission] Current status: $permission');
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.unableToDetermine) {
       if (quiet) return false;
       permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
+      _log('[Permission] After request: $permission');
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.unableToDetermine) {
         if (mounted && !quiet) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-                content:
-                    Text('Location permissions are required for this feature')),
+              content: Text('Location permissions are required for this feature.'),
+              backgroundColor: Colors.red,
+            ),
           );
         }
         return false;
@@ -1264,11 +1278,29 @@ Future<Position?> _getPositionUsingDemo({
         ),
       );
 
-      if (go != true) return false;
+      if (go != true) {
+        debugPrint('[GPS] User cancelled app settings permission flow');
+        return false;
+      }
+      permission = await Geolocator.checkPermission();
+      debugPrint('[GPS] Permission after app settings: $permission');
+      if (permission == LocationPermission.deniedForever) {
+        if (mounted && !quiet) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Please grant location permission from app settings.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return false;
+      }
     }
 
-    return permission == LocationPermission.always ||
+    final granted = permission == LocationPermission.always ||
         permission == LocationPermission.whileInUse;
+    debugPrint('[GPS] Permission granted result: $granted');
+    return granted;
   }
 
   Future<_Branch?> _fetchMyBranch() async {
@@ -1712,6 +1744,7 @@ String _getUserFriendlyErrorMessage(dynamic error) {
 // 3) Add this for manual button flow.
 Future<void> _handleManualCheckInTap() async {
   if (_isManualLoading || _isBiometricLoading) return;
+  debugPrint('[Attendance] Manual attendance button pressed');
   
   final canProceed = await _canProceedWithCheckIn();
   if (!canProceed) return;
@@ -1880,10 +1913,19 @@ Future<void> _performCheckIn(String type) async {
     if (category.isNotEmpty && reasonInfo == null) return;
   }
 
+  _log('[ManualAttendance] Starting location acquisition for manual check-in');
   final pos = await _getHighAccuracyPosition(
-  actionLabel: 'check-in',
- );
-  if (pos == null) return;
+    actionLabel: 'check-in',
+  );
+  if (pos == null) {
+    _log('[ManualAttendance] Location acquisition failed and returned null');
+    if (mounted) {
+      _showErrorDialog(
+        'Unable to get your current location. Please ensure GPS is enabled, location permission is granted, and try again. If the issue persists, move to an open area and retry.',
+      );
+    }
+    return;
+  }
 
   final branch = await _fetchMyBranch();
 

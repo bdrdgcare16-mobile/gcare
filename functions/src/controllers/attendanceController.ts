@@ -1430,8 +1430,7 @@ export const decideApproval = async (req: Request, res: Response) => {
     if (!companyId) {
       return res.status(403).json({ error: 'companyId missing in token' });
     }
-
-    const { source, attendanceId, leaveId, empid, date, status, remarks, id, requestId } = req.body || {};
+    const { source, attendanceId, leaveId, empid, date, status, remarks, id, requestId, leavePayType } = req.body || {};
     const clean = normStr(status);
     if (!['Approved', 'Rejected'].includes(clean)) {
       return res.status(400).json({ error: 'status must be Approved or Rejected' });
@@ -1533,15 +1532,80 @@ export const decideApproval = async (req: Request, res: Response) => {
     if (leaveData?.companyId !== companyId) {
       return res.status(403).json({ error: 'Access denied: companyId mismatch' });
     }
-      
-    await leaveDoc.ref.update({
-         approvalStatus: clean,
-         status: clean,
-         decisionBy: (req as any).user?.empid || 'admin',
-         decisionAt: FieldValue.serverTimestamp(),
-         decisionRemarks: remarks || null,
-         updatedAt: FieldValue.serverTimestamp(),
-   });
+
+    // Read leave data safely and determine request type (include multiple possible fields)
+    const leaveDataSafe = leaveData || {};
+    const rawRequestType =
+      leaveDataSafe.type ??
+      leaveDataSafe.requestType ??
+      leaveDataSafe.category ??
+      leaveDataSafe.leaveCategory ??
+      leaveDataSafe.leaveType ??
+      leaveDataSafe.leaveTypeName ??
+      '';
+
+    const normalizedRequestType = String(rawRequestType)
+      .trim()
+      .toLowerCase()
+      .replace(/[_-]+/g, ' ')
+      .replace(/\s+/g, ' ');
+
+    // Treat specific special types as NOT normal leaves; everything else (including "casual leave") is a normal leave
+    const specialLeaveTypes = new Set([
+      'permission',
+      'permission time',
+      'overtime',
+      'over time',
+      'half day',
+      'half day leave',
+      'halfday',
+      'comp off',
+      'compoff',
+    ]);
+
+    const isNormalLeaveRequest = !specialLeaveTypes.has(normalizedRequestType);
+
+    // Normalize leavePayType if provided
+    const normalizedLeavePayType = leavePayType == null ? null : String(leavePayType).trim().toLowerCase();
+
+    // Build common update object
+    const updateData: Record<string, unknown> = {
+      approvalStatus: clean,
+      status: clean,
+      decisionBy: (req as any).user?.empid || 'admin',
+      decisionAt: FieldValue.serverTimestamp(),
+      decisionRemarks: remarks || null,
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+
+    // If this is a normal leave (e.g., Casual Leave, Sick Leave, etc.), enforce/persist leavePayType only when Approved
+    if (isNormalLeaveRequest) {
+      if (clean === 'Approved') {
+        if (normalizedLeavePayType !== 'paid' && normalizedLeavePayType !== 'unpaid') {
+          if (normalizedLeavePayType == null) {
+            return res.status(400).json({ success: false, message: 'Please select Paid Leave or Unpaid Leave before approving.' });
+          }
+          return res.status(400).json({ success: false, message: 'leavePayType must be either paid or unpaid.' });
+        }
+        updateData.leavePayType = normalizedLeavePayType;
+      } else {
+        // Rejected normal leave: clear leavePayType
+        updateData.leavePayType = null;
+      }
+    }
+
+    // Debug: final update about to be written
+    console.log('FINAL LEAVE UPDATE DEBUG', {
+      leaveId: leaveDoc.id,
+      rawRequestType,
+      normalizedRequestType,
+      isNormalLeaveRequest,
+      normalizedLeavePayType,
+      updateData,
+    });
+
+    // Write update and return
+    await leaveDoc.ref.update(updateData);
     return res.json({ message: `Leave ${clean.toLowerCase()} successfully` });
   } catch (err: any) {
     console.error('decideApproval error:', err);
@@ -1652,77 +1716,8 @@ export const decideOtherLocationEvent = async (req: Request, res: Response) => {
 };
 
 
-/** PATCH /api/attendance/approvals/:requestId/payroll-status */
-export const updatePayrollStatus = async (req: Request, res: Response) => {
-  const companyId = (req as any).user?.companyId;
-  if (!companyId) {
-    return res.status(403).json({ error: 'companyId missing in token' });
-  }
-
-  const { requestId } = req.params as any;
-  const { payrollStatus, source } = req.body as any;
-
-  if (!requestId || !payrollStatus || !source) {
-    return res.status(400).json({ error: 'requestId, payrollStatus, and source required' });
-  }
-
-  const normalizedPayrollStatus = normStr(payrollStatus).toLowerCase();
-  if (normalizedPayrollStatus !== 'paid' && normalizedPayrollStatus !== 'unpaid') {
-    return res.status(400).json({ error: 'payrollStatus must be paid or unpaid' });
-  }
-
-  try {
-    let docRef: any;
-    
-    if (source === 'leaves') {
-      docRef = db.collection('leaves').doc(requestId);
-    } else if (source === 'attendance') {
-      docRef = db.collection('attendance').doc(requestId);
-    } else {
-      return res.status(400).json({ error: 'source must be leaves or attendance' });
-    }
-
-    const doc = await docRef.get();
-    if (!doc.exists) {
-      return res.status(404).json({ error: 'Request not found' });
-    }
-
-    // Verify company isolation
-    const docData = doc.data() as any;
-    if (docData.companyId !== companyId) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    const updateData: any = {
-      payrollStatus: normalizedPayrollStatus,
-      payrollUpdatedAt: FieldValue.serverTimestamp(),
-      payrollUpdatedBy: (req as any).user?.empid || 'admin',
-    };
-
-    await docRef.update(updateData);
-
-    console.log('PAYROLL STATUS UPDATED:', {
-      requestId,
-      source,
-      payrollStatus: normalizedPayrollStatus,
-      updatedAt: new Date().toISOString(),
-      updatedBy: (req as any).user?.empid || 'admin',
-    });
-
-    return res.status(200).json({
-      success: true,
-      requestId,
-      payrollStatus: normalizedPayrollStatus,
-      message: 'Payroll status updated successfully'
-    });
-  } catch (error: any) {
-    console.error('PAYROLL STATUS UPDATE ERROR:', error);
-    return res.status(500).json({
-      error: 'Failed to update payroll status',
-      message: error?.message || 'Unknown error'
-    });
-  }
-};
+// Removed: payroll-status update endpoint is deprecated. Use `decideApproval`
+// and the `leavePayType` field for payroll-related status instead.
 
 /** GET /api/attendance/my-requests */
 /** GET /api/attendance/approvals */
@@ -2591,7 +2586,7 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
 
     const attendanceDates = new Set<string>();
 
-    const data = attendanceSnap.docs.map((doc) => {
+    let data = attendanceSnap.docs.map((doc) => {
       const attendanceDoc = doc.data() as any;
 
       let isLate = false;
@@ -2603,10 +2598,6 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
       const checkIn = normalizeTime(attendanceDoc.checkIn);
       const checkOut = normalizeTime(attendanceDoc.checkOut);
 
-      // ✅ Updated shift timing logic:
-      // 1. Use shift time saved in attendance document if available.
-      // 2. If missing, use employee's assigned shift from shifts collection.
-      // 3. Only then use fallback 09:00 / 18:00.
       const shiftStart =
         normalizeTime(
           attendanceDoc.shiftStartTime ||
@@ -2653,8 +2644,27 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
       const isLeave = leaveDetails.length > 0;
       const leaveCount = leaveDetails.length;
 
+      const normalizedStatus = getNormalizedString(
+        attendanceDoc.status || attendanceDoc.attendanceStatus,
+      );
+      const isHalfDay =
+        attendanceDoc.isHalfDay === true ||
+        normalizedStatus === "half day" ||
+        normalizedStatus === "halfday";
+      const hasCheckIn = Boolean(checkIn && checkIn !== "null");
+      const explicitPresent =
+        attendanceDoc.isPresent === true ||
+        normalizedStatus === "present" ||
+        hasCheckIn;
+      const explicitAbsent =
+        attendanceDoc.isAbsent === true || normalizedStatus === "absent";
+
       const isAbsent =
-        !isPermission && !isLeave && (!checkIn || checkIn === "null");
+        !isPermission &&
+        !isLeave &&
+        !hasCheckIn &&
+        !isHalfDay &&
+        !explicitPresent;
 
       return {
         id: doc.id,
@@ -2671,6 +2681,10 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
         leaveType: isLeave ? leaveDetails[0]?.leaveType : null,
         permissionLeaves: permissionLeaveDetailsByDate[date] || [],
         leaveDetails: leaveDetails,
+        _hasCheckIn: hasCheckIn,
+        _isHalfDay: isHalfDay,
+        _explicitPresent: explicitPresent,
+        _explicitAbsent: explicitAbsent,
       };
     });
 
@@ -2740,6 +2754,132 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
         );
       }
     });
+
+    const existingDates = new Set(data.map((item: any) => item.date));
+    const currentDate = absentGenerationEndDate
+      ? new Date(absentGenerationEndDate)
+      : null;
+    const loopDate = currentDate ? new Date(startDate) : null;
+
+    const normalizeExistingItem = (item: any) => {
+      const ymd = item.date;
+      const isHoliday = HOLIDAYS_SET.has(ymd);
+      const isWeekOffDay = isSunday(ymd);
+      const normalizedStatus = getNormalizedString(
+        item.status || item.attendanceStatus,
+      );
+      const hasCheckIn = Boolean(item._hasCheckIn);
+      const isLeave = item.isLeave === true || normalizedStatus === 'leave';
+      const isHalfDay = item._isHalfDay === true;
+      const isPermission = item.isPermission === true;
+      const explicitPresent = item._explicitPresent === true;
+      const explicitAbsent = item._explicitAbsent === true;
+
+      let status = item.status || item.attendanceStatus || '';
+
+      if (isPermission || normalizedStatus === 'permission') {
+        status = item.status || item.attendanceStatus || 'Permission';
+      } else if (isHoliday) {
+        status = 'Holiday';
+      } else if (
+        isWeekOffDay &&
+        !explicitPresent &&
+        !hasCheckIn &&
+        !isHalfDay &&
+        !isLeave
+      ) {
+        status = 'WeekOff';
+      } else if (isLeave) {
+        status = 'Leave';
+      } else if (isHalfDay) {
+        status = 'Half Day';
+      } else if (explicitPresent || hasCheckIn) {
+        status = 'Present';
+      } else if (explicitAbsent) {
+        status = 'Absent';
+      } else {
+        status = item.status || item.attendanceStatus || 'Absent';
+      }
+
+      const finalStatus = status;
+      item.status = finalStatus;
+      item.attendanceStatus = finalStatus;
+      item.isHoliday = finalStatus === 'Holiday';
+      item.isWeekOff = finalStatus === 'WeekOff';
+      item.isLeave = finalStatus === 'Leave';
+      item.isHalfDay = finalStatus === 'Half Day';
+      item.isPresent = finalStatus === 'Present';
+      item.isAbsent = finalStatus === 'Absent';
+
+      console.log('[MONTHLY ATTENDANCE] Resolved date', {
+        empid,
+        date: ymd,
+        status: finalStatus,
+        isSunday: isWeekOffDay,
+        isHoliday,
+        hasAttendance: Boolean(hasCheckIn || item.id),
+        hasCheckIn: Boolean(hasCheckIn),
+      });
+
+      return item;
+    };
+
+    data = data.map(normalizeExistingItem);
+
+    if (loopDate) {
+      while (loopDate <= currentDate!) {
+        const ymd = loopDate.toISOString().split('T')[0];
+        const isHoliday = HOLIDAYS_SET.has(ymd);
+        const isWeekOffDay = isSunday(ymd);
+
+        if (!existingDates.has(ymd)) {
+          if (isHoliday || isWeekOffDay) {
+            const status = isHoliday ? 'Holiday' : 'WeekOff';
+            const newItem: any = {
+              id: `generated-${empid}-${ymd}`,
+              empid,
+              companyId,
+              date: ymd,
+              status,
+              attendanceStatus: status,
+              checkIn: null,
+              checkOut: null,
+              shiftStartTime: employeeShiftStartTime || '09:00',
+              shiftEndTime: employeeShiftEndTime || '18:00',
+              isLate: false,
+              isEarly: false,
+              isAbsent: false,
+              isLeave: false,
+              isPermission: false,
+              permissionCount: 0,
+              leaveCount: 0,
+              leaveType: null,
+              permissionLeaves: [],
+              leaveDetails: [],
+              isHoliday: isHoliday,
+              isWeekOff: !isHoliday && isWeekOffDay,
+              isPresent: false,
+              isHalfDay: false,
+            };
+
+            data.push(newItem);
+            existingDates.add(ymd);
+
+            console.log('[MONTHLY ATTENDANCE] Resolved date', {
+              empid,
+              date: ymd,
+              status,
+              isSunday: isWeekOffDay,
+              isHoliday,
+              hasAttendance: false,
+              hasCheckIn: false,
+            });
+          }
+        }
+
+        loopDate.setDate(loopDate.getDate() + 1);
+      }
+    }
 
     const generateWorkingDays = (start: string, end: string): string[] => {
       const workingDays: string[] = [];
@@ -2829,12 +2969,13 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
 
     const totalLeave = data.filter((item: any) => item.isLeave).length;
     const totalAbsent = data.filter((item: any) => item.isAbsent).length;
-    const totalPresent = data.filter(
-      (item: any) => !item.isAbsent && !item.isLeave && !item.isPermission
-    ).length;
+    const totalPresent = data.filter((item: any) => item.isPresent).length;
+    const totalWeekOff = data.filter((item: any) => item.isWeekOff).length;
+    const totalHoliday = data.filter((item: any) => item.isHoliday).length;
+    const totalHalfDay = data.filter((item: any) => item.isHalfDay).length;
 
     console.log(
-      `[MONTHLY] Employee: ${empid}, Total Working Days: ${totalWorkingDays}, Records: ${data.length}, Present: ${totalPresent}, Absent: ${totalAbsent}, Leave: ${totalLeave}, Late: ${totalLate}, Early: ${totalEarly}, Permission: ${totalPermission}`
+      `[MONTHLY] Employee: ${empid}, Total Working Days: ${totalWorkingDays}, Records: ${data.length}, Present: ${totalPresent}, Absent: ${totalAbsent}, Leave: ${totalLeave}, WeekOff: ${totalWeekOff}, Holiday: ${totalHoliday}, HalfDay: ${totalHalfDay}, Late: ${totalLate}, Early: ${totalEarly}, Permission: ${totalPermission}`
     );
 
     return res.status(200).json(data);

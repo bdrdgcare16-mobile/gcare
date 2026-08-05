@@ -24,8 +24,6 @@
 // import adminRoutes from "./routes/adminRoutes";
 // import leaveRoutes from './routes/leaveRoutes';
 
-
-
 // import * as authController from "./controllers/authController";
 // import { db } from "./config/firebase";
 // import router from "./routes/authRoutes";
@@ -43,10 +41,10 @@
 //   origin: (origin, callback) => {
 //     // Environment-based CORS logic
 //     const isDevelopment = process.env.NODE_ENV === 'development' || process.env.FUNCTIONS_EMULATOR === 'true';
-    
+
 //     const allowedOrigins = isDevelopment ? [
 //       "http://localhost:3000",
-//       "http://127.0.0.1:3000", 
+//       "http://127.0.0.1:3000",
 //       "http://localhost:8080",
 //       "http://127.0.0.1:8080",
 //       "https://servappbackend.web.app",
@@ -55,10 +53,10 @@
 //       "https://servappbackend.web.app",
 //       "https://api-zmj7dqloiq-uc.a.run.app"
 //     ];
-    
+
 //     // Allow requests with no origin (mobile apps, curl, etc.)
 //     if (!origin) return callback(null, true);
-    
+
 //     if (allowedOrigins.includes(origin)) {
 //       return callback(null, true);
 //     } else {
@@ -68,7 +66,7 @@
 //   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 //   allowedHeaders: [
 //     "Content-Type",
-//     "Authorization", 
+//     "Authorization",
 //     "x-auth-token",
 //     "x-empid",
 //     "companyid",
@@ -120,7 +118,6 @@
 // app.get("/api/me", authController.getMe);
 // app.get("/api/profile", authController.getMe);
 // router.use('/api/billing', billingRoutes);
-
 
 // // ---------------- 404 ----------------
 // app.use((req, res) => {
@@ -174,6 +171,7 @@ import overtimeRoutes from "./routes/overtimeRoutes";
 import adminRoutes from "./routes/adminRoutes";
 import leaveRoutes from "./routes/leaveRoutes";
 import billingRoutes from "./routes/billingRoutes";
+import payrollRoutes from "./routes/payrollRoutes";
 
 import * as authController from "./controllers/authController";
 import { db } from "./config/firebase";
@@ -281,11 +279,20 @@ app.use("/api/feedback", generalRateLimit, feedbackRoutes(db));
 app.use("/api/shifts", generalRateLimit, shiftRoutes);
 app.use("/api/tasks", generalRateLimit, taskRoutes);
 app.use("/api/tracking", trackingRateLimit, trackingRoutes);
-app.use("/api/liveEmployeeDetails", generalRateLimit, liveEmployeeDetailsRouter);
+app.use(
+  "/api/liveEmployeeDetails",
+  generalRateLimit,
+  liveEmployeeDetailsRouter,
+);
 app.use("/api/reasons", generalRateLimit, reasonsRouter);
 app.use("/api/overtime", generalRateLimit, overtimeRoutes);
 app.use("/api/admin", generalRateLimit, adminRoutes);
 app.use("/api/billing", generalRateLimit, billingRoutes);
+app.use("/api/payroll", payrollRoutes);
+
+// Log to confirm payroll routes are registered at startup
+// (keeps placement consistent before the final 404 handler)
+console.log("[ROUTES] Payroll routes registered");
 
 app.get("/api/me", authController.getMe);
 app.get("/api/profile", authController.getMe);

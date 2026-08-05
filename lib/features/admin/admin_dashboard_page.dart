@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:serv_app/shared/app_theme.dart';
 import 'package:serv_app/features/users/login_page.dart';
 import 'live_attendance_page.dart';
 import 'leave_approval_screen.dart';
 import 'employee_management_page.dart';
 import 'attendance_report_page.dart';
+import 'payroll_admin_page.dart';
 import 'others_page.dart';
 import 'settings_page.dart'; // ✅ Added
 import 'package:serv_app/models/company_profile.dart';
@@ -25,6 +27,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     "Request and Leave Approvals",
     "Employee Management",
     "Attendance Reports",
+    "Payroll Management",
     "Others",
     "Settings",
   ];
@@ -70,11 +73,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
           children: [
             _buildDrawerHeader(),
             _buildDrawerItem(Icons.check_circle, "Live Attendance", 0),
-            _buildDrawerItem(Icons.calendar_today, "Request and Leave Approvals", 1),
+            _buildDrawerItem(
+                Icons.calendar_today, "Request and Leave Approvals", 1),
             _buildDrawerItem(Icons.group, "Employee Management", 2),
             _buildDrawerItem(Icons.bar_chart, "Attendance Reports", 3),
-            _buildDrawerItem(Icons.chat, "Others", 4),
-            _buildDrawerItem(Icons.settings, "Settings", 5),
+            _buildDrawerItem(Icons.payments_outlined, "Payroll Management", 4),
+            _buildDrawerItem(Icons.chat, "Others", 5),
+            _buildDrawerItem(Icons.settings, "Settings", 6),
           ],
         ),
       ),
@@ -114,7 +119,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
       title: Text(
         title,
         style: TextStyle(
-          fontWeight: selectedIndex == index ? FontWeight.bold : FontWeight.normal,
+          fontWeight:
+              selectedIndex == index ? FontWeight.bold : FontWeight.normal,
           color: selectedIndex == index ? Colors.deepPurple : Colors.black87,
         ),
       ),
@@ -137,10 +143,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
       case 2:
         return const EmployeeListScreen();
       case 3:
-        return const AttendanceReportScreen(initialFilter: '',);
+        return const AttendanceReportScreen(
+          initialFilter: '',
+        );
       case 4:
-        return const OthersPage();
+        return const PayrollAdminPage();
       case 5:
+        return const OthersPage();
+      case 6:
         return const SettingsPage(); // ✅ Navigate to settings
       default:
         return const Center(child: Text("Unknown page"));

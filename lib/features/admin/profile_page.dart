@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:serv_app/config/api_config.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:serv_app/shared/app_theme.dart';
 import 'package:http/http.dart' as http;
 import 'package:serv_app/services/api_service.dart';
 import 'package:image_picker/image_picker.dart';
@@ -13,11 +14,11 @@ import 'package:serv_app/html_stub.dart'
 
 import 'package:serv_app/models/company_data.dart'; // shared model with static fields
 
-// ===== Theme colors (unchanged) =====
-const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
-const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-const Color kAppBarColor = Color(0xFF8C6EAF);
-const Color kButtonColor = Color(0xFF655193);
+// ===== Theme colors (use shared theme) =====
+const Color kPrimaryBackgroundTop = Colors.white;
+const Color kPrimaryBackgroundBottom = kPrimaryLight;
+const Color kAppBarColor = kPrimary;
+const Color kButtonColor = kPrimaryDark;
 const Color kTextColor = Colors.white;
 
 

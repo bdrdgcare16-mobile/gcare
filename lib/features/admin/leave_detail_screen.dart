@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:serv_app/shared/app_theme.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import 'package:serv_app/services/api_service.dart';
@@ -10,24 +11,24 @@ import 'package:serv_app/services/api_service.dart';
 final String apiBase = ApiService.baseUrl;
 
 // ── Colour tokens ──────────────────────────────────────────────────────────────
-const Color kAppBarBg          = Color(0xFF7C5FA0);
-const Color kBtnPrimary        = Color(0xFF7C5FA0);
-const Color kBtnBranch         = Color(0xFF5B9C7A);
-const Color kBtnReject         = Color(0xFFE35D6A);
-const Color kBtnApprove        = Color(0xFF87A963);
-const Color kPageBg            = Color(0xFFF4F1F8);
-const Color kCardBg            = Colors.white;
-const Color kFieldBg           = Color(0xFFF5F2F9);
-const Color kFieldBorder       = Color(0xFFEAE4F2);
-const Color kLabelColor        = Color(0xFF9E96AE);
-const Color kValueColor        = Color(0xFF1F1A2B);
-const Color kTitleColor        = Color(0xFF1F1A2B);
-const Color kBadgeYesBg        = Color(0xFFEAF3DE);
-const Color kBadgeYesText      = Color(0xFF3B6D11);
-const Color kBadgeNoBg         = Color(0xFFFCEBEB);
-const Color kBadgeNoText       = Color(0xFFA32D2D);
-const Color kMapLegendReq      = Color(0xFFE53935);
-const Color kMapLegendBranch   = Color(0xFF43A047);
+const Color kAppBarBg = Color(0xFF7C5FA0);
+const Color kBtnPrimary = Color(0xFF7C5FA0);
+const Color kBtnBranch = Color(0xFF5B9C7A);
+const Color kBtnReject = Color(0xFFE35D6A);
+const Color kBtnApprove = Color(0xFF87A963);
+const Color kPageBg = Color(0xFFF4F1F8);
+const Color kCardBg = Colors.white;
+const Color kFieldBg = Color(0xFFF5F2F9);
+const Color kFieldBorder = Color(0xFFEAE4F2);
+const Color kLabelColor = Color(0xFF9E96AE);
+const Color kValueColor = Color(0xFF1F1A2B);
+const Color kTitleColor = Color(0xFF1F1A2B);
+const Color kBadgeYesBg = Color(0xFFEAF3DE);
+const Color kBadgeYesText = Color(0xFF3B6D11);
+const Color kBadgeNoBg = Color(0xFFFCEBEB);
+const Color kBadgeNoText = Color(0xFFA32D2D);
+const Color kMapLegendReq = Color(0xFFE53935);
+const Color kMapLegendBranch = Color(0xFF43A047);
 
 const double kDefaultRadiusMeters = 100;
 
@@ -95,12 +96,21 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
 
   LatLng? _latLngFromMap(Map m) {
     double? lat = _toDouble(
-      m['latitude'] ?? m['lat'] ?? m['Latitude'] ?? m['Lat'] ??
-          m['branchLat'] ?? m['branch_latitude'],
+      m['latitude'] ??
+          m['lat'] ??
+          m['Latitude'] ??
+          m['Lat'] ??
+          m['branchLat'] ??
+          m['branch_latitude'],
     );
     double? lng = _toDouble(
-      m['longitude'] ?? m['lng'] ?? m['lon'] ?? m['Longitude'] ??
-          m['Lng'] ?? m['branchLng'] ?? m['branch_longitude'],
+      m['longitude'] ??
+          m['lng'] ??
+          m['lon'] ??
+          m['Longitude'] ??
+          m['Lng'] ??
+          m['branchLng'] ??
+          m['branch_longitude'],
     );
     if (lat != null && lng != null) return LatLng(lat, lng);
     try {
@@ -136,8 +146,12 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
         ['longitude', 'lng', 'lon', 'requestLongitude', 'requestedLongitude']);
     if (lat != null && lng != null) return LatLng(lat, lng);
     for (final key in [
-      'otherLocation', 'requestLocation', 'locationObj',
-      'requestedLocation', 'geo', 'coords'
+      'otherLocation',
+      'requestLocation',
+      'locationObj',
+      'requestedLocation',
+      'geo',
+      'coords'
     ]) {
       final ll = _latLngFrom(_data[key]);
       if (ll != null) return ll;
@@ -160,17 +174,29 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
 
   LatLng? _findBranchCenter() {
     double? lat = _pickNum([
-      'expectedLatitude', 'branchLatitude', 'officeLatitude',
-      'expected_latitude', 'branchLat', 'branch_latitude',
+      'expectedLatitude',
+      'branchLatitude',
+      'officeLatitude',
+      'expected_latitude',
+      'branchLat',
+      'branch_latitude',
     ]);
     double? lng = _pickNum([
-      'expectedLongitude', 'branchLongitude', 'officeLongitude',
-      'expected_longitude', 'branchLng', 'branch_longitude',
+      'expectedLongitude',
+      'branchLongitude',
+      'officeLongitude',
+      'expected_longitude',
+      'branchLng',
+      'branch_longitude',
     ]);
     if (lat != null && lng != null) return LatLng(lat, lng);
     for (final key in [
-      'branch', 'expected', 'expectedLocation', 'office',
-      'branchCenter', 'branchLocationObj'
+      'branch',
+      'expected',
+      'expectedLocation',
+      'office',
+      'branchCenter',
+      'branchLocationObj'
     ]) {
       final ll = _latLngFrom(_data[key]);
       if (ll != null) return ll;
@@ -194,8 +220,10 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
     final lat1 = a.latitude * math.pi / 180.0;
     final lat2 = b.latitude * math.pi / 180.0;
     final h = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(lat1) * math.cos(lat2) *
-            math.sin(dLng / 2) * math.sin(dLng / 2);
+        math.cos(lat1) *
+            math.cos(lat2) *
+            math.sin(dLng / 2) *
+            math.sin(dLng / 2);
     return R * 2 * math.atan2(math.sqrt(h), math.sqrt(1 - h));
   }
 
@@ -219,6 +247,33 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
           : 'No';
     }
     return '-';
+  }
+
+  String _normalizeRequestType(dynamic value) {
+    return (value ?? '')
+        .toString()
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[_-]+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  bool _isGenericLeaveRequest(
+    Map<String, dynamic> data,
+  ) {
+    final source = _normalizeRequestType(data['source']);
+
+    final requestType = _normalizeRequestType(
+      data['type'] ??
+          data['requestType'] ??
+          data['category'] ??
+          data['leaveType'] ??
+          data['leave type'] ??
+          data['leave_type'],
+    );
+
+    return source == 'leaves' &&
+        (requestType == 'leave' || requestType == 'leave type');
   }
 
   Future<void> _focusOn(LatLng target,
@@ -260,15 +315,19 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
   }
 
   Future<void> _fetchAndMergeDetails() async {
-    String id = (_data['id'] ?? _data['requestId'] ?? _data['docId'] ??
-            _data['attendanceId'] ?? _data['otherLocId'])
-        ?.toString() ?? '';
+    String id = (_data['id'] ??
+                _data['requestId'] ??
+                _data['docId'] ??
+                _data['attendanceId'] ??
+                _data['otherLocId'])
+            ?.toString() ??
+        '';
     String empid =
-        (_data['empid'] ?? _data['empId'] ?? _data['employeeId'])
-            ?.toString() ?? '';
-    String date =
-        (_data['requestDate'] ?? _data['date'] ?? _data['onDate'])
-            ?.toString() ?? '';
+        (_data['empid'] ?? _data['empId'] ?? _data['employeeId'])?.toString() ??
+            '';
+    String date = (_data['requestDate'] ?? _data['date'] ?? _data['onDate'])
+            ?.toString() ??
+        '';
     if (date.length > 10) date = date.substring(0, 10);
     final src = _inferSrc(_data);
 
@@ -316,33 +375,44 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
 
   @override
   Widget build(BuildContext context) {
-    final empId     = _pickStr(['empid', 'employeeId', 'id', 'EmpID']);
-    final name      = _pickStr(['name', 'employeeName']);
+    final empId = _pickStr(['empid', 'employeeId', 'id', 'EmpID']);
+    final name = _pickStr(['name', 'employeeName']);
     final requestType = _pickStr(['type', 'category']);
+    final rawRequestType = _pickStr(
+        ['type', 'category', 'leaveType', 'leave type', 'leaveCategory']);
+    final isGenericLeaveRequest = _isGenericLeaveRequest(_data);
     final requestTime = _pickStr([
-      'requestTime', 'time', 'createdAt', 'updatedAt',
-      'checkInTime', 'checkOutTime'
+      'requestTime',
+      'time',
+      'createdAt',
+      'updatedAt',
+      'checkInTime',
+      'checkOutTime'
     ]);
-    final requestDate = _pickStr([
-      'requestDate', 'date', 'onDate', 'startDate', 'selectDate'
-    ]);
-    final branchName    = _pickStr(['branchName', 'branchLocation', 'location']);
-    final freeTextReason = _pickStr(['reason', 'otherLocation', 'note', 'remarks']);
+    final requestDate =
+        _pickStr(['requestDate', 'date', 'onDate', 'startDate', 'selectDate']);
+    final branchName = _pickStr(['branchName', 'branchLocation', 'location']);
+    final freeTextReason =
+        _pickStr(['reason', 'otherLocation', 'note', 'remarks']);
     final rejectionRemarks = _pickStr(['rejectionRemarks']);
 
-    final reqLL     = _findRequestLatLng();
-    final centerLL  = _findBranchCenter();
+    final reqLL = _findRequestLatLng();
+    final centerLL = _findBranchCenter();
     final expectedRadius = _pickNum(['expectedRadius', 'radius']);
     final distanceFromBranch =
         _pickNum(['distanceFromBranch', 'distance_from_branch', 'distance']);
     final withinRadiusFlag = _toBool(
-      _data['withinRadius'] ?? _data['within_radius'] ??
-          _data['isWithinRadius'] ?? _data['insideRadius'] ??
-          _data['within'] ?? _data['inRadius'],
+      _data['withinRadius'] ??
+          _data['within_radius'] ??
+          _data['isWithinRadius'] ??
+          _data['insideRadius'] ??
+          _data['within'] ??
+          _data['inRadius'],
     );
 
     final withinText = _withinRadiusText(
-      req: reqLL, center: centerLL,
+      req: reqLL,
+      center: centerLL,
       expectedRadius: expectedRadius,
       distanceFromBranch: distanceFromBranch,
       withinFlag: withinRadiusFlag,
@@ -354,8 +424,7 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
 
     final LatLng initialTarget =
         reqLL ?? centerLL ?? const LatLng(20.5937, 78.9629);
-    final double initialZoom =
-        (reqLL != null || centerLL != null) ? 17 : 4;
+    final double initialZoom = (reqLL != null || centerLL != null) ? 17 : 4;
 
     final Set<Marker> markers = {
       if (reqLL != null)
@@ -371,8 +440,8 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
           infoWindow: InfoWindow(
             title: branchName.isNotEmpty ? branchName : 'Branch location',
           ),
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-              BitmapDescriptor.hueGreen),
+          icon:
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
         ),
     };
 
@@ -452,7 +521,7 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
                             _field('Request date', requestDate),
                           ]),
                         ),
-                                                const SizedBox(height: 10),
+                        const SizedBox(height: 10),
                         // ── Location ──────────────────────────────────────────
                         _card(
                           title: 'LOCATION',
@@ -468,7 +537,7 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
                                       color: kBtnPrimary,
                                       onPressed: reqLL != null
                                           ? () => _focusOn(reqLL,
-                                                markerId: 'request')
+                                              markerId: 'request')
                                           : null,
                                     ),
                                   ),
@@ -480,7 +549,7 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
                                       color: kBtnBranch,
                                       onPressed: centerLL != null
                                           ? () => _focusOn(centerLL,
-                                                markerId: 'branch')
+                                              markerId: 'branch')
                                           : null,
                                     ),
                                   ),
@@ -543,8 +612,7 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
             ),
             child: Text(
               'Error: $_loadError',
-              style: const TextStyle(
-                  color: kBtnReject, fontSize: 14),
+              style: const TextStyle(color: kBtnReject, fontSize: 14),
               textAlign: TextAlign.center,
             ),
           ),
@@ -601,9 +669,7 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
       if (i + 2 < children.length) const SizedBox(height: 8);
     }
     return Column(
-      children: rows
-          .expand((w) => [w, const SizedBox(height: 8)])
-          .toList()
+      children: rows.expand((w) => [w, const SizedBox(height: 8)]).toList()
         ..removeLast(),
     );
   }
@@ -650,9 +716,10 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
   Widget _radiusBadge({required String label, required String value}) {
     final isYes = value == 'Yes';
     final isDash = value == '-';
-    final bg   = isDash ? kFieldBg  : (isYes ? kBadgeYesBg  : kBadgeNoBg);
-    final fg   = isDash ? kValueColor : (isYes ? kBadgeYesText : kBadgeNoText);
-    final borderColor = isDash ? kFieldBorder
+    final bg = isDash ? kFieldBg : (isYes ? kBadgeYesBg : kBadgeNoBg);
+    final fg = isDash ? kValueColor : (isYes ? kBadgeYesText : kBadgeNoText);
+    final borderColor = isDash
+        ? kFieldBorder
         : (isYes ? const Color(0xFFC5E2A0) : const Color(0xFFF5C0C0));
 
     return Container(
@@ -712,8 +779,8 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
           disabledForegroundColor: Colors.white60,
           elevation: 0,
           padding: const EdgeInsets.symmetric(horizontal: 12),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       ),
     );
@@ -762,12 +829,11 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
                     onMapCreated: (c) async {
                       if (!_mapCtrl.isCompleted) _mapCtrl.complete(c);
                       if (_pendingTarget != null) {
-                        final t  = _pendingTarget!;
+                        final t = _pendingTarget!;
                         final id = _pendingMarkerId;
                         _pendingTarget = null;
                         _pendingMarkerId = null;
-                        await Future.microtask(
-                            () => _focusOn(t, markerId: id));
+                        await Future.microtask(() => _focusOn(t, markerId: id));
                       }
                     },
                     initialCameraPosition: CameraPosition(
@@ -785,8 +851,8 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
                 // legend strip
                 Container(
                   color: kCardBg,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 10),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   child: Row(
                     children: [
                       _legendDot(kMapLegendReq, 'Requested location'),
@@ -808,8 +874,7 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
           Container(
             width: 8,
             height: 8,
-            decoration:
-                BoxDecoration(color: color, shape: BoxShape.circle),
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
           const SizedBox(width: 5),
           Text(
@@ -843,8 +908,7 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
                 ),
                 child: const Text(
                   'Cancel',
-                  style: TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w500),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
                 ),
               ),
             ),
@@ -862,15 +926,24 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
                 ),
                 child: const Text(
                   'Reject',
-                  style: TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w500),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
                 ),
               ),
             ),
             const SizedBox(width: 8),
             Expanded(
               child: ElevatedButton(
-                onPressed: () => Navigator.pop(context, 'approved'),
+                onPressed: _isGenericLeaveRequest(_data)
+                    ? () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                                'Please select Paid Leave or Unpaid Leave from the main approval screen before approving.'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    : () => Navigator.pop(context, 'approved'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: kBtnApprove,
                   foregroundColor: Colors.white,
@@ -881,8 +954,7 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
                 ),
                 child: const Text(
                   'Approve',
-                  style: TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w500),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
                 ),
               ),
             ),

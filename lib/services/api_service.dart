@@ -23,24 +23,24 @@ class ApiService {
 
   static String? _cachedToken;
 
-static Future<Map<String, String>> _authHeaders({bool json = true}) async {
-  String? token = CompanyData.token ?? _cachedToken;
+  static Future<Map<String, String>> _authHeaders({bool json = true}) async {
+    String? token = CompanyData.token ?? _cachedToken;
 
-  if ((token == null || token.isEmpty) && kIsWeb) {
-    try {
-      final t1 = html.window.localStorage['token'];
-      final t2 = html.window.sessionStorage['token'];
-      token = (t1 != null && t1.isNotEmpty) ? t1 : (t2 ?? token);
-    } catch (_) {}
+    if ((token == null || token.isEmpty) && kIsWeb) {
+      try {
+        final t1 = html.window.localStorage['token'];
+        final t2 = html.window.sessionStorage['token'];
+        token = (t1 != null && t1.isNotEmpty) ? t1 : (t2 ?? token);
+      } catch (_) {}
+    }
+
+    _cachedToken = token;
+
+    return {
+      if (json) 'Content-Type': 'application/json',
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+    };
   }
-
-  _cachedToken = token;
-
-  return {
-    if (json) 'Content-Type': 'application/json',
-    if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
-  };
-}
 
   static Exception _friendlyNetworkError(Object e) {
     const msg =
@@ -66,16 +66,15 @@ static Future<Map<String, String>> _authHeaders({bool json = true}) async {
     Map<String, String>? headers,
   }) async {
     try {
-  return await http
-      .get(uri, headers: headers)
-      .timeout(const Duration(seconds: 15));
-} catch (_) {
-  await Future.delayed(const Duration(milliseconds: 500));
-  return await http
-      .get(uri, headers: headers)
-      .timeout(const Duration(seconds: 15));
-}
-     
+      return await http
+          .get(uri, headers: headers)
+          .timeout(const Duration(seconds: 15));
+    } catch (_) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      return await http
+          .get(uri, headers: headers)
+          .timeout(const Duration(seconds: 15));
+    }
   }
 
   static Future<http.Response> _safePost(
@@ -86,6 +85,20 @@ static Future<Map<String, String>> _authHeaders({bool json = true}) async {
     try {
       return await http
           .post(uri, headers: headers, body: body)
+          .timeout(const Duration(seconds: 15));
+    } catch (e) {
+      throw _friendlyNetworkError(e);
+    }
+  }
+
+  static Future<http.Response> _safePatch(
+    Uri uri, {
+    Map<String, String>? headers,
+    Object? body,
+  }) async {
+    try {
+      return await http
+          .patch(uri, headers: headers, body: body)
           .timeout(const Duration(seconds: 15));
     } catch (e) {
       throw _friendlyNetworkError(e);
@@ -219,10 +232,14 @@ static Future<Map<String, String>> _authHeaders({bool json = true}) async {
   static Future<http.Response> get(
     String endpoint, {
     Map<String, String>? query,
+    Map<String, String>? queryParameters,
     bool authRequired = true,
   }) async {
-    final headers = authRequired ? await _authHeaders() : {'Content-Type': 'application/json'};
-    final uri = Uri.parse('$baseUrl$endpoint').replace(queryParameters: query);
+    final headers = authRequired
+        ? await _authHeaders()
+        : {'Content-Type': 'application/json'};
+    final queryParams = query ?? queryParameters;
+    final uri = Uri.parse('$baseUrl$endpoint').replace(queryParameters: queryParams);
     return _safeGet(uri, headers: headers);
   }
 
@@ -232,9 +249,24 @@ static Future<Map<String, String>> _authHeaders({bool json = true}) async {
     Object? body,
     bool authRequired = true,
   }) async {
-    final headers = authRequired ? await _authHeaders() : {'Content-Type': 'application/json'};
+    final headers = authRequired
+        ? await _authHeaders()
+        : {'Content-Type': 'application/json'};
     final uri = Uri.parse('$baseUrl$endpoint').replace(queryParameters: query);
     return _safePost(uri, headers: headers, body: body);
+  }
+
+  static Future<http.Response> patch(
+    String endpoint, {
+    Map<String, String>? query,
+    Object? body,
+    bool authRequired = true,
+  }) async {
+    final headers = authRequired
+        ? await _authHeaders()
+        : {'Content-Type': 'application/json'};
+    final uri = Uri.parse('$baseUrl$endpoint').replace(queryParameters: query);
+    return _safePatch(uri, headers: headers, body: body);
   }
 
   static Future<http.Response> put(
@@ -243,7 +275,9 @@ static Future<Map<String, String>> _authHeaders({bool json = true}) async {
     Object? body,
     bool authRequired = true,
   }) async {
-    final headers = authRequired ? await _authHeaders() : {'Content-Type': 'application/json'};
+    final headers = authRequired
+        ? await _authHeaders()
+        : {'Content-Type': 'application/json'};
     final uri = Uri.parse('$baseUrl$endpoint').replace(queryParameters: query);
     return _safePut(uri, headers: headers, body: body);
   }
@@ -253,7 +287,9 @@ static Future<Map<String, String>> _authHeaders({bool json = true}) async {
     Map<String, String>? query,
     bool authRequired = true,
   }) async {
-    final headers = authRequired ? await _authHeaders() : {'Content-Type': 'application/json'};
+    final headers = authRequired
+        ? await _authHeaders()
+        : {'Content-Type': 'application/json'};
     final uri = Uri.parse('$baseUrl$endpoint').replace(queryParameters: query);
     return _safeDelete(uri, headers: headers);
   }
@@ -289,13 +325,13 @@ static Future<Map<String, String>> _authHeaders({bool json = true}) async {
     return last!;
   }
 
-   static Future<List<Map<String, dynamic>>> fetchApprovals({
-   required String type,
-   required String status,
-   String? start,
-   String? end,
-   int limit = 50,
- }) async {
+  static Future<List<Map<String, dynamic>>> fetchApprovals({
+    required String type,
+    required String status,
+    String? start,
+    String? end,
+    int limit = 50,
+  }) async {
     final mappedType = _mapTypeForServer(type);
 
     final qp = <String, String>{
@@ -310,8 +346,7 @@ static Future<Map<String, String>> _authHeaders({bool json = true}) async {
 
     if (!_ok(res)) {
       debugPrint(res.body);
-      throw Exception('Failed to fetch approvals (${res.statusCode})'
-      );
+      throw Exception('Failed to fetch approvals (${res.statusCode})');
     }
 
     final body = json.decode(res.body);
@@ -397,6 +432,7 @@ static Future<Map<String, String>> _authHeaders({bool json = true}) async {
     required String status,
     String? remarks,
     String? sourceHint,
+    String? leavePayType,
   }) async {
     final s = status.trim().toLowerCase();
 
@@ -421,6 +457,20 @@ static Future<Map<String, String>> _authHeaders({bool json = true}) async {
       if (remarks != null && remarks.trim().isNotEmpty)
         'remarks': remarks.trim(),
     };
+
+    // Add leavePayType for leave requests
+    if (src == 'leaves') {
+      if (normalizedStatus == 'Approved' && leavePayType != null) {
+        final normalizedLeavePayType = leavePayType.trim().toLowerCase();
+        if (normalizedLeavePayType == 'paid' ||
+            normalizedLeavePayType == 'unpaid') {
+          payload['leavePayType'] = normalizedLeavePayType;
+        }
+      } else if (normalizedStatus == 'Rejected') {
+        // Clear leavePayType for rejected leaves
+        payload['leavePayType'] = null;
+      }
+    }
 
     final genericId =
         (item['id'] ?? item['docId'] ?? item['requestId'])?.toString();
@@ -449,9 +499,11 @@ static Future<Map<String, String>> _authHeaders({bool json = true}) async {
         payload['date'] = normDate;
       }
     } else {
-      final leaveId =
-          (item['leaveId'] ?? item['leave_id'] ?? item['requestId'] ?? item['id'])
-              ?.toString();
+      final leaveId = (item['leaveId'] ??
+              item['leave_id'] ??
+              item['requestId'] ??
+              item['id'])
+          ?.toString();
 
       if (leaveId == null || leaveId.isEmpty) {
         throw Exception('Decision failed: leaveId required');
@@ -637,91 +689,74 @@ static Future<Map<String, String>> _authHeaders({bool json = true}) async {
   }
 
   static String _extractErrorMessage(http.Response response) {
-  try {
-    final decoded = jsonDecode(response.body);
-    if (decoded is Map && decoded['message'] != null) {
-      return decoded['message'].toString();
-    }
-    if (decoded is Map && decoded['error'] != null) {
-      return decoded['error'].toString();
-    }
-  } catch (_) {}
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map && decoded['message'] != null) {
+        return decoded['message'].toString();
+      }
+      if (decoded is Map && decoded['error'] != null) {
+        return decoded['error'].toString();
+      }
+    } catch (_) {}
 
-  return response.body.isNotEmpty
-      ? response.body
-      : 'Request failed. Please try again.';
-}
-
-static Future<List<Map<String, dynamic>>> fetchAttendanceApprovals({
-  String? status,
-}) async {
-  final response = await http.get(
-    Uri.parse('$baseUrl/attendance/approvals?status=${status ?? ""}'),
-    headers: await _authHeaders(),
-  );
-
-  if (response.statusCode == 200) {
-    final data = jsonDecode(response.body);
-    return List<Map<String, dynamic>>.from(data);
+    return response.body.isNotEmpty
+        ? response.body
+        : 'Request failed. Please try again.';
   }
 
-  throw Exception(
-    'Attendance approvals ${response.statusCode}: ${_extractErrorMessage(response)}',
-  );
-}
-
-static Future<List<Map<String, dynamic>>> fetchLeaveApprovals({
-  String? status,
-}) async {
-  final response = await http.get(
-    Uri.parse('$baseUrl/attendance/approvals?status=${status ?? ""}'),
-    headers: await _authHeaders(),
-  );
-
-  if (response.statusCode == 200) {
-    final data = jsonDecode(response.body);
-    return List<Map<String, dynamic>>.from(data);
-  }
-
-  throw Exception(
-    'Leave approvals ${response.statusCode}: ${_extractErrorMessage(response)}',
-  );
-}
-
-static Future<List<Map<String, dynamic>>> fetchOtherLocationApprovals({
-  String? status,
-}) async {
-  final response = await http.get(
-    Uri.parse('$baseUrl/attendance/other-location?status=${status ?? ""}'),
-    headers: await _authHeaders(),
-  );
-
-  if (response.statusCode == 200) {
-    final data = jsonDecode(response.body);
-    return List<Map<String, dynamic>>.from(data);
-  }
-
-  throw Exception(
-    'Other location approvals ${response.statusCode}: ${_extractErrorMessage(response)}',
-  );
-}
-
-  static Future<void> updateLeavePayrollStatus({
-    required String requestId,
-    required String payrollStatus,
-    required String source,
+  static Future<List<Map<String, dynamic>>> fetchAttendanceApprovals({
+    String? status,
   }) async {
-    final response = await http.patch(
-      Uri.parse('$baseUrl/attendance/approvals/$requestId/payroll-status'),
+    final response = await http.get(
+      Uri.parse('$baseUrl/attendance/approvals?status=${status ?? ""}'),
       headers: await _authHeaders(),
-      body: jsonEncode({
-        'source': source,
-        'payrollStatus': payrollStatus,
-      }),
     );
-    
-    if (response.statusCode != 200) {
-      throw Exception('Failed to update payroll status: ${response.statusCode}');
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return List<Map<String, dynamic>>.from(data);
     }
+
+    throw Exception(
+      'Attendance approvals ${response.statusCode}: ${_extractErrorMessage(response)}',
+    );
   }
+
+  static Future<List<Map<String, dynamic>>> fetchLeaveApprovals({
+    String? status,
+  }) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/attendance/approvals?status=${status ?? ""}'),
+      headers: await _authHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return List<Map<String, dynamic>>.from(data);
+    }
+
+    throw Exception(
+      'Leave approvals ${response.statusCode}: ${_extractErrorMessage(response)}',
+    );
+  }
+
+  static Future<List<Map<String, dynamic>>> fetchOtherLocationApprovals({
+    String? status,
+  }) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/attendance/other-location?status=${status ?? ""}'),
+      headers: await _authHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return List<Map<String, dynamic>>.from(data);
+    }
+
+    throw Exception(
+      'Other location approvals ${response.statusCode}: ${_extractErrorMessage(response)}',
+    );
+  }
+
+  // legacy payroll helper removed; use `decideApproval` and `leavePayType`.
 }

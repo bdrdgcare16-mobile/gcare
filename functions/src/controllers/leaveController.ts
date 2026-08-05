@@ -526,7 +526,7 @@ export function getLeaveRequestById(id: string) {
 export const updateLeaveStatus = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { id } = req.params;
-    const { status, notes } = req.body;
+    const { status, notes, leavePayType } = req.body;
     const companyId = getReqCompanyId(req);
     const actorId = getReqActorId(req);
 
@@ -555,18 +555,48 @@ export const updateLeaveStatus = async (req: Request, res: Response): Promise<Re
       return res.status(403).json({ error: 'Access denied' });
     }
 
-     const cleanStatus = String(status) as LeaveStatus;
+    // Determine if request requires paid/unpaid classification based on stored type
+    // Read the canonical request category from Firestore document
+    const rawType = leaveData.type ?? leaveData.category ?? leaveData.requestType ?? '';
+    const normalizedType = typeof rawType === 'string' ? rawType.trim().toLowerCase() : '';
+    const isLeaveRequest = normalizedType === 'leave type';
 
-    await leaveRef.update({
-       status: cleanStatus,
-       approvalStatus: cleanStatus,
-       approverId: actorId,
-       approverNotes: notes ? String(notes) : '',
-       decisionBy: actorId,
-       decisionAt: FieldValue.serverTimestamp(),
-       decisionRemarks: notes ? String(notes) : null,
-       updatedAt: FieldValue.serverTimestamp(),
-    });
+    // Validate leavePayType based on status and request type
+    const cleanStatus = String(status) as LeaveStatus;
+    const cleanLeavePayType = leavePayType ? String(leavePayType).toLowerCase() : null;
+
+    if (cleanStatus === 'Approved' && isLeaveRequest) {
+      if (cleanLeavePayType !== 'paid' && cleanLeavePayType !== 'unpaid') {
+        return res.status(400).json({
+          error: 'Paid or unpaid classification is required for Leave Type requests.'
+        });
+      }
+    }
+
+    const updateData: any = {
+      status: cleanStatus,
+      approvalStatus: cleanStatus,
+      approverId: actorId,
+      approverNotes: notes ? String(notes) : '',
+      decisionBy: actorId,
+      decisionAt: FieldValue.serverTimestamp(),
+      decisionRemarks: notes ? String(notes) : null,
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+
+    // Set or clear leavePayType based on status and request type
+    if (cleanStatus === 'Approved') {
+      if (isLeaveRequest) {
+        updateData.leavePayType = cleanLeavePayType; // 'paid' or 'unpaid'
+      } else {
+        // Non-leave requests do not require classification
+        updateData.leavePayType = null;
+      }
+    } else if (cleanStatus === 'Rejected' || cleanStatus === 'Cancelled') {
+      updateData.leavePayType = null;
+    }
+
+    await leaveRef.update(updateData);
 
     // Track usage after successful leave status update
     await trackLeaveUsage(req, {

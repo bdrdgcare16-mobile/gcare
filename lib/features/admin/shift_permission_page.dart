@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:serv_app/shared/app_theme.dart';
 
 // Theme Colors
-const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
-const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-const Color kAppBarColor = Color(0xFF8C6EAF);
-const Color kButtonColor = Color(0xFF655193);
+const Color kPrimaryBackgroundTop = Colors.white;
+const Color kPrimaryBackgroundBottom = kPrimaryLight;
+const Color kAppBarColor = kPrimary;
+const Color kButtonColor = kPrimaryDark;
 const Color kTextColor = Colors.white;
 
 class ShiftPermissionPage extends StatefulWidget {

@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:serv_app/shared/app_theme.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl_phone_field/intl_phone_field.dart';
 
@@ -11,11 +12,10 @@ import 'package:serv_app/html_stub.dart'
 import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/services/api_service.dart';
 
-const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
-const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-const Color kAppBarColor = Color(0xFF655193);
-const Color kButtonColor = Color(0xFF655193);
-const Color kTextColor = Colors.white;
+const Color kPrimaryBackgroundTop = Colors.white;
+const Color kPrimaryBackgroundBottom = kPrimaryLight;
+const Color kAppBarColor = kPrimary;
+const Color kButtonColor = kPrimaryDark;
 
 void _log(Object msg) {
   if (kDebugMode) {

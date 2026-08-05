@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:serv_app/shared/app_theme.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:math' as math;
@@ -13,12 +14,11 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:serv_app/services/api_service.dart';
 import 'package:serv_app/models/company_data.dart';
 
-// Theme
-const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
-const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-const Color kAppBarColor = Color(0xFF8C6EAF);
-const Color kButtonColor = Color(0xFF655193);
-const Color kTextColor = Colors.white;
+// Theme (mapped to shared `app_theme`)
+const Color kPrimaryBackgroundTop = Colors.white;
+const Color kPrimaryBackgroundBottom = kPrimaryLight;
+const Color kAppBarColor = kPrimary;
+const Color kButtonColor = kPrimaryDark;
 
 /* ---------- Tracking helpers (match My Track) ---------- */
 

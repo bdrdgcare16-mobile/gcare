@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:serv_app/shared/app_theme.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
@@ -13,11 +14,10 @@ import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/services/api_service.dart';
 
-const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
-const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-const Color kAppBarColor = Color(0xFF8c6eaf);
-const Color kButtonColor = Color(0xFF655193);
-const Color kTextColor = Colors.white;
+const Color kPrimaryBackgroundTop = Colors.white;
+const Color kPrimaryBackgroundBottom = kPrimaryLight;
+const Color kAppBarColor = kPrimary;
+const Color kButtonColor = kPrimaryDark;
 
 // ===== Backend base =====
 final String apiBase = ApiConfig.baseUrl;

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:serv_app/shared/app_theme.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -18,12 +19,11 @@ final String apiBase = ApiConfig.baseUrl;
 final String _apiOrigin =
     ApiConfig.baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
 
-// ====== THEME ======
-const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
-const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-const Color kAppBarColor = Color(0xFF8C6EAF);
-const Color kButtonColor = Color(0xFF655193);
-const Color kTextColor = Colors.white;
+// ====== THEME (centralized)
+const Color kPrimaryBackgroundTop = Colors.white;
+const Color kPrimaryBackgroundBottom = kPrimaryLight;
+const Color kAppBarColor = kPrimary;
+const Color kButtonColor = kPrimaryDark;
 
 // ====== TABLE LAYOUT ======
 const double _tableHorizontalPadding = 6;

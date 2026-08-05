@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:serv_app/shared/app_theme.dart';
 
-// App-wide theme colors
-const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
-const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
-const Color kAppBarColor = Color(0xFF8C6EAF);
-const Color kButtonColor = Color(0xFF655193);
-const Color kTextColor = Colors.white;
+// App-wide theme colors (mapped to shared `app_theme`)
+const Color kPrimaryBackgroundTop = Colors.white;
+const Color kPrimaryBackgroundBottom = kPrimaryLight;
+const Color kAppBarColor = kPrimary;
+const Color kButtonColor = kPrimaryDark;
 
 class AddGroupNameDialog extends StatefulWidget {
   const AddGroupNameDialog({super.key});

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:serv_app/shared/app_theme.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -14,11 +15,10 @@ import 'package:file_saver/file_saver.dart';
 import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/services/api_service.dart';
 
-const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF); // Light lavender
-const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9); // Deeper lavender
-const Color kAppBarColor = Color(0xFF8c6eaf);
-const Color kButtonColor = Color(0xFF655193);
-const Color kTextColor = Colors.white;
+const Color kPrimaryBackgroundTop = Colors.white; // Light lavender
+const Color kPrimaryBackgroundBottom = kPrimaryLight; // Deeper lavender
+const Color kAppBarColor = kPrimary;
+const Color kButtonColor = kPrimaryDark;
 
 final String _apiBase = ApiConfig.baseUrl;
 

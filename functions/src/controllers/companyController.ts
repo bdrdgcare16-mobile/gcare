@@ -21,6 +21,10 @@ interface CompanyProfile {
   adminName: string;
   designation: string;
   filled?: boolean;
+  weeklyOffConfig?: {
+    type: 'WEEKLY';
+    days: number[]; // 0=Sunday, 1=Monday, ..., 6=Saturday
+  };
   createdAt: TS;
   updatedAt: TS;
 }

@@ -1,0 +1,71 @@
+{
+  "count": 1,
+  "matches": [
+    {
+      "id": "GugEGnXp471nV2NQPciT",
+      "data": {
+        "personalDetails": {
+          "fullName": "ghjj",
+          "gender": "Female",
+          "dob": "08-05-2000",
+          "personalEmail": "jjhggg@gmail.com",
+          "mobileCountryCode": "+91",
+          "mobileNumber": "6665588775",
+          "address": "jjhgggg",
+          "city": "Villupuram",
+          "state": "Tamil Nadu",
+          "pincode": "604001",
+          "country": "India",
+          "permanentAddress": "gggyy",
+          "emergencyContactName": "yuhh",
+          "emergencyCountryCode": "+91",
+          "emergencyContactNumber": "6658089666"
+        },
+        "bankDetails": {
+          "bankName": "ygf",
+          "accountHolderName": "yyg",
+          "accountNumber": "365580855555555555",
+          "ifscCode": "IOBA0001384",
+          "panNumber": "RTWPS3137N",
+          "aadhaarNumber": "665554808833",
+          "pfNumber": "8655678",
+          "esiNumber": "2258078",
+          "basicSalary": 50000,
+          "hra": 588,
+          "allowances": 388,
+          "grossSalary": 50976,
+          "netSalary": 50976
+        },
+        "documents": {
+          "resume": "https://storage.googleapis.com/servappbackend.firebasestorage.app/onboarding-dev%2Fhhf%2Fresume-1778224119098-2026-05-08%2012-21-55.pdf",
+          "offerLetter": "https://storage.googleapis.com/servappbackend.firebasestorage.app/onboarding-dev%2Fhhf%2FofferLetter-1778224122228-2026-05-08%2012-21-55.pdf",
+          "aadhaarCard": "https://storage.googleapis.com/servappbackend.firebasestorage.app/onboarding-dev%2Fhhf%2FaadhaarCard-1778224125012-2026-05-08%2012-21-55.pdf",
+          "panCard": "https://storage.googleapis.com/servappbackend.firebasestorage.app/onboarding-dev%2Fhhf%2FpanCard-1778224128026-2026-05-08%2012-21-55.pdf"
+        },
+        "createdAt": {
+          "_seconds": 1778224130,
+          "_nanoseconds": 799000000
+        },
+        "status": "completed",
+        "updatedAt": {
+          "_seconds": 1784621502,
+          "_nanoseconds": 476000000
+        },
+        "companyDetails": {
+          "designation": "bh",
+          "dateOfJoining": "08-05-2026",
+          "employeeType": "Part Time",
+          "employeeId": "MR014",
+          "workMode": "Work From Home",
+          "experienceLevel": "Fresher",
+          "reportingManager": "vvvc",
+          "officialEmail": "Dfg@gmail.com",
+          "department": "nn",
+          "branchLocation": "ghfggg",
+          "companyName": "ggfg",
+          "shiftTime": "gg"
+        }
+      }
+    }
+  ]
+}
