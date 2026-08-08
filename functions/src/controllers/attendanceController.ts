@@ -1628,12 +1628,17 @@ export const listOtherLocationEvents = async (req: Request, res: Response) => {
     const start = (String(req.query.start || '').slice(0, 10)) || null;
     const end   = (String(req.query.end   || '').slice(0, 10)) || null;
 
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
+    const paginated = req.query.page != null || req.query.limit != null;
+    const fetchLimit = paginated ? page * limit + 1 : 10000;
+
     let ref: any = db.collection(OTHER_LOC_COL).where('companyId', '==', companyId);
     if (want !== 'all') ref = ref.where('approvalStatus', '==', statusRaw);
     if (start) ref = ref.where('date', '>=', start);
     if (end)   ref = ref.where('date', '<=', end);
 
-    const snap = await ref.get();
+    const snap = await ref.orderBy('date', 'desc').limit(fetchLimit).get();
     const rows = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
 
     rows.sort((a: any, b: any) =>
@@ -1641,7 +1646,26 @@ export const listOtherLocationEvents = async (req: Request, res: Response) => {
       String(b.time || '').localeCompare(String(a.time || ''))
     );
 
-    return res.json(rows);
+    const startIdx = (page - 1) * limit;
+    const endIdx = page * limit;
+    const matching = rows.length;
+    const data = rows.slice(startIdx, endIdx);
+    const hasMore = matching > endIdx;
+
+    if (!paginated) {
+      return res.json(rows);
+    }
+
+    return res.json({
+      success: true,
+      data,
+      pagination: {
+        page,
+        limit,
+        total: matching > endIdx ? matching - 1 : matching,
+        hasMore,
+      },
+    });
   } catch (err: any) {
     console.error('listOtherLocationEvents error:', err);
     return res.status(500).json({ error: err.message });
@@ -1678,6 +1702,11 @@ export const decideOtherLocationEvent = async (req: Request, res: Response) => {
     const doc = await docRef.get();
     if (!doc.exists) {
       return res.status(404).json({ error: 'Request not found' });
+    }
+
+    const docData = doc.data();
+    if (docData?.companyId !== companyId) {
+      return res.status(403).json({ error: 'Access denied: companyId mismatch' });
     }
 
     const updateData: any = {
@@ -1719,40 +1748,239 @@ export const decideOtherLocationEvent = async (req: Request, res: Response) => {
 // Removed: payroll-status update endpoint is deprecated. Use `decideApproval`
 // and the `leavePayType` field for payroll-related status instead.
 
+type MonthlyLeaveSummary = {
+  paid: number;
+  unpaid: number;
+};
+
+function parseApprovalYmd(value: any): string | null {
+  const ymd = toISO(value);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+
+  const parsed = new Date(`${ymd}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== ymd) {
+    return null;
+  }
+
+  return ymd;
+}
+
+function monthBounds(year: number, month: number) {
+  const start = `${year}-${pad2(month)}-01`;
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return {
+    start,
+    end: `${year}-${pad2(month)}-${pad2(lastDay)}`,
+  };
+}
+
+async function addMonthlyLeaveSummaries(
+  items: any[],
+  companyId: string,
+  debug: boolean,
+): Promise<void> {
+  const leaveItems = items.filter(
+    (item) => String(item.source || '').toLowerCase() === 'leaves',
+  );
+  if (leaveItems.length === 0) return;
+
+  const employeeIds = Array.from(
+    new Set(
+      leaveItems
+        .map((item) => String(item.empid ?? item.empId ?? '').trim())
+        .filter(Boolean),
+    ),
+  );
+  const targetKeys = new Set<string>();
+  const targetByKey = new Map<string, { employeeId: string; year: number; month: number }>();
+
+  for (const item of leaveItems) {
+    const employeeId = String(item.empid ?? item.empId ?? '').trim();
+    const requestDate = parseApprovalYmd(
+      item.requestDate ?? item.startDate ?? item.fromDate,
+    );
+    if (!employeeId || !requestDate) continue;
+
+    const year = Number(requestDate.slice(0, 4));
+    const month = Number(requestDate.slice(5, 7));
+    const key = `${employeeId}|${year}-${pad2(month)}`;
+    targetKeys.add(key);
+    targetByKey.set(key, { employeeId, year, month });
+  }
+
+  for (const item of leaveItems) {
+    const employeeId = String(item.empid ?? item.empId ?? '').trim();
+    const requestDate = parseApprovalYmd(
+      item.requestDate ?? item.startDate ?? item.fromDate,
+    );
+    const key = requestDate
+      ? `${employeeId}|${requestDate.slice(0, 7)}`
+      : '';
+    const summary = key && targetKeys.has(key)
+      ? undefined
+      : { paid: 0, unpaid: 0 };
+    item.monthlyLeaveSummary = summary ?? item.monthlyLeaveSummary;
+  }
+
+  if (employeeIds.length === 0 || targetByKey.size === 0) {
+    for (const item of leaveItems) {
+      item.monthlyLeaveSummary = { paid: 0, unpaid: 0 };
+    }
+    return;
+  }
+
+  const leaveQueries = [
+    'empid',
+    'empId',
+  ].flatMap((employeeField) => [
+    db.collection('leaves')
+      .where('companyId', '==', companyId)
+      .where('approvalStatus', '==', 'Approved')
+      .where(employeeField, 'in', employeeIds),
+    db.collection('leaves')
+      .where('companyId', '==', companyId)
+      .where('status', '==', 'Approved')
+      .where(employeeField, 'in', employeeIds),
+  ]);
+
+  const snapshots = await Promise.all(leaveQueries.map((query) => query.get()));
+  const uniqueApproved = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
+  for (const snapshot of snapshots) {
+    for (const doc of snapshot.docs) {
+      if (!uniqueApproved.has(doc.id)) uniqueApproved.set(doc.id, doc);
+    }
+  }
+
+  const dateValues = new Map<string, Map<string, number>>();
+  let skippedMalformed = 0;
+
+  for (const doc of uniqueApproved.values()) {
+    const leave = doc.data() as any;
+    const employeeId = String(leave.empid ?? leave.empId ?? '').trim();
+    const startDate = parseApprovalYmd(leave.startDate ?? leave.fromDate);
+    const endDate = parseApprovalYmd(leave.endDate ?? leave.toDate ?? leave.startDate);
+    const leavePayType = String(leave.leavePayType ?? '').trim().toLowerCase();
+
+    if (!employeeId || !startDate || !endDate || endDate < startDate ||
+        (leavePayType !== 'paid' && leavePayType !== 'unpaid')) {
+      skippedMalformed++;
+      continue;
+    }
+
+    const isHalfDay = leave.session === 'Morning' || leave.session === 'Afternoon';
+
+    for (const target of targetByKey.values()) {
+      if (target.employeeId !== employeeId) continue;
+      const bounds = monthBounds(target.year, target.month);
+      const clippedStart = startDate > bounds.start ? startDate : bounds.start;
+      const clippedEnd = endDate < bounds.end ? endDate : bounds.end;
+      if (clippedStart > clippedEnd) continue;
+
+      const valuesKey = `${employeeId}|${target.year}-${pad2(target.month)}|${leavePayType}`;
+      const values = dateValues.get(valuesKey) ?? new Map<string, number>();
+      const cursor = new Date(`${clippedStart}T00:00:00Z`);
+      const clippedEndDate = new Date(`${clippedEnd}T00:00:00Z`);
+      while (cursor <= clippedEndDate) {
+        const dateKey = cursor.toISOString().slice(0, 10);
+        values.set(dateKey, Math.max(values.get(dateKey) ?? 0, isHalfDay ? 0.5 : 1));
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+      }
+      dateValues.set(valuesKey, values);
+    }
+  }
+
+  const totals = new Map<string, MonthlyLeaveSummary>();
+  for (const [key, values] of dateValues) {
+    const category = key.endsWith('|paid') ? 'paid' : 'unpaid';
+    const summaryKey = key.slice(0, key.lastIndexOf('|'));
+    const summary = totals.get(summaryKey) ?? { paid: 0, unpaid: 0 };
+    summary[category] = Array.from(values.values()).reduce((sum, value) => sum + value, 0);
+    totals.set(summaryKey, summary);
+  }
+
+  for (const item of leaveItems) {
+    const employeeId = String(item.empid ?? item.empId ?? '').trim();
+    const requestDate = parseApprovalYmd(
+      item.requestDate ?? item.startDate ?? item.fromDate,
+    );
+    const key = requestDate
+      ? `${employeeId}|${requestDate.slice(0, 7)}`
+      : '';
+    item.monthlyLeaveSummary = totals.get(key) ?? { paid: 0, unpaid: 0 };
+  }
+
+  if (debug) {
+    for (const [key, summary] of totals) {
+      const [employeeId, targetMonth] = key.split('|');
+      console.log('[approvals] monthly leave summary', {
+        employeeId,
+        targetMonth,
+        skippedMalformedRecordCount: skippedMalformed,
+        paidDayTotal: summary.paid,
+        unpaidDayTotal: summary.unpaid,
+      });
+    }
+  }
+}
+
 /** GET /api/attendance/my-requests */
 /** GET /api/attendance/approvals */
 export const listApprovalRequests = async (req: Request, res: Response) => {
-  console.log('RUNTIME APPROVALS HANDLER HIT');
-  
+  const startedAt = Date.now();
   const companyId = getReqCompanyId(req);
   if (!companyId) {
-    console.log('INSIDE listApprovalRequests FUNCTION');
     return res.status(403).json({ error: 'companyId missing in token' });
   }
 
-  // Handle status query parameter
   const statusRaw = normStr(req.query.status || 'All');
   const wantStatus = statusRaw.toLowerCase(); // pending|approved|rejected|all
-  console.log("====== APPROVAL DEBUG START ======");
-  console.log("ROUTE companyId =", companyId);
-  console.log("STATUS FILTER =", wantStatus);
+  const queryStatus = wantStatus === 'pending'
+    ? 'Pending'
+    : wantStatus === 'approved'
+        ? 'Approved'
+        : wantStatus === 'rejected'
+            ? 'Rejected'
+            : statusRaw;
+  const typeRaw = normStr(req.query.type || 'All');
+  const wantType = typeRaw.toLowerCase();
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
+  const branch = normStr(req.query.branch || '');
+  const search = normStr(req.query.search || '').toLowerCase();
+  const includeAttendance = wantType === 'all' ||
+    wantType === 'late check in' || wantType === 'early check out';
+  const includeLeaves = wantType === 'all' ||
+    ['leave type', 'permission', 'over time', 'half day leave', 'comp off']
+      .includes(wantType);
+  const paginated = req.query.page != null || req.query.limit != null;
+  const fetchLimit = paginated ? page * limit + 1 : 10000;
 
   try {
     const out: any[] = [];
 
     // ---------- Attendance (Late check in/out) ----------
-    const attSnap = await db.collection('attendance').get();
+    let attQuery: FirebaseFirestore.Query = db
+      .collection('attendance')
+      .where('companyId', '==', companyId);
+    if (wantStatus !== 'all') {
+      attQuery = attQuery.where('approvalStatus', '==', statusRaw);
+    }
+    const attSnap = includeAttendance
+      ? await attQuery.orderBy('date', 'desc').limit(fetchLimit).get()
+      : ({ docs: [] } as any);
     
     // Get all shifts for comparison
-    const shiftsSnap = await db.collection('shifts').get();
+    const shiftsSnap = includeAttendance
+      ? await db.collection('shifts').get()
+      : ({ forEach: (_callback: unknown) => {} } as any);
     const shiftByGroup: Record<string, any> = {};
-    shiftsSnap.forEach((d) => {
+    shiftsSnap.forEach((d: any) => {
       const s = d.data();
       shiftByGroup[(s as any).shiftname] = s;
     });
 
     // Process attendance documents in parallel with employee data fetching
-    const attendancePromises = attSnap.docs.map(async (doc) => {
+    const attendancePromises = attSnap.docs.map(async (doc: any) => {
       const a = doc.data() as any;
       
       // Company isolation filter
@@ -1780,20 +2008,6 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
         const shiftStartWithGrace = new Date(shiftStartDateTime.getTime() + graceMinutes * 60000);
         const checkInDateTime = new Date(attendanceDate.getFullYear(), attendanceDate.getMonth(), attendanceDate.getDate(), checkInHour, checkInMinute, 0);
         
-        // Debug logging
-        console.log('APPROVAL REQUEST LATE CHECK-IN DEBUG:', {
-          empid: a.empid,
-          shiftGroup: a.shiftGroup,
-          shiftStartTime: startTime,
-          checkInTime: a.checkIn,
-          attendanceDate: a.date,
-          graceMinutes,
-          calculatedShiftStartDateTime: shiftStartDateTime.toISOString(),
-          calculatedShiftStartWithGrace: shiftStartWithGrace.toISOString(),
-          calculatedCheckInDateTime: checkInDateTime.toISOString(),
-          isLateCheckIn: checkInDateTime > shiftStartWithGrace
-        });
-        
         // Only mark as late if check-in is after shift start + grace period
         if (checkInDateTime > shiftStartWithGrace) {
           subType = 'Late check in';
@@ -1803,16 +2017,6 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
       if (a.checkOut && a.checkOut < endTime) subType = 'Early check out';
       
       if (!subType) return null;
-
-      console.log('Raw attendance document:', {
-        docId: doc.id,
-        empid: a.empid,
-        name: a.name,
-        shiftGroup: a.shiftGroup,
-        department: a.department,
-        branchName: a.branchName,
-        location: a.location
-      });
 
       // Fetch employee data to get department and branchName
       let employeeDepartment = '';
@@ -1832,20 +2036,7 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
           employeeDepartment = empData?.dept || '';
           employeeShift = empData?.shiftGroup || a.shiftGroup || '';
           employeeBranchName = empData?.location || empData?.branchName || '';
-          console.log('Matched employee document:', {
-            empid: a.empid,
-            department: employeeDepartment,
-            shift: employeeShift,
-            branchName: employeeBranchName,
-            rawEmployeeData: {
-              dept: empData?.dept,
-              shiftGroup: empData?.shiftGroup,
-              location: empData?.location,
-              branchName: empData?.branchName
-            }
-          });
         } else {
-          console.log('No employee document found for empid:', a.empid);
           // Use attendance data as fallback
           employeeShift = a.shiftGroup || '';
         }
@@ -1853,14 +2044,6 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
         console.error('Error fetching employee data for empid', a.empid, ':', empError);
         employeeShift = a.shiftGroup || '';
       }
-
-      console.log('Found attendance request:', {
-        empid: a.empid,
-        type: subType,
-        date: a.date,
-        checkIn: a.checkIn,
-        checkOut: a.checkOut
-      });
 
       return {
         source: 'attendance',
@@ -1889,19 +2072,58 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
     attendanceResults.forEach(result => {
       if (result) {
         out.push(result);
-        console.log('Final attendance API response item:', result);
       }
     });
 
     // ---------- Leaves ----------
-    const leaveSnap = await db.collection('leaves').get();
+    let leaveDocs: any[] = [];
+    if (includeLeaves) {
+      const leaveQuery = db
+        .collection('leaves')
+        .where('companyId', '==', companyId);
+
+      if (wantStatus === 'all') {
+        const leaveSnap = await leaveQuery
+          .orderBy('startDate', 'desc')
+          .limit(fetchLimit)
+          .get();
+        leaveDocs = leaveSnap.docs;
+      } else {
+        const [approvalStatusSnap, statusSnap] = await Promise.all([
+          leaveQuery
+            .where('approvalStatus', '==', queryStatus)
+            .orderBy('startDate', 'desc')
+            .limit(fetchLimit)
+            .get(),
+          leaveQuery
+            .where('status', '==', queryStatus)
+            .orderBy('startDate', 'desc')
+            .limit(fetchLimit)
+            .get(),
+        ]);
+
+        const uniqueLeaveDocs = new Map<string, any>();
+        for (const doc of [
+          ...approvalStatusSnap.docs,
+          ...statusSnap.docs,
+        ]) {
+          uniqueLeaveDocs.set(doc.id, doc);
+        }
+        leaveDocs = Array.from(uniqueLeaveDocs.values());
+
+        if (process.env.PAYROLL_DEBUG === 'true') {
+          console.log('[approvals] leave status compatibility', {
+            status: statusRaw,
+            approvalStatusQueryCount: approvalStatusSnap.size,
+            statusQueryCount: statusSnap.size,
+            mergedUniqueCount: leaveDocs.length,
+          });
+        }
+      }
+    }
 
     // Process leave documents in parallel with employee data fetching
-    const leavePromises = leaveSnap.docs.map(async (doc) => {
-      console.log("Leave Doc ID:", doc.id);
-      console.log("Leave companyId:", doc.data().companyId);
-      console.log("Admin companyId:", companyId);
-
+    const leavePromises = leaveDocs.map(async (doc: any) => {
       const leave = doc.data();
 
       // Company isolation filter
@@ -1910,8 +2132,6 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
       // Status filtering for leaves
       const leaveStatus = normStr(leave.approvalStatus || leave.status || 'Pending').toLowerCase();
       if (wantStatus !== 'all' && leaveStatus !== wantStatus) return null;
-
-      console.log("Matched Leave:", leave.name, leave.companyId);
 
       // Fetch employee data to get department, shift and location info
       let employeeDepartment = '';
@@ -1924,7 +2144,7 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
         const empSnap = await db
           .collection('employees')
           .where('companyId', '==', companyId)
-          .where('empid', '==', leave.empid)
+          .where('empid', '==', leave.empid || leave.empId)
           .limit(1)
           .get();
         
@@ -1936,31 +2156,8 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
           employeeLocation = empData?.location || '';
           branchName = empData?.branchName || empData?.branchLocation || empData?.location || '';
           
-          console.log('=== LEAVE ENRICHMENT DEBUG ===');
-          console.log('Leave empid:', leave.empid);
-          console.log('Matched employee document:', {
-            empid: leave.empid,
-            department: employeeDepartment,
-            shift: employeeShift,
-            shiftGroup: employeeShiftGroup,
-            branchName: branchName,
-            location: employeeLocation,
-            rawEmployeeData: {
-              dept: empData?.dept,
-              shift: empData?.shift,
-              shiftGroup: empData?.shiftGroup,
-              branchName: empData?.branchName,
-              branchLocation: empData?.branchLocation,
-              location: empData?.location
-            }
-          });
-          console.log('Resolved department:', employeeDepartment);
-          console.log('Resolved shift:', employeeShift);
-          console.log('Resolved branchName:', branchName);
         } else {
-          console.log('=== LEAVE ENRICHMENT DEBUG ===');
-          console.log('Leave empid:', leave.empid);
-          console.log('No employee document found for empid:', leave.empid);
+          // No employee document found; leave enrichment fields stay empty
         }
       } catch (empError) {
         console.error('=== LEAVE ENRICHMENT DEBUG ===');
@@ -1991,17 +2188,11 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
       }
       // Note: Late check in/out should come from attendance collection, not leaves collection
 
-      console.log('Leave request type determination:', {
-        leaveTypeRaw,
-        normalized: lt,
-        determinedType: requestType
-      });
-
       return {
         source: 'leaves',
         requestId: doc.id,
         type: requestType,
-        empid: leave.empid || '',
+        empid: leave.empid || leave.empId || '',
         name: leave.name || '',
         department: employeeDepartment,
         shift: employeeShift,
@@ -2024,23 +2215,8 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
     leaveResults.forEach(result => {
       if (result) {
         out.push(result);
-        console.log('Final leave API response item:', result);
       }
     });
-
-    // Count attendance vs leave items for debugging
-    const attendanceCount = out.filter(item => item.source === 'attendance').length;
-    const leaveCount = out.filter(item => item.source === 'leaves').length;
-    
-    console.log('=== BACKEND RESPONSE DEBUG ===');
-    console.log('Total items returned:', out.length);
-    console.log('Attendance items:', attendanceCount);
-    console.log('Leave items:', leaveCount);
-    console.log('Attendance sources:', out.filter(item => item.source === 'attendance').map(item => item.type));
-    console.log('Leave sources:', out.filter(item => item.source === 'leaves').map(item => item.type));
-    console.log('=== END BACKEND DEBUG ===');
-
-    console.log('[approvals] final rows =', out);
 
     out.sort((a, b) =>
       `${b.requestDate || ''} ${b.requestTime || ''}`.localeCompare(
@@ -2048,10 +2224,107 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
       )
     );
 
-    console.log("Final Approval Count:", out.length);
-    console.log("Final Data:", out);
+    // Backend-side type filter (UI sends friendly labels)
+    const typeFiltered = out.filter((item) => {
+      const src = String(item.source || '').toLowerCase();
+      const itemType = String(item.type || '').toLowerCase();
+      if (wantType === 'all') return true;
+      if (wantType === 'late check in' || wantType === 'early check out') {
+        return src === 'attendance' && itemType === wantType;
+      }
+      if (wantType === 'leave type') {
+        return src === 'leaves' && itemType === 'leave type';
+      }
+      return src === 'leaves' && itemType === wantType;
+    });
 
-    return res.json(out);
+    const branchFiltered = branch
+      ? typeFiltered.filter((item) =>
+          String(item.branchName || '').toLowerCase().includes(branch.toLowerCase())
+        )
+      : typeFiltered;
+
+    const searchFiltered = search
+      ? branchFiltered.filter((item) =>
+          Object.values(item).some((v) =>
+            String(v ?? '').toLowerCase().includes(search)
+          )
+        )
+      : branchFiltered;
+
+    const startIdx = (page - 1) * limit;
+    const endIdx = page * limit;
+    const matching = searchFiltered.length;
+    const data = searchFiltered.slice(startIdx, endIdx);
+    await addMonthlyLeaveSummaries(
+      data,
+      companyId,
+      process.env.PAYROLL_DEBUG === 'true',
+    );
+    const hasMore = matching > endIdx;
+
+    let totals: Record<string, number> | undefined;
+    if (wantType === 'all') {
+      try {
+        const statuses = ['Pending', 'Approved', 'Rejected'];
+        const counts = await Promise.all(
+          statuses.map(async (s) => {
+            const attCount = await db
+              .collection(ATT_COL)
+              .where('companyId', '==', companyId)
+              .where('approvalStatus', '==', s)
+              .count()
+              .get();
+            const leaveCount = await db
+              .collection(LEAVE_COL)
+              .where('companyId', '==', companyId)
+              .where('approvalStatus', '==', s)
+              .count()
+              .get();
+            return {
+              status: s,
+              count: (attCount.data().count || 0) + (leaveCount.data().count || 0),
+            };
+          })
+        );
+        totals = counts.reduce<Record<string, number>>((acc, c) => {
+          acc[c.status] = c.count;
+          return acc;
+        }, {});
+      } catch (countError: any) {
+        console.warn(
+          '[approvals] count query failed, falling back to fetched count:',
+          countError?.message || countError
+        );
+      }
+    }
+
+    const totalMatching = totals
+      ? statusRaw === 'All'
+        ? (totals['Pending'] || 0) + (totals['Approved'] || 0) + (totals['Rejected'] || 0)
+        : totals[statusRaw] ?? matching
+      : matching;
+
+    const backendMs = Date.now() - startedAt;
+    console.log(
+      `[approvals] type=${typeRaw} status=${statusRaw} page=${page} limit=${limit} fetched=${out.length} returned=${data.length} totalMatching=${totalMatching} backendMs=${backendMs}`
+    );
+
+    if (!paginated) {
+      return res.json(searchFiltered);
+    }
+
+    return res.json({
+      success: true,
+      data,
+      pagination: {
+        page,
+        limit,
+        total: totalMatching,
+        hasMore,
+      },
+      ...(totals ? { totals } : {}),
+    });
   } catch (err: any) {
     console.error('listApprovalRequests error:', err);
     return res.status(500).json({ error: err.message });
@@ -2077,7 +2350,7 @@ export const listMyRequests = async (req: Request, res: Response) => {
 
     const shiftsSnap = await db.collection(SHIFT_COL).get();
     const shiftByGroup: Record<string, any> = {};
-    shiftsSnap.forEach((d) => {
+    shiftsSnap.forEach((d: any) => {
       const s = d.data();
       shiftByGroup[(s as any).shiftname] = s;
     });

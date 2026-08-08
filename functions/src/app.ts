@@ -172,6 +172,7 @@ import adminRoutes from "./routes/adminRoutes";
 import leaveRoutes from "./routes/leaveRoutes";
 import billingRoutes from "./routes/billingRoutes";
 import payrollRoutes from "./routes/payrollRoutes";
+import onboardingRoutes from "./routes/onboarding.routes";
 
 import * as authController from "./controllers/authController";
 import { db } from "./config/firebase";
@@ -289,6 +290,7 @@ app.use("/api/overtime", generalRateLimit, overtimeRoutes);
 app.use("/api/admin", generalRateLimit, adminRoutes);
 app.use("/api/billing", generalRateLimit, billingRoutes);
 app.use("/api/payroll", payrollRoutes);
+app.use("/api/onboarding", onboardingRoutes);
 
 // Log to confirm payroll routes are registered at startup
 // (keeps placement consistent before the final 404 handler)

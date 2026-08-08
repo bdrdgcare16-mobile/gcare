@@ -1,4 +1,4 @@
-import { storage as adminStorage } from '../config/firebase';
+import { bucket as adminBucket } from '../config/firebase';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface UploadedFile {
@@ -24,7 +24,7 @@ export const uploadFile = async (
   file: UploadedFile,
   folder: string = 'uploads'
 ): Promise<UploadResult> => {
-  const bucket = adminStorage.bucket();           // uses the bucket you initialized in config/firebase.ts
+  const bucket = adminBucket;           // uses the bucket you initialized in config/firebase.ts
   const objectPath = `${folder}/${uuidv4()}-${file.originalname}`;
   const blob = bucket.file(objectPath);
 
@@ -48,7 +48,7 @@ export const uploadFile = async (
 };
 
 export const deleteFile = async (objectPath: string): Promise<void> => {
-  const bucket = adminStorage.bucket();
+  const bucket = adminBucket;
   await bucket.file(objectPath).delete({ ignoreNotFound: true });
 };
 
@@ -60,7 +60,7 @@ export const uploadBufferToStorage = async (
 ): Promise<{ url: string; name: string; contentType: string; size: number }> => {
   try {
     const fileName = `${folder}/${uuidv4()}-${originalname}`;
-    const bucket = adminStorage.bucket();
+    const bucket = adminBucket;
     const file = bucket.file(fileName);
 
     await file.save(buffer, {

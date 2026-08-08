@@ -110,6 +110,8 @@ dependencies:
 
   file_saver: ^0.3.1
 
+  printing: ^5.14.3
+
 
 
   # Biometric auth
@@ -155,6 +157,7 @@ dependencies:
   local_auth_android: any
 
   cross_file: any
+  syncfusion_flutter_pdfviewer: ^33.2.13
 
 
 

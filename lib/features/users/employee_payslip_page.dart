@@ -1,11 +1,12 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:file_saver/file_saver.dart';
 import 'package:serv_app/features/admin/payslip_pdf_builder.dart';
 import 'package:serv_app/utils/payroll_period_resolver.dart';
 import 'package:serv_app/utils/date_formatter.dart';
+import 'package:serv_app/utils/payslip_pdf_downloader.dart';
 import 'package:serv_app/widgets/payslip_preview.dart';
 import 'package:serv_app/services/api_service.dart';
 
@@ -575,26 +576,37 @@ class _EmployeePayslipPageState extends State<EmployeePayslipPage> {
       // Generate filename
       final filename = 'Payslip_${period.monthName}_${period.year}';
 
-      // Save the PDF file
-      await FileSaver.instance.saveFile(
-        name: filename,
+      // Save or share using platform-specific method
+      await PayslipPdfDownloader.saveOrShare(
         bytes: pdfBytes,
-        mimeType: MimeType.pdf,
+        fileName: filename,
       );
+
+      if (!mounted) return;
+
+      // Platform-specific success message
+      if (kIsWeb) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('PDF downloaded successfully.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('PDF is ready. Select where to save or share it.'),
+          ),
+        );
+      }
+    } catch (error, stackTrace) {
+      debugPrint('Payslip PDF error: $error');
+      debugPrintStack(stackTrace: stackTrace);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Payslip downloaded as $filename.pdf'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to download payslip: $e'),
+            content: Text('Unable to create or save PDF: $error'),
             backgroundColor: Colors.red,
           ),
         );

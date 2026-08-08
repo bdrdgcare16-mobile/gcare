@@ -11,6 +11,7 @@ import {
   listPreviousMonthPayroll,
   previewPayroll,
   savePayrollSnapshotController,
+  updatePayrollController,
 } from '../controllers/payrollController';
 
 import {
@@ -68,6 +69,12 @@ router.post(
   '/generate/previous-month',
   validateSalaryCalculationMethod,
   generatePreviousMonthPayroll,
+);
+
+router.patch(
+  '/:payrollId',
+  authMiddleware,
+  updatePayrollController,
 );
 
 router.patch(

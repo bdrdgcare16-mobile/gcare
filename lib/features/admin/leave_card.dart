@@ -28,10 +28,11 @@ class LeaveCard extends StatelessWidget {
 
   // Format leave days: 1.0 -> 1, 0.5 -> 0.5
   String _formatLeaveDays(double value) {
-    if (value == value.roundToDouble()) {
-      return value.toInt().toString();
-    }
-    return value.toStringAsFixed(1);
+    final formatted = value == value.roundToDouble()
+        ? value.toInt().toString()
+        : value.toStringAsFixed(1);
+    final unit = value > 0 && value <= 1 ? 'day' : 'days';
+    return '$formatted $unit';
   }
 
   @override
@@ -130,31 +131,28 @@ class LeaveCard extends StatelessWidget {
               ),
 
             // Display paid/unpaid leave totals only for genuine leave requests
-            if (_isLeaveRequest() && (paidLeaveDays != null || unpaidLeaveDays != null))
+            if (_isLeaveRequest())
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Row(
                   children: [
-                    if (paidLeaveDays != null && paidLeaveDays! > 0)
-                      Text(
-                        'Paid Leave: ${_formatLeaveDays(paidLeaveDays!)}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.green,
-                          fontWeight: FontWeight.w500,
-                        ),
+                    Text(
+                      'Paid Leave Approved: ${_formatLeaveDays(paidLeaveDays ?? 0)}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.green,
+                        fontWeight: FontWeight.w500,
                       ),
-                    if (paidLeaveDays != null && paidLeaveDays! > 0 && unpaidLeaveDays != null && unpaidLeaveDays! > 0)
-                      const SizedBox(width: 16),
-                    if (unpaidLeaveDays != null && unpaidLeaveDays! > 0)
-                      Text(
-                        'Unpaid Leave: ${_formatLeaveDays(unpaidLeaveDays!)}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.orange,
-                          fontWeight: FontWeight.w500,
-                        ),
+                    ),
+                    const SizedBox(width: 16),
+                    Text(
+                      'Unpaid Leave Approved: ${_formatLeaveDays(unpaidLeaveDays ?? 0)}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.orange,
+                        fontWeight: FontWeight.w500,
                       ),
+                    ),
                   ],
                 ),
               ),

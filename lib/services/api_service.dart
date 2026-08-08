@@ -185,6 +185,32 @@ class ApiService {
     return status.trim();
   }
 
+  static List<Map<String, dynamic>> _listFromBody(dynamic body) {
+    if (body is List) {
+      return body
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    }
+    if (body is Map) {
+      final data = body['data'];
+      final items = body['items'];
+      if (data is List) {
+        return data
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      }
+      if (items is List) {
+        return items
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      }
+    }
+    return <Map<String, dynamic>>[];
+  }
+
   static String? _inferSource(Map<String, dynamic> item, {String? hint}) {
     final fromItem = (item['source'] ?? item['collection'] ?? item['src'])
         ?.toString()
@@ -332,14 +358,38 @@ class ApiService {
     String? end,
     int limit = 50,
   }) async {
+    final page = await fetchApprovalsPaginated(
+      type: type,
+      status: status,
+      start: start,
+      end: end,
+      page: 1,
+      limit: limit,
+    );
+    return page.data;
+  }
+
+  static Future<ApprovalsPage> fetchApprovalsPaginated({
+    required String type,
+    required String status,
+    String? start,
+    String? end,
+    String? search,
+    String? branch,
+    int page = 1,
+    int limit = 20,
+  }) async {
     final mappedType = _mapTypeForServer(type);
 
     final qp = <String, String>{
+      'page': page.toString(),
       'limit': limit.toString(),
       if (mappedType.isNotEmpty) 'type': mappedType,
       'status': _normStatus(status) ?? 'All',
       if (start != null && start.isNotEmpty) 'start': start,
       if (end != null && end.isNotEmpty) 'end': end,
+      if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+      if (branch != null && branch.trim().isNotEmpty) 'branch': branch.trim(),
     };
 
     final res = await _getWithFallback(_approvalsPaths, query: qp);
@@ -350,24 +400,26 @@ class ApiService {
     }
 
     final body = json.decode(res.body);
+    final data = _listFromBody(body);
 
-    if (body is List) {
-      return body
-          .whereType<Map>()
-          .map((e) => Map<String, dynamic>.from(e))
-          .toList();
-    }
+    final pagination = body is Map && body['pagination'] is Map
+        ? Map<String, dynamic>.from(body['pagination'])
+        : <String, dynamic>{
+            'page': page,
+            'limit': limit,
+            'total': data.length,
+            'hasMore': false,
+          };
 
-    if (body is Map && body['items'] is List) {
-      return (body['items'] as List)
-          .whereType<Map>()
-          .map((e) => Map<String, dynamic>.from(e))
-          .toList();
-    }
+    final totals = body is Map && body['totals'] is Map
+        ? Map<String, int>.from(
+            (body['totals'] as Map).map(
+              (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
+            ),
+          )
+        : <String, int>{};
 
-    if (body is Map<String, dynamic>) return [body];
-
-    return <Map<String, dynamic>>[];
+    return ApprovalsPage(data: data, pagination: pagination, totals: totals);
   }
 
   static Future<List<Map<String, dynamic>>> fetchOtherLocation({
@@ -386,13 +438,7 @@ class ApiService {
 
     if (_ok(first)) {
       final body = jsonDecode(first.body);
-      if (body is List) {
-        return body
-            .whereType<Map>()
-            .map((e) => Map<String, dynamic>.from(e))
-            .toList();
-      }
-      return <Map<String, dynamic>>[];
+      return _listFromBody(body);
     }
 
     if (_is404(first)) {
@@ -412,14 +458,7 @@ class ApiService {
       }
 
       final body = json.decode(res.body);
-      if (body is List) {
-        return body
-            .whereType<Map>()
-            .map((e) => Map<String, dynamic>.from(e))
-            .toList();
-      }
-
-      return <Map<String, dynamic>>[];
+      return _listFromBody(body);
     }
 
     throw Exception(
@@ -707,50 +746,51 @@ class ApiService {
   static Future<List<Map<String, dynamic>>> fetchAttendanceApprovals({
     String? status,
   }) async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/attendance/approvals?status=${status ?? ""}'),
-      headers: await _authHeaders(),
-    );
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return List<Map<String, dynamic>>.from(data);
-    }
-
-    throw Exception(
-      'Attendance approvals ${response.statusCode}: ${_extractErrorMessage(response)}',
-    );
+    return fetchApprovals(type: 'All', status: status ?? 'All');
   }
 
   static Future<List<Map<String, dynamic>>> fetchLeaveApprovals({
     String? status,
   }) async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/attendance/approvals?status=${status ?? ""}'),
-      headers: await _authHeaders(),
-    );
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return List<Map<String, dynamic>>.from(data);
-    }
-
-    throw Exception(
-      'Leave approvals ${response.statusCode}: ${_extractErrorMessage(response)}',
-    );
+    return fetchApprovals(type: 'All', status: status ?? 'All');
   }
 
   static Future<List<Map<String, dynamic>>> fetchOtherLocationApprovals({
     String? status,
   }) async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/attendance/other-location?status=${status ?? ""}'),
-      headers: await _authHeaders(),
+    final page = await fetchOtherLocationApprovalsPaginated(
+      status: status ?? 'All',
+      page: 1,
+      limit: 50,
     );
+    return page.data;
+  }
+
+  static Future<ApprovalsPage> fetchOtherLocationApprovalsPaginated({
+    String? status,
+    int page = 1,
+    int limit = 20,
+  }) async {
+    final qp = <String, String>{
+      'page': page.toString(),
+      'limit': limit.toString(),
+      'status': _normStatus(status) ?? 'All',
+    };
+
+    final response = await get(_otherLocPath, query: qp);
 
     if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      return List<Map<String, dynamic>>.from(data);
+      final body = jsonDecode(response.body);
+      final data = _listFromBody(body);
+      final pagination = body is Map && body['pagination'] is Map
+          ? Map<String, dynamic>.from(body['pagination'])
+          : <String, dynamic>{
+              'page': page,
+              'limit': limit,
+              'total': data.length,
+              'hasMore': false,
+            };
+      return ApprovalsPage(data: data, pagination: pagination);
     }
 
     throw Exception(
@@ -758,5 +798,49 @@ class ApiService {
     );
   }
 
+  static Future<Map<String, dynamic>> updatePayroll({
+    required String payrollId,
+    required int workedDays,
+    required int lopDays,
+    required List<Map<String, dynamic>> allowances,
+  }) async {
+    final response = await patch(
+      '/payroll/$payrollId',
+      body: jsonEncode({
+        'workedDays': workedDays,
+        'lopDays': lopDays,
+        'allowances': allowances,
+      }),
+    );
+
+    final body = jsonDecode(response.body);
+    if (!_ok(response)) {
+      throw Exception(
+        body is Map && body['message'] != null
+            ? body['message'].toString()
+            : 'Failed to update payroll (${response.statusCode})',
+      );
+    }
+
+    return body is Map<String, dynamic>
+        ? body
+        : <String, dynamic>{'success': true, 'data': body};
+  }
+
   // legacy payroll helper removed; use `decideApproval` and `leavePayType`.
+}
+
+class ApprovalsPage {
+  final List<Map<String, dynamic>> data;
+  final Map<String, dynamic> pagination;
+  final Map<String, int> totals;
+
+  const ApprovalsPage({
+    required this.data,
+    required this.pagination,
+    this.totals = const <String, int>{},
+  });
+
+  int get total => (pagination['total'] as num?)?.toInt() ?? data.length;
+  bool get hasMore => pagination['hasMore'] == true;
 }

@@ -82,9 +82,26 @@ export async function upsertPayrollPreservingPaymentState(
       };
     }
 
+    // Preserve manual allowance override if present
+    const manualOverride: any = {};
+    if (existing?.calculationSource === 'manual') {
+      const manualTotalAllowance = Number(existing.totalAllowance ?? 0);
+      const manualGrossSalary = (calculatedPayroll.earnedBasic ?? calculatedPayroll.basicSalary ?? 0) + manualTotalAllowance;
+      const manualNetSalary = manualGrossSalary - (calculatedPayroll.lopDeduction ?? 0) - (calculatedPayroll.totalDeductions ?? 0);
+      manualOverride.allowances = existing.allowances;
+      manualOverride.totalAllowance = manualTotalAllowance;
+      manualOverride.hra = Number(existing.hra ?? 0);
+      manualOverride.otherAllowances = Number(existing.otherAllowances ?? 0);
+      manualOverride.earnedAllowance = manualTotalAllowance;
+      manualOverride.grossSalary = manualGrossSalary;
+      manualOverride.netSalary = manualNetSalary;
+      manualOverride.calculationSource = 'manual';
+    }
+
     // Otherwise, write the calculated data with preserved payment state
     const writeData: any = {
       ...calculatedPayroll,
+      ...manualOverride,
       ...paymentState,
       updatedAt: FieldValue.serverTimestamp(),
     };
@@ -99,6 +116,7 @@ export async function upsertPayrollPreservingPaymentState(
     return {
       id: payrollId,
       ...calculatedPayroll,
+      ...manualOverride,
       ...paymentState,
     };
   });
@@ -110,9 +128,14 @@ const dayOfWeekFromYMD = (ymd: string): number => {
 };
 
 // Get weekly-off configuration for a company, fallback to Sunday
-const getWeeklyOffDays = async (companyId: string): Promise<number[]> => {
+const getWeeklyOffDays = async (
+  companyId: string,
+  timing?: PayrollTiming,
+): Promise<number[]> => {
+  const startedAt = Date.now();
   try {
     const companyDoc = await db.collection('companyProfile').doc(companyId).get();
+    if (timing) timing.weeklyOffLookupMs += Date.now() - startedAt;
     if (companyDoc.exists) {
       const companyData = companyDoc.data() as any;
       if (companyData?.weeklyOffConfig?.days && Array.isArray(companyData.weeklyOffConfig.days)) {
@@ -120,6 +143,7 @@ const getWeeklyOffDays = async (companyId: string): Promise<number[]> => {
       }
     }
   } catch (error) {
+    if (timing) timing.weeklyOffLookupMs += Date.now() - startedAt;
     console.error('Error fetching weekly-off config:', error);
   }
   // Fallback to Sunday (0)
@@ -204,6 +228,62 @@ interface SalarySource {
   value: unknown;
   location: string;
 }
+
+interface PayrollTiming {
+  activeEmployeeQueryMs: number;
+  weeklyOffLookupMs: number;
+  onboardingLookupMs: number;
+  onboardingFallbackLookupMs: number;
+  attendanceLookupMs: number;
+  leaveLookupMs: number;
+  calculationMs: number;
+  payrollTransactionMs: number;
+}
+
+export interface PayrollRequestContext {
+  requestId: string;
+  debug: boolean;
+  weeklyOffDays: number[];
+  onboardingCache: Map<string, {
+    employee: any;
+    documentId: string | null;
+    identifier: string | null;
+    companyId: string;
+  }>;
+  timing: PayrollTiming;
+}
+
+const createPayrollTiming = (): PayrollTiming => ({
+  activeEmployeeQueryMs: 0,
+  weeklyOffLookupMs: 0,
+  onboardingLookupMs: 0,
+  onboardingFallbackLookupMs: 0,
+  attendanceLookupMs: 0,
+  leaveLookupMs: 0,
+  calculationMs: 0,
+  payrollTransactionMs: 0,
+});
+
+const payrollDebugLog = (enabled: boolean, message: string, data?: Record<string, unknown>) => {
+  if (enabled) {
+    console.log(message, data ?? '');
+  }
+};
+
+const payrollStageLog = (
+  context: PayrollRequestContext | undefined,
+  stage: string,
+  durationMs: number,
+  empid?: string,
+) => {
+  if (!context?.debug) return;
+  console.log('[PAYROLL_TIMING]', {
+    requestId: context.requestId,
+    stage,
+    ...(empid ? { empid } : {}),
+    durationMs,
+  });
+};
 
 export const resolveMonthlyBasicSalary = (
   employee: EmployeeRecord,
@@ -411,7 +491,9 @@ const getEmployee = async (
 
 const getActiveEmployees = async (
   companyId?: string,
+  timing?: PayrollTiming,
 ): Promise<EmployeeRecord[]> => {
+  const startedAt = Date.now();
   console.log("[PAYROLL] Company ID:", companyId);
 
   let query: FirebaseFirestore.Query = db.collection("employees");
@@ -442,21 +524,28 @@ const getActiveEmployees = async (
     });
 
   console.log("[PAYROLL] Active employee count:", activeEmployees.length);
+  if (timing) timing.activeEmployeeQueryMs += Date.now() - startedAt;
 
   return activeEmployees;
 };
 
 const getEmployeeAttendance = async (
+  companyId: string,
   empid: string,
   startDate: string,
   endDate: string,
+  timing?: PayrollTiming,
 ): Promise<AttendanceRecord[]> => {
+  const startedAt = Date.now();
   const snapshot = await db
     .collection("attendance")
+    .where("companyId", "==", companyId)
     .where("empid", "==", empid)
     .where("date", ">=", startDate)
     .where("date", "<=", endDate)
     .get();
+
+  if (timing) timing.attendanceLookupMs += Date.now() - startedAt;
 
   return snapshot.docs.map((document) => ({
     id: document.id,
@@ -465,19 +554,24 @@ const getEmployeeAttendance = async (
 };
 
 const getApprovedLeaves = async (
+  companyId: string,
   empid: string,
   startDate: string,
   endDate: string,
+  timing?: PayrollTiming,
 ): Promise<LeaveRecord[]> => {
+  const startedAt = Date.now();
   const [empidSnapshot, empIdSnapshot] = await Promise.all([
     db
       .collection("leaves")
+      .where("companyId", "==", companyId)
       .where("empid", "==", empid)
       .where("approvalStatus", "==", "Approved")
       .get(),
 
     db
       .collection("leaves")
+      .where("companyId", "==", companyId)
       .where("empId", "==", empid)
       .where("approvalStatus", "==", "Approved")
       .get(),
@@ -499,6 +593,7 @@ const getApprovedLeaves = async (
     }
   }
 
+  if (timing) timing.leaveLookupMs += Date.now() - startedAt;
   return Array.from(uniqueLeaves.values());
 };
 
@@ -650,117 +745,87 @@ const resolvePayrollDate = (
   return resolved;
 };
 
+const normalizeOnboardingEmployeeId = (value: unknown): string =>
+  String(value ?? '').trim().toLowerCase();
+
+const preloadOnboardingCache = async (
+  companyId: string,
+  onboardingCache: PayrollRequestContext['onboardingCache'],
+): Promise<void> => {
+  const [topLevelSnapshot, nestedSnapshot] = await Promise.all([
+    db.collection('employee_onboarding_dev')
+      .where('companyId', '==', companyId)
+      .get(),
+    db.collection('employee_onboarding_dev')
+      .where('companyDetails.companyId', '==', companyId)
+      .get(),
+  ]);
+
+  const documents = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
+  for (const doc of [
+    ...topLevelSnapshot.docs,
+    ...nestedSnapshot.docs,
+  ]) {
+    if (!documents.has(doc.id)) documents.set(doc.id, doc);
+  }
+
+  for (const doc of documents.values()) {
+    const data = doc.data() as any;
+    const employeeIds = [
+      data.empid,
+      data.employeeId,
+      data.companyDetails?.employeeId,
+    ];
+
+    for (const employeeId of employeeIds) {
+      const cacheKey = normalizeOnboardingEmployeeId(employeeId);
+      if (!cacheKey || onboardingCache.has(cacheKey)) continue;
+      onboardingCache.set(cacheKey, {
+        employee: data,
+        documentId: doc.id,
+        identifier: employeeId === data.empid
+          ? 'empid'
+          : employeeId === data.employeeId
+              ? 'employeeId'
+              : 'companyDetails.employeeId',
+        companyId,
+      });
+    }
+  }
+};
+
 export const calculateEmployeePayroll = async (params: {
   companyId: string;
   empid: string;
   year: number;
   month: number;
   salaryCalculationMethod?: SalaryCalculationMethod;
+  employee?: EmployeeRecord;
+  requestContext?: PayrollRequestContext;
 }): Promise<PayrollData> => {
-  const employee = await getEmployee(params.companyId, params.empid);
+  const employee = params.employee ?? await getEmployee(params.companyId, params.empid);
 
   if (!employee) {
     throw new Error("Employee not found");
   }
 
-  // Fetch weekly-off configuration for the company
-  const weeklyOffDays = await getWeeklyOffDays(params.companyId);
+  const requestTiming = params.requestContext?.timing;
+  // Reuse request-scoped weekly-off configuration when available.
+  const weeklyOffDays = params.requestContext?.weeklyOffDays ??
+    await getWeeklyOffDays(params.companyId, requestTiming);
 
-    // Try to fetch onboarding record from employee_onboarding_dev
-    let onboardingEmployee: any = null;
-    let onboardingDocumentId: string | null = null;
-    let onboardingEmployeeIdentifier: string | null = null;
-    try {
-      // Build queries with companyId validation to prevent cross-company leakage
-      const baseQuery = db.collection('employee_onboarding_dev')
-        .where('companyId', '==', params.companyId);
+  const employeeCacheKey = normalizeOnboardingEmployeeId(params.empid);
+  const cachedOnboarding = params.requestContext?.onboardingCache.get(employeeCacheKey);
+  const onboardingStartedAt = Date.now();
 
-      const [q1, q2, q3, q4, q5, q6] = await Promise.all([
-        baseQuery.where('empid', '==', params.empid).limit(1).get(),
-        baseQuery.where('employeeId', '==', params.empid).limit(1).get(),
-        baseQuery.where('uid', '==', params.empid).limit(1).get(),
-        baseQuery.where('officialEmail', '==', params.empid).limit(1).get(),
-        baseQuery.where('companyDetails.employeeId', '==', params.empid).limit(1).get(),
-        baseQuery.where('companyDetails.officialEmail', '==', params.empid).limit(1).get(),
-      ]);
+  if (!cachedOnboarding || cachedOnboarding.companyId !== params.companyId) {
+    throw new Error('Employee onboarding record not found');
+  }
 
-      const snaps = [q1, q2, q3, q4, q5, q6];
-      const snapFields = [
-        'empid',
-        'employeeId',
-        'uid',
-        'officialEmail',
-        'companyDetails.employeeId',
-        'companyDetails.officialEmail',
-      ];
-
-      for (let i = 0; i < snaps.length; i++) {
-        const s = snaps[i];
-        if (!s.empty) {
-          onboardingEmployee = s.docs[0].data();
-          onboardingDocumentId = s.docs[0].id;
-          onboardingEmployeeIdentifier = snapFields[i] ?? null;
-          break;
-        }
-      }
-    } catch (err) {
-      console.log('[PAYROLL] onboarding lookup error', { empid: params.empid, err: String(err) });
-    }
-
-    // If not found using companyId filter, retry without companyId (some onboarding docs lack companyId)
-    if (!onboardingEmployee) {
-      try {
-        const baseQuery2 = db.collection('employee_onboarding_dev');
-
-        const [r1, r2, r3, r4, r5, r6] = await Promise.all([
-          baseQuery2.where('empid', '==', params.empid).limit(1).get(),
-          baseQuery2.where('employeeId', '==', params.empid).limit(1).get(),
-          baseQuery2.where('uid', '==', params.empid).limit(1).get(),
-          baseQuery2.where('officialEmail', '==', params.empid).limit(1).get(),
-          baseQuery2.where('companyDetails.employeeId', '==', params.empid).limit(1).get(),
-          baseQuery2.where('companyDetails.officialEmail', '==', params.empid).limit(1).get(),
-        ]);
-
-        const snaps2 = [r1, r2, r3, r4, r5, r6];
-        const snapFields2 = [
-          'empid',
-          'employeeId',
-          'uid',
-          'officialEmail',
-          'companyDetails.employeeId',
-          'companyDetails.officialEmail',
-        ];
-
-        for (let i = 0; i < snaps2.length; i++) {
-          const s = snaps2[i];
-          if (!s.empty) {
-            onboardingEmployee = s.docs[0].data();
-            onboardingDocumentId = s.docs[0].id;
-            onboardingEmployeeIdentifier = snapFields2[i] ?? null;
-            break;
-          }
-        }
-      } catch (err) {
-        console.log('[PAYROLL] onboarding lookup retry error', { empid: params.empid, err: String(err) });
-      }
-    }
-
-    // Add MR013 specific diagnostic log as requested (temporary)
-    if (String(params.empid) === 'MR013') {
-      const bankDetails = onboardingEmployee?.bankDetails ?? null;
-      try {
-        console.log('MR013 PAYROLL LOOKUP', {
-          employeeId: params.empid,
-          onboardingDocumentFound: !!onboardingEmployee,
-          onboardingDocumentId,
-          onboardingEmployeeIdentifier,
-          bankDetails,
-          bankDetailKeys: Object.keys(bankDetails ?? {}),
-        });
-      } catch (err) {
-        console.log('MR013 PAYROLL LOOKUP (log error)', { err: String(err) });
-      }
-    }
+  const onboardingEmployee = cachedOnboarding.employee;
+  const onboardingDurationMs = Date.now() - onboardingStartedAt;
+  if (requestTiming) requestTiming.onboardingLookupMs += onboardingDurationMs;
+  payrollStageLog(params.requestContext, 'onboarding_cache_lookup', onboardingDurationMs, params.empid);
 
   const monthRange = getPayrollMonthRange(params.year, params.month);
 
@@ -780,12 +845,23 @@ export const calculateEmployeePayroll = async (params: {
     throw new Error("Employee is not eligible for this payroll period");
   }
 
+  const attendanceStartedAt = Date.now();
+  const leaveStartedAt = Date.now();
   const [attendanceRecords, leaveRecords] = await Promise.all([
-    getEmployeeAttendance(params.empid, startDate, endDate),
+    getEmployeeAttendance(params.companyId, params.empid, startDate, endDate, requestTiming)
+      .then((records) => {
+        payrollStageLog(params.requestContext, 'attendance_query', Date.now() - attendanceStartedAt, params.empid);
+        return records;
+      }),
 
-    getApprovedLeaves(params.empid, startDate, endDate),
+    getApprovedLeaves(params.companyId, params.empid, startDate, endDate, requestTiming)
+      .then((records) => {
+        payrollStageLog(params.requestContext, 'leave_query', Date.now() - leaveStartedAt, params.empid);
+        return records;
+      }),
   ]);
 
+  const calculationStartedAt = Date.now();
   const attendanceByDate = new Map<string, AttendanceRecord>();
 
   for (const record of attendanceRecords) {
@@ -862,6 +938,26 @@ export const calculateEmployeePayroll = async (params: {
     (item: PayrollDailyBreakdown) => item.resolvedStatus === "week-off",
   ).length;
 
+  const configuredWeeklyOffDates = new Set(
+    dates.filter((date) => isWeeklyOff(date, weeklyOffDays)),
+  );
+  const holidayDates = new Set(
+    dailyBreakdown
+      .filter((item) => item.resolvedStatus === "holiday")
+      .map((item) => item.date),
+  );
+  const scheduledExcludedDates = new Set([
+    ...configuredWeeklyOffDates,
+    ...holidayDates,
+  ]);
+  const scheduledWorkingDays = dates.length - scheduledExcludedDates.size;
+  const scheduledLopDays = roundPayrollValue(
+    dates.reduce((total, date, index) => {
+      if (scheduledExcludedDates.has(date)) return total;
+      return total + dailyBreakdown[index].lopValue;
+    }, 0),
+  );
+
   const payrollId = createPayrollDocumentId(
     params.companyId,
     params.empid,
@@ -914,11 +1010,25 @@ export const calculateEmployeePayroll = async (params: {
 
     const totalAllowance = hra + otherAllowances;
 
+    const now = new Date();
+    const todayYMD =
+      `${now.getUTCFullYear()}-` +
+      `${padPayrollNumber(now.getUTCMonth() + 1)}-` +
+      `${padPayrollNumber(now.getUTCDate())}`;
+
+    const isCurrentIncompleteMonth =
+      params.year === now.getUTCFullYear() &&
+      params.month === now.getUTCMonth() + 1 &&
+      endDate > todayYMD;
+
+    const futureCount = dailyBreakdown.filter(
+      (item: PayrollDailyBreakdown) => item.resolvedStatus === 'not-applicable',
+    ).length;
+    const elapsedDays = dates.length - futureCount;
+
     const salaryCalculationMethod = normalizeSalaryCalculationMethod(
       params.salaryCalculationMethod,
     );
-
-    const scheduledWorkingDays = eligibleDays - holidayDays - weekOffDays;
 
   if (
     salaryCalculationMethod === 'SCHEDULED_WORKING_DAYS' &&
@@ -945,23 +1055,39 @@ export const calculateEmployeePayroll = async (params: {
   } else if (salaryCalculationMethod === 'FIXED_30_DAYS') {
     lopDeduction = perDaySalary * lopDays;
   } else if (salaryCalculationMethod === 'SCHEDULED_WORKING_DAYS') {
-    // For scheduled working days, only count LOP on scheduled working days
-    const lopWorkingDays = lopDays; // Simplified: assumes all LOP falls on working days
-    lopDeduction = perDaySalary * lopWorkingDays;
+    lopDeduction = perDaySalary * scheduledLopDays;
   }
 
   // Calculate earned salary based on base days
-  // For FIXED_30_DAYS and SCHEDULED_WORKING_DAYS, use full monthly salary then deduct LOP
-  // For ACTUAL_CALENDAR_DAYS, use eligibleDays
-  const baseDays = salaryCalculationMethod === 'FIXED_30_DAYS' || salaryCalculationMethod === 'SCHEDULED_WORKING_DAYS' 
-    ? divisor 
-    : eligibleDays;
+  // For ACTUAL_CALENDAR_DAYS in the current incomplete month, use elapsedDays
+  // For FIXED_30_DAYS current incomplete month, use min(30, elapsedDays)
+  // For SCHEDULED_WORKING_DAYS current incomplete month, use elapsed scheduled working days
+  // For completed months, use the full divisor / eligible days
+  let baseDays: number;
+  if (salaryCalculationMethod === 'FIXED_30_DAYS') {
+    baseDays = isCurrentIncompleteMonth ? Math.min(30, elapsedDays) : 30;
+  } else if (salaryCalculationMethod === 'SCHEDULED_WORKING_DAYS') {
+    const elapsedScheduledWorkingDays = dates.reduce((total, date, index) => {
+      if (scheduledExcludedDates.has(date)) return total;
+      if (dailyBreakdown[index].resolvedStatus === 'not-applicable') return total;
+      return total + 1;
+    }, 0);
+    baseDays = isCurrentIncompleteMonth ? elapsedScheduledWorkingDays : scheduledWorkingDays;
+  } else if (isCurrentIncompleteMonth) {
+    baseDays = elapsedDays; // ACTUAL_CALENDAR_DAYS
+  } else {
+    baseDays = eligibleDays; // ACTUAL_CALENDAR_DAYS completed
+  }
   const earnedBasic = perDaySalary * baseDays;
   const earnedAllowance = totalAllowance;
 
   const grossSalary = earnedBasic + earnedAllowance;
   const totalDeductions = 0; // preserve existing deductions handling (none available here)
   const netSalary = grossSalary - lopDeduction - totalDeductions;
+
+  const calculationDurationMs = Date.now() - calculationStartedAt;
+  if (requestTiming) requestTiming.calculationMs += calculationDurationMs;
+  payrollStageLog(params.requestContext, 'payroll_calculation', calculationDurationMs, params.empid);
 
   return {
     id: payrollId,
@@ -994,7 +1120,9 @@ export const calculateEmployeePayroll = async (params: {
     holidayDays,
     weekOffDays,
 
-    lopDays,
+    lopDays: salaryCalculationMethod === 'SCHEDULED_WORKING_DAYS'
+      ? scheduledLopDays
+      : lopDays,
     payableDays,
 
     basicSalary: basicSalary,
@@ -1033,12 +1161,138 @@ export const calculateEmployeePayroll = async (params: {
   };
 };
 
+export const updatePayroll = async (params: {
+  companyId: string;
+  payrollId: string;
+  workedDays: number;
+  lopDays: number;
+  allowances: Array<{ type: string; amount: number }>;
+}): Promise<PayrollData> => {
+  const ref = db.collection('payrolls').doc(params.payrollId);
+  const snapshot = await ref.get();
+
+  if (!snapshot.exists) {
+    throw new Error('Payroll not found');
+  }
+
+  const existing = snapshot.data() as PayrollData;
+  if (existing.companyId !== params.companyId) {
+    const error = new Error('Access denied');
+    (error as any).statusCode = 403;
+    throw error;
+  }
+
+  if (existing.paymentStatus === 'paid' || existing.isPaid === true) {
+    const error = new Error('Paid payroll cannot be edited');
+    (error as any).statusCode = 409;
+    throw error;
+  }
+
+  const allowanceEntries = params.allowances.map((allowance) => ({
+    type: allowance.type.trim(),
+    amount: allowance.amount,
+  }));
+  const totalAllowance = allowanceEntries.reduce(
+    (total, allowance) => total + allowance.amount,
+    0,
+  );
+  const hra = allowanceEntries
+    .filter((allowance) => allowance.type === 'HRA')
+    .reduce((total, allowance) => total + allowance.amount, 0);
+  const otherAllowances = totalAllowance - hra;
+  const salaryCalculationMethod = normalizeSalaryCalculationMethod(
+    existing.salaryCalculationMethod,
+  );
+  let divisor = existing.eligibleDays;
+  if (salaryCalculationMethod === 'FIXED_30_DAYS') {
+    divisor = 30;
+  } else if (salaryCalculationMethod === 'SCHEDULED_WORKING_DAYS') {
+    const weeklyOffDays = await getWeeklyOffDays(params.companyId);
+    const dates = getPayrollDateList(existing.startDate, existing.endDate);
+    const weeklyOffDates = new Set(
+      dates.filter((date) => isWeeklyOff(date, weeklyOffDays)),
+    );
+    const holidayDates = new Set(
+      (existing.dailyBreakdown ?? [])
+        .filter((item) => item.resolvedStatus === 'holiday')
+        .map((item) => item.date),
+    );
+    divisor = dates.length - new Set([
+      ...weeklyOffDates,
+      ...holidayDates,
+    ]).size;
+  }
+
+  if (!Number.isFinite(divisor) || divisor <= 0) {
+    throw new Error('Payroll divisor must be greater than zero');
+  }
+
+  const perDaySalary = Number(existing.perDaySalary ?? existing.basicSalary / divisor);
+  const lopDeduction = perDaySalary * params.lopDays;
+  const earnedBasic = Number(existing.earnedBasic ?? existing.basicSalary);
+  const grossSalary = earnedBasic + totalAllowance;
+  const netSalary = grossSalary - lopDeduction - Number(existing.totalDeductions ?? 0);
+
+  const updated: PayrollData = {
+    ...existing,
+    workedDays: params.workedDays,
+    lopDays: params.lopDays,
+    allowances: allowanceEntries,
+    totalAllowance,
+    hra,
+    otherAllowances,
+    earnedAllowance: totalAllowance,
+    perDaySalary,
+    lopDeduction,
+    grossSalary,
+    netSalary,
+    calculationSource: 'manual',
+  };
+
+  const writeData = {
+    workedDays: updated.workedDays,
+    lopDays: updated.lopDays,
+    allowances: updated.allowances,
+    totalAllowance: updated.totalAllowance,
+    hra: updated.hra,
+    otherAllowances: updated.otherAllowances,
+    earnedAllowance: updated.earnedAllowance,
+    perDaySalary: updated.perDaySalary,
+    lopDeduction: updated.lopDeduction,
+    grossSalary: updated.grossSalary,
+    netSalary: updated.netSalary,
+    calculationSource: 'manual',
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+
+  await db.runTransaction(async (transaction) => {
+    const currentSnapshot = await transaction.get(ref);
+    if (!currentSnapshot.exists) throw new Error('Payroll not found');
+    const current = currentSnapshot.data() as PayrollData;
+    if (current.companyId !== params.companyId) {
+      const error = new Error('Access denied');
+      (error as any).statusCode = 403;
+      throw error;
+    }
+    if (current.paymentStatus === 'paid' || current.isPaid === true) {
+      const error = new Error('Paid payroll cannot be edited');
+      (error as any).statusCode = 409;
+      throw error;
+    }
+    transaction.set(ref, writeData, { merge: true });
+  });
+
+  return { id: snapshot.id, ...updated };
+};
+
 export const generateEmployeePayroll = async (params: {
   companyId: string;
   empid: string;
   year: number;
   month: number;
   salaryCalculationMethod?: SalaryCalculationMethod;
+  employee?: EmployeeRecord;
+  requestContext?: PayrollRequestContext;
 }): Promise<PayrollData> => {
   const payroll = await calculateEmployeePayroll(params);
 
@@ -1047,7 +1301,14 @@ export const generateEmployeePayroll = async (params: {
   }
 
   // Use the global upsert helper that preserves payment state with transaction
-  return upsertPayrollPreservingPaymentState(payroll.id, payroll);
+  const transactionStartedAt = Date.now();
+  const result = await upsertPayrollPreservingPaymentState(payroll.id, payroll);
+  const transactionDurationMs = Date.now() - transactionStartedAt;
+  if (params.requestContext) {
+    params.requestContext.timing.payrollTransactionMs += transactionDurationMs;
+  }
+  payrollStageLog(params.requestContext, 'payroll_transaction', transactionDurationMs, params.empid);
+  return result;
 };
 
 export const generateAllEmployeePayroll = async (params: {
@@ -1055,35 +1316,93 @@ export const generateAllEmployeePayroll = async (params: {
   year: number;
   month: number;
   salaryCalculationMethod?: SalaryCalculationMethod;
+  requestId?: string;
+  debug?: boolean;
 }) => {
-  const employees = await getActiveEmployees(params.companyId);
+  const timing = createPayrollTiming();
+  const requestContext: PayrollRequestContext = {
+    requestId: params.requestId ?? `payroll-${Date.now()}`,
+    debug: params.debug === true,
+    weeklyOffDays: [],
+    onboardingCache: new Map(),
+    timing,
+  };
+  if (params.companyId) {
+    await preloadOnboardingCache(params.companyId, requestContext.onboardingCache);
+  }
+  const weeklyStartedAt = Date.now();
+  requestContext.weeklyOffDays = await getWeeklyOffDays(String(params.companyId ?? ''), timing);
+  payrollStageLog(requestContext, 'weekly_off_query', Date.now() - weeklyStartedAt);
+
+  const activeStartedAt = Date.now();
+  const employees = await getActiveEmployees(params.companyId, timing);
+  payrollStageLog(requestContext, 'active_employee_query', Date.now() - activeStartedAt);
+
+  console.log('[PAYROLL] Total employees fetched:', employees.length);
+  console.log('[PAYROLL] Employee IDs:', employees.map(e => e.empid));
 
   const generated: PayrollData[] = [];
   const failed: Array<{ empid: string; reason: string }> = [];
 
   for (const employee of employees) {
     if (!employee.companyId || !employee.empid) {
+      console.log('[PAYROLL] Skipping employee - missing companyId or empid:', employee.empid);
       continue;
     }
 
+    const employeeStartedAt = Date.now();
     try {
+      console.log('[PAYROLL] Generating payroll for:', employee.empid);
       const payroll = await generateEmployeePayroll({
         companyId: employee.companyId,
         empid: employee.empid,
         year: params.year,
         month: params.month,
         salaryCalculationMethod: params.salaryCalculationMethod,
+        employee,
+        requestContext,
       });
 
       generated.push(payroll);
+      console.log('[PAYROLL] Successfully generated payroll for:', employee.empid);
+      payrollStageLog(
+        requestContext,
+        'employee_total',
+        Date.now() - employeeStartedAt,
+        employee.empid,
+      );
     } catch (error) {
+      const reason = error instanceof Error ? error.message : "Payroll generation failed";
+      console.log('[PAYROLL] Failed to generate payroll for:', employee.empid, 'Reason:', reason);
+      payrollStageLog(
+        requestContext,
+        'employee_total',
+        Date.now() - employeeStartedAt,
+        employee.empid,
+      );
       failed.push({
         empid: employee.empid,
-        reason:
-          error instanceof Error ? error.message : "Payroll generation failed",
+        reason,
       });
     }
   }
+
+  console.log('[PAYROLL] Generated count:', generated.length);
+  console.log('[PAYROLL] Failed count:', failed.length);
+  console.log('[PAYROLL] Generated empids:', generated.map(p => p.empid));
+  payrollDebugLog(process.env.PAYROLL_DEBUG === 'true', '[PAYROLL_TIMING]', {
+    activeEmployeeQueryMs: timing.activeEmployeeQueryMs,
+    weeklyOffLookupMs: timing.weeklyOffLookupMs,
+    onboardingLookupMs: timing.onboardingLookupMs,
+    onboardingFallbackLookupMs: timing.onboardingFallbackLookupMs,
+    attendanceLookupMs: timing.attendanceLookupMs,
+    leaveLookupMs: timing.leaveLookupMs,
+    calculationMs: timing.calculationMs,
+    payrollTransactionMs: timing.payrollTransactionMs,
+    employeesProcessed: employees.length,
+    generatedCount: generated.length,
+    failedCount: failed.length,
+  });
 
   return {
     generated,
@@ -1100,7 +1419,19 @@ export const previewAllEmployeePayroll = async (params: {
   generated: PayrollData[];
   failed: Array<{ empid: string; reason: string }>;
 }> => {
-  const employees = await getActiveEmployees(params.companyId);
+  const timing = createPayrollTiming();
+  const requestContext: PayrollRequestContext = {
+    requestId: `payroll-preview-${Date.now()}`,
+    debug: process.env.PAYROLL_DEBUG === 'true',
+    weeklyOffDays: [],
+    onboardingCache: new Map(),
+    timing,
+  };
+  if (params.companyId) {
+    await preloadOnboardingCache(params.companyId, requestContext.onboardingCache);
+  }
+  requestContext.weeklyOffDays = await getWeeklyOffDays(String(params.companyId ?? ''), timing);
+  const employees = await getActiveEmployees(params.companyId, timing);
 
   const generated: PayrollData[] = [];
   const failed: Array<{ empid: string; reason: string }> = [];
@@ -1117,6 +1448,8 @@ export const previewAllEmployeePayroll = async (params: {
         year: params.year,
         month: params.month,
         salaryCalculationMethod: params.salaryCalculationMethod,
+        employee,
+        requestContext,
       });
 
       generated.push(payroll);

@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:serv_app/shared/app_theme.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:math' as math;
@@ -14,11 +13,12 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:serv_app/services/api_service.dart';
 import 'package:serv_app/models/company_data.dart';
 
-// Theme (mapped to shared `app_theme`)
-const Color kPrimaryBackgroundTop = Colors.white;
-const Color kPrimaryBackgroundBottom = kPrimaryLight;
-const Color kAppBarColor = kPrimary;
-const Color kButtonColor = kPrimaryDark;
+// Theme
+const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
+const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
+const Color kAppBarColor = Color(0xFF6A1B9A);
+const Color kButtonColor = Color(0xFF655193);
+const Color kTextColor = Colors.white;
 
 /* ---------- Tracking helpers (match My Track) ---------- */
 
@@ -45,15 +45,19 @@ double _distM(LatLng a, LatLng b) {
 }
 
 /// Keep first point, then only add if moved >= minMeters
-List<_TrackPoint> _simplifyByDistance(List<_TrackPoint> points,
-    {double minMeters = 10}) {
+List<_TrackPoint> _simplifyByDistance(
+  List<_TrackPoint> points, {
+  double minMeters = 10,
+}) {
   if (points.length <= 1) return points;
   final kept = <_TrackPoint>[points.first];
+
   for (var i = 1; i < points.length; i++) {
     if (_distM(kept.last.ll, points[i].ll) >= minMeters) {
       kept.add(points[i]);
     }
   }
+
   return kept;
 }
 
@@ -98,9 +102,17 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
 
   // Tracking UI parity with My Track
   final DateFormat _timeFmt = DateFormat('hh:mm a');
-  bool _sessionEnded = false; 
+  bool _sessionEnded = false;
   Map<String, dynamic>? _cachedTrackingDay;
-  bool _trackingLoaded = false;// red end pin only if true
+  bool _trackingLoaded = false; // red end pin only if true
+  bool _showTrackingEvents = false;
+  List<Map<String, dynamic>> _trackingEvents = [];
+
+  // Date picker state
+  DateTime? selectedDate;
+  bool _isLoadingPath = false;
+  final TextEditingController dateController = TextEditingController();
+  MapType _mapType = MapType.normal;
 
   @override
   void initState() {
@@ -110,118 +122,134 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
     dateIso = passedDate.isNotEmpty
         ? passedDate
         : DateFormat('yyyy-MM-dd').format(DateTime.now());
+
+    // Initialize date picker with today
+    final now = DateTime.now();
+    selectedDate = now;
+    dateController.text =
+        "${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}";
+
     _loadLiveDetails();
   }
+
   void _renderTrackingPath(Map<String, dynamic> data) {
-  _sessionEnded = (data['endedAt'] != null && '${data['endedAt']}'.isNotEmpty);
+    _sessionEnded = (data['endedAt'] != null && '${data['endedAt']}'.isNotEmpty);
 
-  final raw = (data['pathMap'] is List) ? List.from(data['pathMap']) : [];
+    final raw = (data['pathMap'] is List) ? List.from(data['pathMap']) : [];
 
-  final pts = <_TrackPoint>[];
-  for (final e in raw) {
-    final m = Map<String, dynamic>.from(e as Map);
-    final lat = _toDoubleOrNull(m['lat']);
-    final lng = _toDoubleOrNull(m['lng']);
-    final tsRaw = (m['ts'] ?? '').toString();
-    if (lat == null || lng == null) continue;
+    final pts = <_TrackPoint>[];
+    for (final e in raw) {
+      final m = Map<String, dynamic>.from(e as Map);
+      final lat = _toDoubleOrNull(m['lat']);
+      final lng = _toDoubleOrNull(m['lng']);
+      final tsRaw = (m['ts'] ?? '').toString();
+      if (lat == null || lng == null) continue;
 
-    DateTime ts;
-    final tryIso = DateTime.tryParse(tsRaw);
-    if (tryIso != null) {
-      ts = tryIso.toLocal();
-    } else {
-      final millis = int.tryParse(tsRaw);
-      ts = millis != null
-          ? DateTime.fromMillisecondsSinceEpoch(millis).toLocal()
-          : DateTime.now();
+      DateTime ts;
+      final tryIso = DateTime.tryParse(tsRaw);
+      if (tryIso != null) {
+        ts = tryIso.toLocal();
+      } else {
+        final millis = int.tryParse(tsRaw);
+        ts = millis != null
+            ? DateTime.fromMillisecondsSinceEpoch(millis).toLocal()
+            : DateTime.now();
+      }
+
+      pts.add(_TrackPoint(lat, lng, ts));
     }
 
-    pts.add(_TrackPoint(lat, lng, ts));
-  }
+    if (pts.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No path data found for this day.')),
+      );
+      return;
+    }
 
-  if (pts.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('No path data found for this day.')),
-    );
-    return;
-  }
+    // Same behavior as My Track page: do not simplify points.
+    final points = pts;
+    final latLngs = points.map((p) => p.ll).toList(growable: false);
 
-  final points = _simplifyByDistance(pts, minMeters: 10);
-  final latLngs = points.map((p) => p.ll).toList(growable: false);
+    final mk = <Marker>{};
 
-  final mk = <Marker>{};
-
-  final start = points.first;
-  mk.add(
-    Marker(
-      markerId: const MarkerId('start'),
-      position: start.ll,
-      infoWindow: InfoWindow(title: 'Start • ${_timeFmt.format(start.ts)}'),
-      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
-    ),
-  );
-
-  for (var i = 1; i < points.length - 1; i++) {
-    final p = points[i];
+    final start = points.first;
     mk.add(
       Marker(
-        markerId: MarkerId('p$i'),
-        position: p.ll,
-        infoWindow: InfoWindow(title: _timeFmt.format(p.ts)),
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+        markerId: const MarkerId('start'),
+        position: start.ll,
+        infoWindow: InfoWindow(title: 'Start • ${_timeFmt.format(start.ts)}'),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
       ),
     );
-  }
 
-  if (_sessionEnded && points.length > 1) {
-    final end = points.last;
-    mk.add(
-      Marker(
-        markerId: const MarkerId('end'),
-        position: end.ll,
-        infoWindow: InfoWindow(title: 'End • ${_timeFmt.format(end.ts)}'),
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-      ),
+    for (var i = 1; i < points.length; i++) {
+      if (_sessionEnded && i == points.length - 1) continue;
+
+      final p = points[i];
+      mk.add(
+        Marker(
+          markerId: MarkerId('p$i'),
+          position: p.ll,
+          infoWindow: InfoWindow(title: _timeFmt.format(p.ts)),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+        ),
+      );
+    }
+
+    if (_sessionEnded && points.length > 1) {
+      final end = points.last;
+      mk.add(
+        Marker(
+          markerId: const MarkerId('end'),
+          position: end.ll,
+          infoWindow: InfoWindow(title: 'End • ${_timeFmt.format(end.ts)}'),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+        ),
+      );
+    }
+
+    final poly = Polyline(
+      polylineId: const PolylineId('path'),
+      points: latLngs,
+      width: 6,
+      color: const Color(0xFF7B5CD6),
     );
+
+    setState(() {
+      _markers
+        ..clear()
+        ..addAll(mk);
+      _polylines
+        ..clear()
+        ..add(poly);
+    });
+
+    _fitCameraToAll(latLngs, padding: 72.0);
   }
 
-  final poly = Polyline(
-    polylineId: const PolylineId('path'),
-    points: latLngs,
-    width: 6,
-    color: const Color(0xFF7B5CD6),
-  );
-
-  setState(() {
-    _markers
-      ..clear()
-      ..addAll(mk);
-    _polylines
-      ..clear()
-      ..add(poly);
-  });
-
-  _fitCameraToAll(latLngs, padding: 72.0);
-}
   // ----------- Load live details (attendance for the given emp/date) -----------
   Future<void> _loadLiveDetails() async {
-  if (_loadingDetails) return;
-  _loadingDetails = true;
+    if (_loadingDetails) return;
+    _loadingDetails = true;
+
     setState(() {
       _loading = true;
       _error = null;
     });
+
     try {
       final headers = {
         'Content-Type': 'application/json',
         if ((CompanyData.token ?? '').isNotEmpty)
           'Authorization': 'Bearer ${CompanyData.token}',
       };
+
       final uri = Uri.parse('${ApiService.baseUrl}/liveEmployeeDetails/$empid')
           .replace(queryParameters: {'dateIso': dateIso});
+
       final resp = await http
-    .get(uri, headers: headers)
-    .timeout(const Duration(seconds: 15));
+          .get(uri, headers: headers)
+          .timeout(const Duration(seconds: 15));
 
       if (resp.statusCode != 200) {
         throw 'HTTP ${resp.statusCode}: ${resp.body}';
@@ -242,6 +270,7 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
 
         final ci = (data['checkIn'] as String?);
         checkIn = (ci == null || ci.trim().isEmpty) ? null : ci;
+
         final co = (data['checkOut'] as String?);
         checkOut = (co == null || co.trim().isEmpty) ? null : co;
 
@@ -264,14 +293,15 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
         });
       }
     } catch (e) {
-   if (kDebugMode) {
-    print('Employee detail error: $e');
-  }
-  setState(() => _error = 'Failed to load employee details');
-}finally {
-  _loadingDetails = false;
-  if (mounted) setState(() => _loading = false);
-}
+      if (kDebugMode) {
+        print('Employee detail error: $e');
+      }
+
+      setState(() => _error = 'Failed to load employee details');
+    } finally {
+      _loadingDetails = false;
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   double? _toDoubleOrNull(dynamic v) {
@@ -283,7 +313,281 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
     return null;
   }
 
-  // ---------------- Buttons ----------------
+  List<Map<String, dynamic>> _getTrackingEvents(Map<String, dynamic> data) {
+    final raw = data['events'];
+    if (raw is! List) return [];
+
+    final events = raw
+        .where((e) => e is Map)
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .where((event) {
+          final type = event['type']?.toString();
+          return type == 'poor_gps' || type == 'gps_disabled' || type == 'account_logged_out';
+        })
+        .toList();
+
+    events.sort((a, b) {
+      final ta = _parseEventTs(a['ts']);
+      final tb = _parseEventTs(b['ts']);
+      if (ta == null && tb == null) return 0;
+      if (ta == null) return 1;
+      if (tb == null) return -1;
+      return tb.compareTo(ta);
+    });
+
+    return events;
+  }
+
+  DateTime? _parseEventTs(dynamic tsRaw) {
+    if (tsRaw == null) return null;
+
+    if (tsRaw is int) {
+      return DateTime.fromMillisecondsSinceEpoch(tsRaw).toLocal();
+    }
+
+    final stringValue = tsRaw.toString();
+    final parsedIso = DateTime.tryParse(stringValue);
+    if (parsedIso != null) return parsedIso.toLocal();
+
+    final millis = int.tryParse(stringValue);
+    return millis != null
+        ? DateTime.fromMillisecondsSinceEpoch(millis).toLocal()
+        : null;
+  }
+
+  String _formatTrackingEventType(String? type) {
+    switch (type) {
+      case 'poor_gps':
+        return 'Poor GPS Accuracy';
+      case 'gps_disabled':
+        return 'GPS Disabled';
+      case 'location_disabled':
+        return 'Location Disabled by User';
+      case 'account_logged_out':
+        return 'Account Logged Out';
+      case 'location_enabled':
+        return 'Location Enabled by User';
+      default:
+        return type ?? 'Unknown Event';
+    }
+  }
+
+  String _formatTrackingEventMessage(Map<String, dynamic> event) {
+    final type = event['type']?.toString();
+
+    if (type == 'poor_gps') {
+      final accuracy = _toDoubleOrNull(event['accuracy']);
+      if (accuracy != null) {
+        return 'GPS accuracy was poor. Location point was skipped. Accuracy: ${accuracy.toStringAsFixed(1)}m';
+      }
+      return 'GPS accuracy was poor. Location point was skipped.';
+    }
+
+    if (type == 'gps_disabled') {
+      return 'GPS/location service was disabled by the user.';
+    }
+
+    if (type == 'location_disabled') {
+      return 'Location Disabled by User';
+    }
+
+    if (type == 'location_enabled') {
+      return 'Location Enabled by User';
+    }
+
+    return event['message']?.toString() ?? _formatTrackingEventType(type);
+  }
+
+  String? _trackingEventDurationText(int index) {
+    final event = _trackingEvents[index];
+    final type = event['type']?.toString();
+
+    if (type != 'gps_disabled') return null;
+
+    final start = _parseEventTs(event['ts']);
+    if (start == null) return null;
+
+    // TODO: implement duration calculation
+  }
+
+  Widget _buildTrackingEventsSection() {
+    // Show the button only after the Geolocation button loads tracking data.
+    // This keeps the employee detail card clean and avoids showing events directly on the page.
+    if (!_showTrackingEvents) {
+      return const SizedBox.shrink();
+    }
+
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: _showTrackingEventsBottomSheet,
+        icon: const Icon(Icons.event_note),
+        label: const Text('View Tracking Event'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: kButtonColor,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showTrackingEventsBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.55,
+          minChildSize: 0.35,
+          maxChildSize: 0.9,
+          builder: (context, scrollController) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+              ),
+              child: Column(
+                children: [
+                  const SizedBox(height: 10),
+                  Container(
+                    width: 46,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.black26,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Tracking Events',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: kButtonColor,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: _trackingEvents.isEmpty
+                        ? const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(16),
+                              child: Text(
+                                'No tracking events found for this day.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                            ),
+                          )
+                        : ListView.builder(
+                            controller: scrollController,
+                            padding: const EdgeInsets.all(16),
+                            itemCount: _trackingEvents.length,
+                            itemBuilder: (context, index) {
+                              final event = _trackingEvents[index];
+                              final ts = _parseEventTs(event['ts']);
+                              final timeLabel =
+                                  ts != null ? _timeFmt.format(ts) : '-';
+                              final typeLabel = _formatTrackingEventType(
+                                event['type']?.toString(),
+                              );
+                              final message = _formatTrackingEventMessage(event);
+                              final durationText =
+                                  _trackingEventDurationText(index);
+
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF7F3FF),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: const Color(0xFFD8C9F0),
+                                  ),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Icon(
+                                      event['type']?.toString() == 'gps_disabled'
+                                          ? Icons.location_off
+                                          : Icons.gps_not_fixed,
+                                      size: 24,
+                                      color: kButtonColor,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            '$timeLabel - $typeLabel',
+                                            style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w700,
+                                              color: Colors.black87,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 5),
+                                          Text(
+                                            message,
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.black87,
+                                            ),
+                                          ),
+                                          if (durationText != null) ...[
+                                            const SizedBox(height: 5),
+                                            Text(
+                                              durationText,
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.grey.shade700,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 
   /// 1) Check-in Location — show stored attendance check-in coords (green pin)
   void _showCheckInOnMap() {
@@ -304,10 +608,12 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
             icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
           ),
         );
+
       _polylines.clear();
 
       _animate(pos, 18);
     }
+
     setState(() {});
   }
 
@@ -315,49 +621,101 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
   ///    Start: green default marker (index 0)
   ///    Interior points (1..N-1): orange pins with local time
   ///    End: red pin only if the session ended (endedAt present)
-  
   Future<void> _showLastTrackingPath() async {
-  if (_trackingLoaded && _cachedTrackingDay != null) {
-    final data = _cachedTrackingDay!;
-    _renderTrackingPath(data);
-    return;
-  }
+    if (_isLoadingPath) return;
+    setState(() => _isLoadingPath = true);
 
-  try {
-    final headers = {
-      'Content-Type': 'application/json',
-      'x-empid': empid,
-      if ((CompanyData.token ?? '').isNotEmpty)
-        'Authorization': 'Bearer ${CompanyData.token}',
-    };
+    // Use selected date from date picker
+    final selectedDateIso = _dateIso();
 
-    final uri = Uri.parse('${ApiService.baseUrl}/tracking/day')
-        .replace(queryParameters: {'dateIso': dateIso});
-
-    final resp = await http
-    .get(uri, headers: headers)
-    .timeout(const Duration(seconds: 15));
-
-    if (resp.statusCode != 200) {
-      throw 'HTTP ${resp.statusCode}: ${resp.body}';
+    // Always fetch fresh data when date changes (cache is cleared in _pickDate)
+    // Only use cache if we're loading the same date again without changing it
+    if (_trackingLoaded && _cachedTrackingDay != null) {
+      final data = _cachedTrackingDay!;
+      _trackingEvents = _getTrackingEvents(data);
+      _showTrackingEvents = true;
+      _renderTrackingPath(data);
+      setState(() => _isLoadingPath = false);
+      return;
     }
 
-    final json = jsonDecode(resp.body);
+    try {
+      final headers = {
+        'Content-Type': 'application/json',
+        'x-empid': empid,
+        if ((CompanyData.token ?? '').isNotEmpty)
+          'Authorization': 'Bearer ${CompanyData.token}',
+      };
 
-    final data = (json is Map && json['data'] is Map)
-        ? Map<String, dynamic>.from(json['data'])
-        : <String, dynamic>{};
+      final uri = Uri.parse('${ApiService.baseUrl}/tracking/day').replace(
+        queryParameters: {
+          'empid': empid,
+          'dateIso': selectedDateIso,
+        },
+      );
 
-    _cachedTrackingDay = data;
-    _trackingLoaded = true;
+      // Debug logs: request info
+      debugPrint('[EMP_DETAIL] GET ${uri.toString()}');
+      debugPrint('[EMP_DETAIL] header x-empid=${headers['x-empid']}');
+      debugPrint('[EMP_DETAIL] dateIso=$selectedDateIso');
 
-    _renderTrackingPath(data);
+      final resp = await http
+          .get(uri, headers: headers)
+          .timeout(const Duration(seconds: 15));
 
-  } catch (e) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('Geo load failed: $e')));
+      // Debug: full response body
+      debugPrint(
+        '[EMP_DETAIL] /tracking/day response status=${resp.statusCode} body=${resp.body}',
+      );
+
+      if (resp.statusCode != 200) {
+        throw 'HTTP ${resp.statusCode}: ${resp.body}';
+      }
+
+      final json = jsonDecode(resp.body);
+
+      final data = (json is Map && json['data'] is Map)
+          ? Map<String, dynamic>.from(json['data'])
+          : <String, dynamic>{};
+
+      // Debug: inspect pathMap presence and content
+      try {
+        final pm = data['pathMap'];
+        debugPrint('[EMP_DETAIL] data.keys=${data.keys.toList()}');
+
+        if (pm == null) {
+          debugPrint('[EMP_DETAIL] pathMap: null');
+        } else if (pm is List) {
+          debugPrint('[EMP_DETAIL] pathMap is List, length=${pm.length}');
+          if (pm.isNotEmpty) {
+            // show first 3 entries for sampling
+            for (var i = 0; i < (pm.length < 3 ? pm.length : 3); i++) {
+              debugPrint('[EMP_DETAIL] pathMap[$i]=${pm[i]}');
+            }
+          }
+        } else {
+          debugPrint(
+            '[EMP_DETAIL] pathMap present but not a List, type=${pm.runtimeType}',
+          );
+        }
+      } catch (e) {
+        debugPrint('[EMP_DETAIL] pathMap inspect error: $e');
+      }
+
+      _cachedTrackingDay = data;
+      _trackingEvents = _getTrackingEvents(data);
+      _trackingLoaded = true;
+      _showTrackingEvents = true;
+
+      _renderTrackingPath(data);
+      setState(() => _isLoadingPath = false);
+    } catch (e) {
+      setState(() => _isLoadingPath = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Geo load failed: $e')),
+      );
+    }
   }
-}
 
   /// 3) Branch Location — show attendance.expectedLat/Lng (lavender pin)
   void _showBranchOnMap() {
@@ -369,7 +727,9 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
       );
       return;
     }
+
     final pos = LatLng(expectedLat!, expectedLng!);
+
     _markers
       ..clear()
       ..add(
@@ -380,6 +740,7 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
           icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet),
         ),
       );
+
     _polylines.clear();
     _animate(pos, 18);
     setState(() {});
@@ -392,29 +753,45 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
 
   void _fitCameraToAll(List<LatLng> pts, {double padding = 48}) {
     if (_mapController == null || pts.isEmpty) return;
+
     double? minLat, maxLat, minLng, maxLng;
+
     for (final p in pts) {
-      minLat = (minLat == null) ? p.latitude : (p.latitude < minLat ? p.latitude : minLat);
-      maxLat = (maxLat == null) ? p.latitude : (p.latitude > maxLat ? p.latitude : maxLat);
-      minLng = (minLng == null) ? p.longitude : (p.longitude < minLng ? p.longitude : minLng);
-      maxLng = (maxLng == null) ? p.longitude : (p.longitude > maxLng ? p.longitude : maxLng);
+      minLat = (minLat == null)
+          ? p.latitude
+          : (p.latitude < minLat ? p.latitude : minLat);
+      maxLat = (maxLat == null)
+          ? p.latitude
+          : (p.latitude > maxLat ? p.latitude : maxLat);
+      minLng = (minLng == null)
+          ? p.longitude
+          : (p.longitude < minLng ? p.longitude : minLng);
+      maxLng = (maxLng == null)
+          ? p.longitude
+          : (p.longitude > maxLng ? p.longitude : maxLng);
     }
+
     final bounds = LatLngBounds(
       southwest: LatLng(minLat!, minLng!),
       northeast: LatLng(maxLat!, maxLng!),
     );
+
     _mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, padding));
   }
+
   @override
   void dispose() {
     _mapController?.dispose();
+    dateController.dispose();
     super.dispose();
   }
+
   // ---------------- UI helpers ----------------
   String _fmt(String? v, {String dash = '-'}) =>
       (v == null || v.trim().isEmpty) ? dash : v;
+
   String _fmtNum(num? v) => (v == null) ? '-' : v.toString();
- 
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -445,9 +822,11 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                 ? Center(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
-                      child: Text(_error!,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: Colors.red)),
+                      child: Text(
+                        _error!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.red),
+                      ),
                     ),
                   )
                 : ListView(
@@ -456,8 +835,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                       Text(
                         (name.isEmpty ? '-' : name),
                         style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
+                          fontSize: 18, // Changed from 20 to 18
+                          fontWeight: FontWeight.w600, // Changed from w700 to w600
                           color: kButtonColor,
                         ),
                       ),
@@ -470,12 +849,75 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                       _DetailRow(label: 'Location', value: _fmt(branchName)),
                       _DetailRow(label: 'Check-in', value: _fmt(checkIn)),
                       _DetailRow(
-                          label: 'Check-out', value: _fmt(checkOut, dash: '—')),
-                      _DetailRow(
-                          label: 'Latitude', value: _fmtNum(checkInLat)),
-                      _DetailRow(
-                          label: 'Longitude', value: _fmtNum(checkInLng)),
+                        label: 'Check-out',
+                        value: _fmt(checkOut, dash: '—'),
+                      ),
+                      _DetailRow(label: 'Latitude', value: _fmtNum(checkInLat)),
+                      _DetailRow(label: 'Longitude', value: _fmtNum(checkInLng)),
                       _DetailRow(label: 'Status', value: _fmt(status)),
+
+                      const SizedBox(height: 16),
+
+                      // Date selector row
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 2,
+                            child: TextFormField(
+                              controller: dateController,
+                              readOnly: true,
+                              onTap: _pickDate,
+                              decoration: InputDecoration(
+                                labelText: "Choose date",
+                                prefixIcon: const Icon(
+                                  Icons.calendar_today,
+                                  color: kButtonColor,
+                                ),
+                                filled: true,
+                                fillColor: Colors.white,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: const BorderSide(
+                                    color: kButtonColor,
+                                    width: 2,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          // Map type buttons
+                          Expanded(
+                            flex: 1,
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 4,
+                              alignment: WrapAlignment.start,
+                              children: [
+                                ChoiceChip(
+                                  label: const Text('Map'),
+                                  selected: _mapType == MapType.normal,
+                                  onSelected: (_) =>
+                                      setState(() => _mapType = MapType.normal),
+                                  materialTapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                ChoiceChip(
+                                  label: const Text('Satellite'),
+                                  selected: _mapType == MapType.satellite,
+                                  onSelected: (_) =>
+                                      setState(() => _mapType = MapType.satellite),
+                                  materialTapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
 
                       const SizedBox(height: 16),
 
@@ -490,8 +932,7 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: kButtonColor,
                                 foregroundColor: Colors.white,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 12),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),
@@ -507,8 +948,7 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.orange.shade600,
                                 foregroundColor: Colors.white,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 12),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),
@@ -548,48 +988,66 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: Colors.black12),
                           boxShadow: const [
-                            BoxShadow(blurRadius: 4, color: Colors.black12)
+                            BoxShadow(blurRadius: 4, color: Colors.black12),
                           ],
                         ),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(12),
-                          child: GoogleMap(
-                            initialCameraPosition: _initialCam,
-                            // ✨ Enable smooth interactivity
-                            zoomControlsEnabled: true,
-                            myLocationButtonEnabled: true,
-                            mapToolbarEnabled: true,
-                            zoomGesturesEnabled: true,
-                            scrollGesturesEnabled: true,
-                            rotateGesturesEnabled: true,
-                            tiltGesturesEnabled: true,
+                          child: Stack(
+                            children: [
+                              GoogleMap(
+                                initialCameraPosition: _initialCam,
+                                // ✨ Enable smooth interactivity
+                                zoomControlsEnabled: true,
+                                myLocationButtonEnabled: true,
+                                mapToolbarEnabled: true,
+                                zoomGesturesEnabled: true,
+                                scrollGesturesEnabled: true,
+                                rotateGesturesEnabled: true,
+                                tiltGesturesEnabled: true,
 
-                            // 👇 This is the key so gestures win over the ListView
-                            gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
-                              Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer()),
-                            },
+                                // 👇 This is the key so gestures win over the ListView
+                                gestureRecognizers:
+                                    <Factory<OneSequenceGestureRecognizer>>{
+                                  Factory<OneSequenceGestureRecognizer>(
+                                    () => EagerGestureRecognizer(),
+                                  ),
+                                },
 
-                            myLocationEnabled: false,
-                            markers: _markers,
-                            polylines: _polylines,
-                            onMapCreated: (c) {
-                              _mapController = c;
-                              if (checkInLat != null && checkInLng != null) {
-                                _mapController!.moveCamera(
-                                  CameraUpdate.newLatLngZoom(
-                                      LatLng(checkInLat!, checkInLng!), 18),
-                                );
-                              }
-                            },
+                                myLocationEnabled: false,
+                                markers: _markers,
+                                polylines: _polylines,
+                                onMapCreated: (c) {
+                                  _mapController = c;
+                                  if (checkInLat != null && checkInLng != null) {
+                                    _mapController!.moveCamera(
+                                      CameraUpdate.newLatLngZoom(
+                                        LatLng(checkInLat!, checkInLng!),
+                                        18,
+                                      ),
+                                    );
+                                  }
+                                },
+                                mapType: _mapType,
+                              ),
+                              if (_isLoadingPath)
+                                const Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                            ],
                           ),
                         ),
                       ),
 
                       const SizedBox(height: 16),
+                      _buildTrackingEventsSection(),
+                      const SizedBox(height: 16),
                       const Text(
                         'Open Shift Log',
-                        style:
-                            TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       const SizedBox(height: 8),
                       _ShiftLogRow(
@@ -602,6 +1060,43 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                   ),
       ),
     );
+  }
+
+  String _dateIso() {
+    final d = selectedDate ?? DateTime.now();
+    return '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _pickDate() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: selectedDate ?? DateTime.now(),
+      firstDate: DateTime(2023),
+      lastDate: DateTime.now(), // Don't allow future dates
+    );
+
+    if (picked != null) {
+      final formattedDisplayDate =
+          "${picked.day.toString().padLeft(2, '0')}/"
+          "${picked.month.toString().padLeft(2, '0')}/"
+          "${picked.year}";
+
+      setState(() {
+        selectedDate = picked;
+        dateController.text = formattedDisplayDate;
+        // Clear cached tracking when date changes
+        _cachedTrackingDay = null;
+        _trackingLoaded = false;
+        _showTrackingEvents = false;
+        _trackingEvents = [];
+        // Clear map markers and polylines
+        _markers.clear();
+        _polylines.clear();
+      });
+
+      // Reload tracking for new date
+      await _showLastTrackingPath();
+    }
   }
 }
 
@@ -628,7 +1123,10 @@ class _DetailRow extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: Text(value, style: const TextStyle(color: Colors.black87)),
+            child: Text(
+              value,
+              style: const TextStyle(color: Colors.black87),
+            ),
           ),
         ],
       ),
@@ -641,6 +1139,7 @@ class _ShiftLogRow extends StatelessWidget {
   final String entryValue;
   final String exitLabel;
   final String exitValue;
+
   const _ShiftLogRow({
     required this.entryLabel,
     required this.entryValue,
@@ -661,7 +1160,10 @@ class _ShiftLogRow extends StatelessWidget {
         children: [
           Expanded(child: Text('$entryLabel: $entryValue')),
           Expanded(
-            child: Text('$exitLabel: $exitValue', textAlign: TextAlign.right),
+            child: Text(
+              '$exitLabel: $exitValue',
+              textAlign: TextAlign.right,
+            ),
           ),
         ],
       ),
@@ -691,7 +1193,10 @@ class _StatusChip extends StatelessWidget {
       ),
       child: Text(
         status,
-        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

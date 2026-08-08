@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -26,72 +28,26 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
   final TextEditingController searchController = TextEditingController();
 
   List<Map<String, dynamic>> _rows = [];
+  List<Map<String, dynamic>> _filteredDisplay = [];
+  List<int> _filteredBackendIndices = [];
   int _cPending = 0, _cApproved = 0, _cRejected = 0;
   bool _loading = false;
   bool _isFetching = false;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
+  int _currentPage = 1;
+  final int _pageSize = 20;
+  int _requestGeneration = 0;
+  String _searchQuery = '';
+  Timer? _debounceTimer;
+  final ScrollController _scrollController = ScrollController();
   final Set<String> _processingRequestIds = <String>{};
 
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     _loadAll(adjustForType: true);
-  }
-
-  // Calculate paid/unpaid leave totals for an employee for the current month
-  Map<String, double> _calculateEmployeeLeaveTotals(String empid, List<Map<String, dynamic>> allLeaves) {
-    double paidTotal = 0;
-    double unpaidTotal = 0;
-    
-    final now = DateTime.now();
-    final currentMonth = now.month;
-    final currentYear = now.year;
-
-    for (var leave in allLeaves) {
-      // Only count approved leaves with leavePayType
-      if (leave['status'] != 'Approved' || leave['leavePayType'] == null) continue;
-      if (leave['empid']?.toString() != empid) continue;
-      
-      final leavePayType = leave['leavePayType']?.toString().toLowerCase();
-      if (leavePayType != 'paid' && leavePayType != 'unpaid') continue;
-
-      // Parse leave dates
-      final startDateStr = leave['startDate']?.toString() ?? leave['fromDate']?.toString();
-      final endDateStr = leave['endDate']?.toString() ?? leave['toDate']?.toString();
-      
-      if (startDateStr == null || endDateStr == null) continue;
-
-      DateTime? startDate;
-      DateTime? endDate;
-      
-      try {
-        startDate = DateTime.parse(startDateStr);
-        endDate = DateTime.parse(endDateStr);
-      } catch (e) {
-        continue;
-      }
-
-      // Calculate duration in current month
-      double daysInMonth = 0;
-      
-      for (DateTime date = startDate; date.isBefore(endDate.add(const Duration(days: 1))); date = date.add(const Duration(days: 1))) {
-        if (date.month == currentMonth && date.year == currentYear) {
-          daysInMonth += 1;
-        }
-      }
-
-      // Handle half-day leaves
-      if (leave['session'] != null && (leave['session'] == 'Morning' || leave['session'] == 'Afternoon')) {
-        daysInMonth = daysInMonth / 2;
-      }
-
-      if (leavePayType == 'paid') {
-        paidTotal += daysInMonth;
-      } else {
-        unpaidTotal += daysInMonth;
-      }
-    }
-
-    return {'paid': paidTotal, 'unpaid': unpaidTotal};
   }
 
   bool _isOtherLocationTab(String label) {
@@ -100,34 +56,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
   }
 
   String _apiTypeForTab(String ui) {
-    final t = ui.trim().toLowerCase();
-
-    if (kDebugMode) {
-      _log('Getting API type for UI tab: $t');
-    }
-
-    if (t == 'other location' || t == 'other_location') {
-      return 'Other Location';
-    }
-
-    if (t == 'permission' ||
-        t == 'over time' ||
-        t == 'half day leave' ||
-        t == 'comp off' ||
-        t == 'leave type') {
-      _log('Fetching all requests for client-side filtering - tab: $t');
-      return 'all';
-    }
-
-    switch (t) {
-      case 'late check in':
-        return 'attendance:late_check_in';
-      case 'early check out':
-        return 'attendance:early_check_out';
-      case 'all':
-      default:
-        return 'all';
-    }
+    return ui;
   }
 
   String _normalizeDecision(String input) {
@@ -214,11 +143,6 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
       'category',
       'type'
     ]);
-    if (leaveType.isNotEmpty) {
-      _log('Found leave type: "$leaveType" in item: ${it.toString()}');
-    } else {
-      _log('No leave type found in item, available keys: ${it.keys.toList()}');
-    }
     return leaveType;
   }
 
@@ -230,9 +154,6 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
         ltLower == 'permission' ||
         ltLower == 'permission_time' ||
         rsn.contains('permission');
-    if (isMatch) {
-      _log('Permission match - Type: "$lt", Reason: "$rsn"');
-    }
     return isMatch;
   }
 
@@ -245,9 +166,6 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
         ltLower == 'over_time' ||
         rsn.contains('overtime') ||
         rsn.contains('over time');
-    if (isMatch) {
-      _log('Overtime match - Type: "$lt", Reason: "$rsn"');
-    }
     return isMatch;
   }
 
@@ -261,9 +179,6 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
         ltLower == 'half_day' ||
         ltLower == 'half-day' ||
         (rsn.contains('half') && rsn.contains('day'));
-    if (isMatch) {
-      _log('Half day match - Type: "$lt", Reason: "$rsn"');
-    }
     return isMatch;
   }
 
@@ -277,9 +192,6 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
         ltLower == 'comp_off' ||
         rsn.contains('comp off') ||
         rsn.contains('compoff');
-    if (isMatch) {
-      _log('Comp off match - Type: "$lt", Reason: "$rsn"');
-    }
     return isMatch;
   }
 
@@ -304,116 +216,29 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
 
   List<Map<String, dynamic>> _filterByTabSmart(
       List<Map<String, dynamic>> items, String tab) {
-    final t = tab.trim().toLowerCase();
-    if (kDebugMode) {
-      _log('=== FILTERING DEBUG START ===');
-      _log('Selected dropdown value: "$tab"');
-      _log('Normalized tab: "$t"');
-      _log('Total items before filtering: ${items.length}');
-      final itemsToLog = items.take(3).toList();
-      for (var i = 0; i < itemsToLog.length; i++) {
-        _log(
-            'Item $i - Source: "${itemsToLog[i]['source']}", Type: "${itemsToLog[i]['type']}"');
-      }
-    }
-
-    if (t == 'late check in' || t == 'early check out') {
-      final result = items.where((item) {
-        final source = (item['source'] ?? '').toString().toLowerCase();
-        final type = (item['type'] ?? '').toString().toLowerCase();
-
-        if (source != 'attendance') return false;
-
-        final isMatch = type == t;
-        if (isMatch) {
-          _log('Found attendance request - Source: $source, Type: "$type"');
-        }
-        return isMatch;
-      }).toList();
-
-      _log('Found ${result.length} items matching tab: $t');
-      return result;
-    }
-
-    if (t == 'permission' ||
-        t == 'over time' ||
-        t == 'half day leave' ||
-        t == 'comp off' ||
-        t == 'leave type') {
-      final result = items.where((item) {
-        final source = (item['source'] ?? '').toString().toLowerCase();
-        final backendType = (item['type'] ?? '').toString().toLowerCase();
-
-        if (source != 'leaves') return false;
-
-        final isMatch = backendType == t;
-        if (isMatch) {
-          _log(
-              'Found leave request - Source: $source, Backend Type: "$backendType"');
-        }
-        return isMatch;
-      }).toList();
-
-      _log('Found ${result.length} items matching tab: $t');
-      return result;
-    }
-
-    if (t == 'leave type') {
-      final result = items.where((item) {
-        final source = (item['source'] ?? '').toString().toLowerCase();
-        final backendType = (item['type'] ?? '').toString().toLowerCase();
-
-        if (source != 'leaves') return false;
-
-        final isSpecialType = backendType == 'permission' ||
-            backendType == 'over time' ||
-            backendType == 'half day leave' ||
-            backendType == 'comp off';
-
-        final isGenericLeave = !isSpecialType && backendType == 'leave type';
-        if (isGenericLeave) {
-          _log(
-              'Found generic leave request - Source: $source, Backend Type: "$backendType"');
-        }
-        return isGenericLeave;
-      }).toList();
-
-      _log('Found ${result.length} generic leave type items');
-      if (kDebugMode) {
-        _log('=== FILTERING DEBUG END ===');
-      }
-      return result;
-    }
-
-    if (t == 'other location' || t == 'other_location') {
-      return items.where((item) {
-        final source = (item['source'] ?? '').toString().toLowerCase();
-        return source == 'other_location';
-      }).toList();
-    }
-
-    _log(
-        'No specific filter for tab "$t", returning all ${items.length} items');
-    if (kDebugMode) {
-      _log('=== FILTERING DEBUG END ===');
-    }
     return items;
   }
 
-  Future<List<Map<String, dynamic>>> _fetchByTabAndStatus(
-      String tab, String status) async {
+  Future<ApprovalsPage> _fetchByTabAndStatus(
+    String tab,
+    String status, {
+    int page = 1,
+    int limit = 20,
+  }) async {
     final startTime = DateTime.now();
-    _log('Fetching data for tab: $tab, status: $status');
-
-    List<Map<String, dynamic>> result;
+    final endpoint = _isOtherLocationTab(tab)
+        ? '/attendance/other-location'
+        : '/attendance/approvals';
 
     try {
       if (_isOtherLocationTab(tab)) {
-        final data = await ApiService.fetchOtherLocationApprovals(
+        final pageResult = await ApiService.fetchOtherLocationApprovalsPaginated(
           status: status,
+          page: page,
+          limit: limit,
         );
 
-        result = data
+        final data = pageResult.data
             .map(
               (item) => {
                 ...item,
@@ -422,212 +247,248 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
               },
             )
             .toList();
-      } else {
-        final t = tab.trim().toLowerCase();
 
-        if (t == 'all') {
-          _log('Fetching all approvals without duplicate merge');
+        final endTime = DateTime.now();
+        PerformanceLogger.logApiCall(
+          screen: 'LeaveApprovalsScreen',
+          endpoint: endpoint,
+          startTime: startTime,
+          endTime: endTime,
+          statusCode: 200,
+          itemCount: data.length,
+        );
 
-          final data = await ApiService.fetchApprovals(
-            type: 'All',
-            status: status,
-          );
-
-          final uniqueMap = <String, Map<String, dynamic>>{};
-
-          for (final item in data) {
-            final id = _pickAnyId(item);
-            final source = (item['source'] ?? '').toString();
-            final empid =
-                (item['empid'] ?? item['empId'] ?? item['employeeId'] ?? '')
-                    .toString();
-            final date =
-                (item['requestDate'] ?? item['date'] ?? item['startDate'] ?? '')
-                    .toString();
-            final type =
-                (item['type'] ?? item['category'] ?? item['leaveType'] ?? '')
-                    .toString();
-
-            final key =
-                id.isNotEmpty ? '$source-$id' : '$source-$empid-$date-$type';
-
-            uniqueMap[key] = item;
-          }
-
-          result = _filterByTabSmart(
-            uniqueMap.values.toList(),
-            tab,
-          );
-
-          if (kDebugMode) {
-            _log('Fetched all approvals: ${data.length}');
-            _log(
-                'Unique approvals after removing duplicates: ${result.length}');
-          }
-        } else if (t == 'late check in' || t == 'early check out') {
-          _log('Fetching attendance data for tab: $tab');
-
-          final data = await ApiService.fetchAttendanceApprovals(
-            status: status,
-          );
-
-          if (kDebugMode) {
-            _log('Fetched ${data.length} attendance items');
-          }
-
-          result = _filterByTabSmart(data, tab);
-        } else if (t == 'permission' ||
-            t == 'over time' ||
-            t == 'half day leave' ||
-            t == 'comp off' ||
-            t == 'leave type') {
-          _log('Fetching leave data for tab: $tab');
-
-          final data = await ApiService.fetchLeaveApprovals(
-            status: status,
-          );
-
-          if (kDebugMode) {
-            _log('Fetched ${data.length} leave items');
-          }
-
-          result = _filterByTabSmart(data, tab);
-        } else {
-          final apiType = _apiTypeForTab(tab);
-          _log('API type for tab "$tab": $apiType');
-
-          final data = await ApiService.fetchApprovals(
-            type: apiType,
-            status: status,
-          );
-
-          if (kDebugMode) {
-            _log('Fetched ${data.length} items from API');
-          }
-
-          result = _filterByTabSmart(data, tab);
-        }
+        return ApprovalsPage(
+          data: data,
+          pagination: pageResult.pagination,
+          totals: pageResult.totals,
+        );
       }
 
-      final endTime = DateTime.now();
+      final apiType = _apiTypeForTab(tab);
+      final pageResult = await ApiService.fetchApprovalsPaginated(
+        type: apiType,
+        status: status,
+        search: _searchQuery,
+        page: page,
+        limit: limit,
+      );
 
+      final endTime = DateTime.now();
       PerformanceLogger.logApiCall(
         screen: 'LeaveApprovalsScreen',
-        endpoint: 'approvals/$tab',
+        endpoint: endpoint,
         startTime: startTime,
         endTime: endTime,
         statusCode: 200,
-        itemCount: result.length,
+        itemCount: pageResult.data.length,
       );
 
-      return result;
+      return pageResult;
     } catch (e) {
       final endTime = DateTime.now();
-
       PerformanceLogger.logApiCall(
         screen: 'LeaveApprovalsScreen',
-        endpoint: 'approvals/$tab',
+        endpoint: endpoint,
         startTime: startTime,
         endTime: endTime,
         statusCode: 0,
         error: e.toString(),
       );
-
       rethrow;
     }
   }
 
-  Future<void> _loadAll({bool adjustForType = false}) async {
-    if (_isFetching) {
-      _log('Approval fetch already running. Duplicate call skipped.');
+  Future<void> _loadAll({bool adjustForType = false, bool append = false}) async {
+    if (_isFetching && append) {
+      if (kDebugMode) {
+        _log('Approval fetch already running. Duplicate load-more skipped.');
+      }
       return;
     }
 
     _isFetching = true;
 
-    if (mounted) {
-      setState(() => _loading = true);
+    if (!append) {
+      _currentPage = 1;
+      _hasMore = true;
+      if (mounted) {
+        setState(() => _loading = true);
+      }
+    } else {
+      if (mounted) {
+        setState(() => _isLoadingMore = true);
+      }
     }
 
+    final generation = ++_requestGeneration;
+    final startTime = DateTime.now();
+
     try {
-      final allData = await _fetchByTabAndStatus(selectedTab, 'All');
+      final pageResult = await _fetchByTabAndStatus(
+        selectedTab,
+        selectedStatusFilter,
+        page: _currentPage,
+        limit: _pageSize,
+      );
 
-      String rowStatus(Map<String, dynamic> e) {
-        return (e['status'] ?? e['approvalStatus'] ?? '').toString().trim();
-      }
-
-      final pending = allData.where((e) => rowStatus(e) == 'Pending').toList();
-      final approved =
-          allData.where((e) => rowStatus(e) == 'Approved').toList();
-      final rejected =
-          allData.where((e) => rowStatus(e) == 'Rejected').toList();
-
-      final newPendingCount = pending.length;
-      final newApprovedCount = approved.length;
-      final newRejectedCount = rejected.length;
-
-      String nextStatus = selectedStatusFilter;
-
-      if (adjustForType) {
-        final emptyNow = (nextStatus == 'Pending' && newPendingCount == 0) ||
-            (nextStatus == 'Approved' && newApprovedCount == 0) ||
-            (nextStatus == 'Rejected' && newRejectedCount == 0);
-
-        if (emptyNow) {
-          if (newPendingCount > 0) {
-            nextStatus = 'Pending';
-          } else if (newApprovedCount > 0) {
-            nextStatus = 'Approved';
-          } else if (newRejectedCount > 0) {
-            nextStatus = 'Rejected';
-          }
+      if (generation != _requestGeneration) {
+        if (append && mounted) {
+          setState(() => _isLoadingMore = false);
         }
+        return;
       }
 
-      List<Map<String, dynamic>> current;
-      switch (nextStatus) {
-        case 'Approved':
-          current = approved;
-          break;
-        case 'Rejected':
-          current = rejected;
-          break;
-        case 'Pending':
-        default:
-          current = pending;
-          break;
+      final newItems = pageResult.data;
+      final pagination = pageResult.pagination;
+      final totals = pageResult.totals;
+
+      final backendMs = DateTime.now().difference(startTime).inMilliseconds;
+      if (kDebugMode) {
+        _log(
+          'Approvals loaded: type=$selectedTab, status=$selectedStatusFilter, '
+          'page=$_currentPage, limit=$_pageSize, items=${newItems.length}, '
+          'total=${pagination['total']}, hasMore=${pagination['hasMore']}, '
+          'backendMs=$backendMs, frontendMs=${DateTime.now().difference(startTime).inMilliseconds}',
+        );
       }
 
       if (!mounted) return;
 
-      setState(() {
-        _cPending = newPendingCount;
-        _cApproved = newApprovedCount;
-        _cRejected = newRejectedCount;
-        selectedStatusFilter = nextStatus;
-        _rows = current;
-      });
-    } catch (e) {
-      _log('Failed to fetch approvals without clearing old data: $e');
+      final mergedItems = <Map<String, dynamic>>[];
+      final seenKeys = <String>{};
+      for (final item in [...(append ? _rows : <Map<String, dynamic>>[]), ...newItems]) {
+        final key = _stableKey(item);
+        if (seenKeys.add(key)) mergedItems.add(item);
+      }
 
+      setState(() {
+        _rows = mergedItems;
+        _hasMore = pagination['hasMore'] == true;
+        _isLoadingMore = false;
+        _loading = false;
+
+        if (totals.isNotEmpty) {
+          _cPending = totals['Pending'] ?? _cPending;
+          _cApproved = totals['Approved'] ?? _cApproved;
+          _cRejected = totals['Rejected'] ?? _cRejected;
+        } else {
+          final total = (pagination['total'] as num?)?.toInt() ?? _rows.length;
+          if (selectedStatusFilter == 'Pending') _cPending = total;
+          if (selectedStatusFilter == 'Approved') _cApproved = total;
+          if (selectedStatusFilter == 'Rejected') _cRejected = total;
+        }
+      });
+
+      _applySearch();
+
+      if (adjustForType && _rows.isEmpty) {
+        final nextStatus = _cPending > 0
+            ? 'Pending'
+            : _cApproved > 0
+                ? 'Approved'
+                : _cRejected > 0
+                    ? 'Rejected'
+                    : null;
+        if (nextStatus != null && nextStatus != selectedStatusFilter) {
+          _isFetching = false;
+          selectedStatusFilter = nextStatus;
+          await _loadAll(adjustForType: false);
+          return;
+        }
+      }
+    } catch (e) {
+      if (generation != _requestGeneration) {
+        if (append && mounted) {
+          setState(() => _isLoadingMore = false);
+        }
+        return;
+      }
+      if (kDebugMode) {
+        _log('Failed to fetch approvals (page=$_currentPage): $e');
+      }
       if (mounted) {
         _snack(
           e.toString().contains('429')
               ? 'Too many requests. Please wait and try again.'
               : 'Failed to fetch approvals. Existing data is kept.',
         );
+        setState(() {
+          _loading = false;
+          _isLoadingMore = false;
+        });
       }
-
-      // Important:
-      // Do not clear _rows.
-      // Do not set counts to 0.
     } finally {
       _isFetching = false;
+    }
+  }
 
-      if (mounted) {
-        setState(() => _loading = false);
+  Future<void> _loadMore() async {
+    if (!_hasMore || _isFetching || _isLoadingMore) return;
+    setState(() => _isLoadingMore = true);
+    _currentPage++;
+    await _loadAll(append: true);
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final max = _scrollController.position.maxScrollExtent;
+    final current = _scrollController.position.pixels;
+    if (current >= max - 200) {
+      _loadMore();
+    }
+  }
+
+  String _stableKey(Map<String, dynamic> item) {
+    final source = (item['source'] ?? '').toString();
+    final id = _pickAnyId(item);
+    if (id.isNotEmpty) return '${source}_$id';
+    final empid = (item['empid'] ?? item['empId'] ?? item['employeeId'] ?? '').toString();
+    final date = (item['requestDate'] ?? item['date'] ?? item['startDate'] ?? '').toString();
+    final type = (item['type'] ?? item['category'] ?? '').toString();
+    return '${source}_${empid}_${date}_$type';
+  }
+
+  void _applySearch() {
+    final displayList = _rows.map(_toDisplay).toList();
+    final q = _searchQuery.trim().toLowerCase();
+
+    final indices = <int>[];
+    final filtered = <Map<String, dynamic>>[];
+
+    for (int i = 0; i < displayList.length; i++) {
+      final disp = displayList[i];
+      final hit = q.isEmpty ||
+          disp.values.any((v) => (v ?? '').toString().toLowerCase().contains(q));
+      if (hit) {
+        indices.add(i);
+        filtered.add(disp);
       }
     }
+
+    if (!mounted) return;
+    setState(() {
+      _filteredDisplay = filtered;
+      _filteredBackendIndices = indices;
+    });
+  }
+
+  void _onSearchChanged(String value) {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () async {
+      _searchQuery = value;
+      _currentPage = 1;
+      _hasMore = true;
+      await _loadAll();
+    });
+  }
+
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    _scrollController.dispose();
+    searchController.dispose();
+    super.dispose();
   }
 
   void _snack(String msg) {
@@ -641,6 +502,14 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
         ),
       ),
     );
+  }
+
+  double _monthlySummaryValue(Map<String, dynamic> item, String key) {
+    final summary = item['monthlyLeaveSummary'];
+    if (summary is! Map) return 0;
+    final value = summary[key];
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0;
   }
 
   Map<String, dynamic> _toDisplay(Map<String, dynamic> item) {
@@ -828,20 +697,8 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
 
     final today = DateFormat('dd MMM yyyy').format(DateTime.now());
 
-    final displayList = _rows.map(_toDisplay).toList();
-    final q = searchController.text.toLowerCase();
-
-    final filteredIndices = <int>[];
-    final filteredDisplay = <Map<String, dynamic>>[];
-    for (int i = 0; i < displayList.length; i++) {
-      final disp = displayList[i];
-      final hit = disp.values
-          .any((v) => (v ?? '').toString().toLowerCase().contains(q));
-      if (hit) {
-        filteredIndices.add(i);
-        filteredDisplay.add(disp);
-      }
-    }
+    final filteredIndices = _filteredBackendIndices;
+    final filteredDisplay = _filteredDisplay;
 
     return Scaffold(
       backgroundColor: kBgTop,
@@ -964,7 +821,11 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                                   child: DropdownButton<String>(
                                     value: selectedTab,
                                     onChanged: (val) async {
-                                      setState(() => selectedTab = val!);
+                                      setState(() {
+                                        selectedTab = val!;
+                                        _currentPage = 1;
+                                        _hasMore = true;
+                                      });
                                       await _loadAll(adjustForType: true);
                                     },
                                     icon: const Icon(
@@ -1022,7 +883,11 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                                     child: DropdownButton<String>(
                                       value: selectedTab,
                                       onChanged: (val) async {
-                                        setState(() => selectedTab = val!);
+                                        setState(() {
+                                          selectedTab = val!;
+                                          _currentPage = 1;
+                                          _hasMore = true;
+                                        });
                                         await _loadAll(adjustForType: true);
                                       },
                                       icon: const Icon(
@@ -1087,7 +952,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                 ),
                 child: TextField(
                   controller: searchController,
-                  onChanged: (_) => setState(() {}),
+                  onChanged: _onSearchChanged,
                   style: const TextStyle(
                     fontSize: 14,
                     color: kTextPrimary,
@@ -1162,6 +1027,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                             ),
                           )
                         : ListView.separated(
+                            controller: _scrollController,
                             padding: const EdgeInsets.symmetric(horizontal: 10),
                             physics: const BouncingScrollPhysics(),
                             itemCount: filteredDisplay.length,
@@ -1174,10 +1040,11 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
 
                               final tappable = _isRowTappable(backendItem);
 
-                              final requestKey = _pickAnyId(backendItem)
-                                      .isNotEmpty
-                                  ? _pickAnyId(backendItem)
-                                  : '${backendItem['empid']}_${backendItem['requestDate']}_${backendItem['type']}';
+                              final requestKey = _stableKey(backendItem);
+                              final paidLeaveDays =
+                                  _monthlySummaryValue(backendItem, 'paid');
+                              final unpaidLeaveDays =
+                                  _monthlySummaryValue(backendItem, 'unpaid');
 
                               // Use unified generic-leave detection
                               final isGenericLeave =
@@ -1185,6 +1052,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                               viewItem['isLeaveRequest'] = isGenericLeave;
 
                               final card = Material(
+                                key: ValueKey(requestKey),
                                 color: Colors.transparent,
                                 borderRadius: BorderRadius.circular(18),
                                 child: InkWell(
@@ -1207,14 +1075,8 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                                           _processingRequestIds.contains(
                                         requestKey,
                                       ),
-                                      paidLeaveDays: _calculateEmployeeLeaveTotals(
-                                        backendItem['empid']?.toString() ?? backendItem['id']?.toString() ?? '',
-                                        _rows,
-                                      )['paid'],
-                                      unpaidLeaveDays: _calculateEmployeeLeaveTotals(
-                                        backendItem['empid']?.toString() ?? backendItem['id']?.toString() ?? '',
-                                        _rows,
-                                      )['unpaid'],
+                                      paidLeaveDays: paidLeaveDays,
+                                      unpaidLeaveDays: unpaidLeaveDays,
                                       onStatusChange: (status) async {
                                         if (_processingRequestIds
                                             .contains(requestKey)) {
@@ -1320,6 +1182,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                                             }
                                           });
 
+                                          _applySearch();
                                           _snack('Updated: $normalizedStatus');
                                         } catch (e) {
                                           _snack('Update failed: $e');
@@ -1368,7 +1231,11 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
 
     return GestureDetector(
       onTap: () async {
-        setState(() => selectedStatusFilter = label);
+        setState(() {
+          selectedStatusFilter = label;
+          _currentPage = 1;
+          _hasMore = true;
+        });
         await _loadAll();
       },
       child: AnimatedContainer(

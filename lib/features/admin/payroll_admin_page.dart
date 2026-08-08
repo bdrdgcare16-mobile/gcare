@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -318,6 +319,41 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
     return '$year-${month.toString().padLeft(2, '0')}';
   }
 
+  Map<String, dynamic> _normalizeUpdatedPayrollForDisplay(
+    Map<String, dynamic> updated,
+    Map<String, dynamic> previous,
+  ) {
+    final normalized = <String, dynamic>{
+      ...previous,
+      ...updated,
+    };
+
+    for (final key in [
+      'workedDays',
+      'weekOffDays',
+      'paidLeaveDays',
+      'absentDays',
+      'lopDays',
+      'payableDays',
+    ]) {
+      normalized[key] = normalized[key]?.toString() ?? '0';
+    }
+
+    normalized['salary'] = _formatCurrency(
+      updated['netSalary'] ??
+          updated['grossSalary'] ??
+          previous['netSalary'] ??
+          previous['grossSalary'] ??
+          0,
+    );
+    normalized['salaryDate'] = _formatPayrollPeriod(
+      int.tryParse((updated['year'] ?? previous['year'] ?? selectedYear).toString()),
+      int.tryParse((updated['month'] ?? previous['month'] ?? selectedMonth).toString()),
+    );
+
+    return normalized;
+  }
+
   String _getSalaryMethodDescription() {
     switch (selectedSalaryCalculationMethod) {
       case 'ACTUAL_CALENDAR_DAYS':
@@ -413,6 +449,11 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
 
     if (confirmed != true) return;
 
+    final requestCompanyId = currentCompanyId!.trim();
+    final requestYear = selectedYear;
+    final requestMonth = selectedMonth;
+    final requestSalaryCalculationMethod = selectedSalaryCalculationMethod;
+
     setState(() {
       isLoading = true;
       errorMessage = null;
@@ -422,26 +463,28 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
     });
 
     final requestBody = {
-      'companyId': currentCompanyId,
-      'year': selectedYear,
-      'month': selectedMonth,
-      'salaryCalculationMethod': selectedSalaryCalculationMethod,
+      'companyId': requestCompanyId,
+      'year': requestYear,
+      'month': requestMonth,
+      'salaryCalculationMethod': requestSalaryCalculationMethod,
     };
 
-    debugPrint('Payroll companyId: $currentCompanyId');
-    debugPrint('Payroll selected period: $selectedYear-$selectedMonth');
-    debugPrint('Payroll selected salaryCalculationMethod: $selectedSalaryCalculationMethod');
+    debugPrint('Payroll companyId: $requestCompanyId');
+    debugPrint('Payroll selected period: $requestYear-$requestMonth');
+    debugPrint('Payroll selected salaryCalculationMethod: $requestSalaryCalculationMethod');
     debugPrint('Payroll request body: $requestBody');
 
     final uri = Uri.parse('${ApiService.baseUrl}/payroll/generate');
     debugPrint('Payroll generate URL: $uri');
 
     try {
-      final resp = await http.post(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(requestBody),
-      );
+      final resp = await http
+          .post(
+            uri,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(requestBody),
+          )
+          .timeout(const Duration(minutes: 5));
 
       if (!mounted) return;
 
@@ -459,9 +502,9 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
         final itemYear = int.tryParse(item['year']?.toString() ?? '');
         final itemMonth = int.tryParse(item['month']?.toString() ?? '');
 
-        return itemCompanyId == currentCompanyId &&
-            itemYear == selectedYear &&
-            itemMonth == selectedMonth;
+        return itemCompanyId == requestCompanyId &&
+            itemYear == requestYear &&
+            itemMonth == requestMonth;
       }).toList();
 
       final mapped = filteredGenerated.map<Map<String, dynamic>>((item) {
@@ -521,7 +564,9 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          errorMessage = 'Failed to generate payroll: $e';
+          errorMessage = e is TimeoutException
+              ? 'Failed to generate payroll: Request timed out. Please try again.'
+              : 'Failed to generate payroll: $e';
         });
       }
     } finally {
@@ -696,6 +741,7 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
 
   String selectedAllowance = 'Overtime Allowance';
   String? dialogErrorMessage;
+  bool isSaving = false;
 
   final List<String> allowanceTypes = [
     'Overtime Allowance',
@@ -917,13 +963,72 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
                           ),
                           const SizedBox(width: 12),
                           ElevatedButton(
-                            onPressed: () {
-                              // Editing payroll requires backend update API.
-                              // Currently not connected; do not apply local-only changes.
-                              ScaffoldMessenger.of(dialogContext).showSnackBar(
-                                const SnackBar(content: Text('Backend update API not connected')),
-                              );
-                            },
+                            onPressed: isSaving
+                                ? null
+                                : () async {
+                                    final workedDays = int.tryParse(
+                                      workedDaysController.text.trim(),
+                                    );
+                                    final lopDays = int.tryParse(
+                                      lopDaysController.text.trim(),
+                                    );
+                                    final allowances = <Map<String, dynamic>>[];
+
+                                    for (final allowance in tempAllowances) {
+                                      final type = allowance['type']?.trim() ?? '';
+                                      final amount = double.tryParse(
+                                        allowance['amount']?.trim() ?? '',
+                                      );
+                                      if (type.isEmpty || amount == null || amount < 0) {
+                                        setDialogState(() {
+                                          dialogErrorMessage = 'Invalid allowance values';
+                                        });
+                                        return;
+                                      }
+                                      allowances.add({
+                                        'type': type,
+                                        'amount': amount,
+                                      });
+                                    }
+
+                                    if (workedDays == null || workedDays < 0 ||
+                                        lopDays == null || lopDays < 0) {
+                                      setDialogState(() {
+                                        dialogErrorMessage = 'Worked Days and LOP Days must be valid non-negative numbers';
+                                      });
+                                      return;
+                                    }
+
+                                    setDialogState(() {
+                                      isSaving = true;
+                                      dialogErrorMessage = null;
+                                    });
+
+                                    try {
+                                      final response = await ApiService.updatePayroll(
+                                        payrollId: payroll['id']?.toString() ?? '',
+                                        workedDays: workedDays,
+                                        lopDays: lopDays,
+                                        allowances: allowances,
+                                      );
+                                      if (!mounted) return;
+                                      final updatedPayroll =
+                                          Map<String, dynamic>.from(
+                                            response['data'] as Map? ?? response,
+                                          );
+                                      Navigator.of(dialogContext).pop(
+                                        _normalizeUpdatedPayrollForDisplay(
+                                          updatedPayroll,
+                                          payroll,
+                                        ),
+                                      );
+                                    } catch (error) {
+                                      setDialogState(() {
+                                        isSaving = false;
+                                        dialogErrorMessage = error.toString().replaceFirst('Exception: ', '');
+                                      });
+                                    }
+                                  },
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF655193),
                               foregroundColor: Colors.white,
@@ -962,10 +1067,17 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
 
   if (index != -1) {
     setState(() {
-      payrollList[index]['workedDays'] = result['workedDays'];
-      payrollList[index]['lopDays'] = result['lopDays'];
-      payrollList[index]['allowances'] = result['allowances'];
+      payrollList[index] = {
+        ...payrollList[index],
+        ...result,
+      };
     });
+  }
+
+  if (mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Payroll updated successfully')),
+    );
   }
 }
 

@@ -10,6 +10,7 @@ import {
   markPayrollAsPaid,
   previewAllEmployeePayroll,
   savePayrollSnapshot,
+  updatePayroll,
 } from '../services/payrollService';
 
 import {
@@ -21,30 +22,33 @@ export const generatePayroll = async (
   res: Response,
   next: NextFunction,
 ): Promise<void> => {
+  const requestStartedAt = Date.now();
+  const requestId = `payroll-${requestStartedAt}`;
+  const debugTiming = process.env.PAYROLL_DEBUG === 'true';
+  const companyId = String(req.body.companyId ?? '');
+  const year = Number(req.body.year);
+  const month = Number(req.body.month);
+  const salaryCalculationMethod = req.body.salaryCalculationMethod;
+
   try {
     const result =
       await generateAllEmployeePayroll({
-        companyId:
-          req.body.companyId ||
-          undefined,
-
-        year:
-          Number(req.body.year),
-
-        month:
-          Number(req.body.month),
-
-        salaryCalculationMethod:
-          req.body.salaryCalculationMethod,
+        companyId: companyId || undefined,
+        year,
+        month,
+        salaryCalculationMethod,
+        requestId,
+        debug: debugTiming,
       });
 
+    const snapshotStartedAt = Date.now();
     try {
       await savePayrollSnapshot({
-        companyId: String(req.body.companyId ?? ''),
-        year: Number(req.body.year),
-        month: Number(req.body.month),
+        companyId,
+        year,
+        month,
         salaryCalculationMethod:
-          String(req.body.salaryCalculationMethod ?? 'ACTUAL_CALENDAR_DAYS'),
+          String(salaryCalculationMethod ?? 'ACTUAL_CALENDAR_DAYS'),
         generatedCount: result.generated.length,
         failedCount: result.failed.length,
         generatedSample: result.generated
@@ -64,16 +68,109 @@ export const generatePayroll = async (
       });
     }
 
-    res.status(200).json({
+    if (debugTiming) {
+      console.log('[PAYROLL_TIMING]', {
+        requestId,
+        stage: 'snapshot_write',
+        durationMs: Date.now() - snapshotStartedAt,
+      });
+    }
+
+    const responsePreparationStartedAt = Date.now();
+    const responsePayload = {
       success: true,
 
       message:
         'Payroll generated successfully',
 
       data: result,
-    });
+    };
+
+    if (debugTiming) {
+      console.log('[PAYROLL_TIMING]', {
+        requestId,
+        stage: 'response_preparation',
+        durationMs: Date.now() - responsePreparationStartedAt,
+      });
+      console.log('[PAYROLL_TIMING]', {
+        requestId,
+        stage: 'total_payroll_request',
+        durationMs: Date.now() - requestStartedAt,
+        employeesProcessed: result.generated.length + result.failed.length,
+        generatedCount: result.generated.length,
+        failedCount: result.failed.length,
+      });
+    }
+
+    res.status(200).json(responsePayload);
   } catch (error) {
+    if (debugTiming) {
+      console.log('[PAYROLL_TIMING]', {
+        requestId,
+        totalPayrollRequestMs: Date.now() - requestStartedAt,
+        status: 'failed',
+      });
+    }
     next(error);
+  }
+};
+
+export const updatePayrollController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const companyId = String(req.user?.companyId ?? '').trim();
+    if (!companyId) {
+      res.status(401).json({ success: false, message: 'Authentication required' });
+      return;
+    }
+
+    const allowedFields = new Set(['workedDays', 'lopDays', 'allowances']);
+    const unexpectedFields = Object.keys(req.body ?? {}).filter(
+      (field) => !allowedFields.has(field),
+    );
+    if (unexpectedFields.length > 0) {
+      res.status(400).json({ success: false, message: 'Unexpected payroll fields' });
+      return;
+    }
+
+    const workedDays = Number(req.body?.workedDays);
+    const lopDays = Number(req.body?.lopDays);
+    const rawAllowances = req.body?.allowances;
+    if (!Number.isFinite(workedDays) || workedDays < 0 ||
+        !Number.isFinite(lopDays) || lopDays < 0 ||
+        !Array.isArray(rawAllowances)) {
+      res.status(400).json({ success: false, message: 'Invalid payroll edit values' });
+      return;
+    }
+
+    const allowances = rawAllowances.map((allowance: any) => {
+      const type = String(allowance?.type ?? '').trim();
+      const amount = Number(allowance?.amount);
+      if (!type || !Number.isFinite(amount) || amount < 0) {
+        throw new Error('Invalid allowance values');
+      }
+      return { type, amount };
+    });
+
+    const updated = await updatePayroll({
+      companyId,
+      payrollId: String(req.params.payrollId),
+      workedDays,
+      lopDays,
+      allowances,
+    });
+
+    res.status(200).json({ success: true, data: updated });
+  } catch (error: any) {
+    const statusCode = Number(error?.statusCode) ||
+      (error?.message === 'Payroll not found' ? 404 : 400);
+    res.status(statusCode).json({
+      success: false,
+      message: error?.message || 'Failed to update payroll',
+    });
   }
 };
 

@@ -6,6 +6,7 @@ import 'leave_approval_screen.dart';
 import 'employee_management_page.dart';
 import 'attendance_report_page.dart';
 import 'payroll_admin_page.dart';
+import 'employee_onboarding_form_page.dart';
 import 'others_page.dart';
 import 'settings_page.dart'; // ✅ Added
 import 'package:serv_app/models/company_profile.dart';
@@ -28,6 +29,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     "Employee Management",
     "Attendance Reports",
     "Payroll Management",
+    "Employee Onboarding",
     "Others",
     "Settings",
   ];
@@ -78,8 +80,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
             _buildDrawerItem(Icons.group, "Employee Management", 2),
             _buildDrawerItem(Icons.bar_chart, "Attendance Reports", 3),
             _buildDrawerItem(Icons.payments_outlined, "Payroll Management", 4),
-            _buildDrawerItem(Icons.chat, "Others", 5),
-            _buildDrawerItem(Icons.settings, "Settings", 6),
+            _buildDrawerItem(Icons.person_add_alt_1, "Employee Onboarding", 5),
+            _buildDrawerItem(Icons.chat, "Others", 6),
+            _buildDrawerItem(Icons.settings, "Settings", 7),
           ],
         ),
       ),
@@ -149,8 +152,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
       case 4:
         return const PayrollAdminPage();
       case 5:
-        return const OthersPage();
+        return const EmployeeOnboardingFormPage();
       case 6:
+        return const OthersPage();
+      case 7:
         return const SettingsPage(); // ✅ Navigate to settings
       default:
         return const Center(child: Text("Unknown page"));

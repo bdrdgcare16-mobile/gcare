@@ -11,7 +11,8 @@ export type PayrollPaymentStatus =
 
 export type PayrollCalculationSource =
   | 'automatic'
-  | 'admin-edited';
+  | 'admin-edited'
+  | 'manual';
 
 export type SalaryCalculationMethod =
   | 'ACTUAL_CALENDAR_DAYS'
