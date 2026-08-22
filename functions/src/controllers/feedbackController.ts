@@ -158,7 +158,6 @@ export const getAllFeedback = async (req: Request, res: Response) => {
     const db = locals?.db;
 
     console.log('GET /feedback hit');
-    console.log('req.user =', (req as any).user);
     console.log('db exists =', !!db);
 
     if (!db) {
@@ -166,7 +165,6 @@ export const getAllFeedback = async (req: Request, res: Response) => {
     }
 
     const companyId = String(((req as any).user?.companyId ?? '')).trim();
-    console.log('companyId =', companyId);
 
     if (!companyId) {
       return res.status(401).json({ error: 'Unauthorized: companyId missing in token' });

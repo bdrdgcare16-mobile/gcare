@@ -11,7 +11,10 @@ const router = Router();
 
 router.post('/check-in', verifyToken, trackingCheckIn);
 router.post('/pos', verifyToken, trackingAppendPos);
-router.post('/check-out', verifyToken, trackingCheckOut);
+router.post('/check-out', verifyToken, (req, res) => {
+  console.log('[TRACKING ROUTES] /check-out endpoint HIT');
+  trackingCheckOut(req, res);
+});
 router.get('/day', verifyToken, trackingGetDay);
 
 export default router;

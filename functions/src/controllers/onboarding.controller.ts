@@ -4,6 +4,7 @@ import {
   createOnboarding,
   getAllOnboardings,
   getOnboardingById,
+  resolveDocumentStoragePath,
   updateOnboardingStatus,
   uploadFileToFirebase,
 } from "../services/onboarding.service";
@@ -26,6 +27,7 @@ export const createEmployeeOnboarding = async (
     const errors = validateOnboarding(req);
 
     if (errors.length > 0) {
+      console.log('[onboarding-controller] Validation failed with errors:', errors);
       return res.status(400).json({
         success: false,
         message: "Validation failed",
@@ -186,6 +188,41 @@ export const getEmployeeOnboardingById = async (
     return res.status(500).json({
       success: false,
       message: "Internal server error",
+    });
+  }
+};
+
+// Resolves a Firebase Storage object path (as stored in the onboarding
+// document record) to a short-lived signed download URL. Legacy records
+// that already contain a full http(s) URL should never reach this endpoint
+// (the client opens those directly), but if one does, the underlying
+// normalization in the service layer will still handle it safely.
+export const resolveOnboardingDocumentUrl = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const path = String(req.query.path ?? "").trim();
+
+    if (!path) {
+      return res.status(400).json({
+        success: false,
+        message: "Query parameter 'path' is required",
+      });
+    }
+
+    const url = await resolveDocumentStoragePath(path);
+
+    return res.status(200).json({
+      success: true,
+      url,
+    });
+  } catch (error) {
+    console.error("Resolve onboarding document URL error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to resolve document URL",
     });
   }
 };

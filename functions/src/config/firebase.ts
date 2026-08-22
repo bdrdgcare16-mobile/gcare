@@ -9,6 +9,7 @@ import {
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getStorage } from 'firebase-admin/storage';
+import { getMessaging } from 'firebase-admin/messaging';
 
 const PROJECT_ID = process.env.APP_FIREBASE_PROJECT_ID || 'servappbackend';
 const STORAGE_BUCKET =
@@ -48,15 +49,10 @@ export const db = getFirestore(adminApp);
 export const auth = getAuth(adminApp);
 export const storage = getStorage(adminApp);
 export const bucket = storage.bucket(STORAGE_BUCKET);
+export const messaging = getMessaging(adminApp);
 
 db.settings({ ignoreUndefinedProperties: true });
 
 // eslint-disable-next-line no-console
-console.log('[firebase] Admin initialized. Project:', PROJECT_ID);
-// eslint-disable-next-line no-console
-try {
-  console.log('[firebase] Bucket:', bucket.name);
-} catch (e) {
-  console.log('[firebase] Bucket not configured (safe in local dev)');
-}
+console.info('[FIREBASE] Admin initialized');
 export default adminApp;

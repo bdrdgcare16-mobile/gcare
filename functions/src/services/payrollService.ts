@@ -419,14 +419,6 @@ const logResolvedSalaryOnce = (logData: {
     return;
   }
 
-  console.log({
-    employeeId: logData.employeeId,
-    employeeBasicSalary: logData.employeeBasicSalary,
-    employeeMonthlySalary: logData.employeeMonthlySalary,
-    salaryRecordBasicSalary: logData.salaryRecordBasicSalary,
-    resolvedSalary: logData.resolvedSalary,
-  });
-
   salaryResolutionLogged = true;
 };
 

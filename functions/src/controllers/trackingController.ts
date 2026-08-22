@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { db } from '../config/firebase';
+import { FieldValue } from 'firebase-admin/firestore';
 
 export type AuthUser = {
   userId: string;
@@ -11,11 +12,20 @@ export type AuthUser = {
 
 type TrackPoint = { lat: number; lng: number; ts: string; accuracy?: number; source?: string };
 
+type TrackEvent = {
+  type: 'poor_gps' | 'gps_disabled' | 'location_disabled' | 'location_enabled' | 'account_logged_out';
+  ts: string;  // ISO timestamp
+  message?: string;
+  latitude?: number;
+  longitude?: number;
+};
+
 type TrackDayDoc = {
   id: string;             // empid_YYYY-MM-DD
   empid: string;
   dateIso: string;        // YYYY-MM-DD
   pathMap: TrackPoint[];
+  events: TrackEvent[];   // Tracking events array
   startedAt?: string;     // ISO
   endedAt?: string | null;
   lastUpdateAt: string;   // ISO
@@ -98,6 +108,7 @@ export async function trackingCheckIn(req: Request, res: Response) {
       empid,
       dateIso,
       pathMap: [],
+      events: [],
       startedAt: now,
       endedAt: null,
       lastUpdateAt: now,
@@ -113,8 +124,6 @@ export async function trackingCheckIn(req: Request, res: Response) {
 /** POST /api/tracking/pos  — STRICT: accept at most once every 20 minutes. */
 export async function trackingAppendPos(req: Request, res: Response) {
   console.log('[TrackingController] LOG: /tracking/pos endpoint HIT');
-  console.log('[TrackingController] LOG: Request body:', JSON.stringify(req.body, null, 2));
-  console.log('[TrackingController] LOG: Request headers:', JSON.stringify(req.headers, null, 2));
   
   try {
     const empid = pickEmpId(req);
@@ -126,8 +135,6 @@ export async function trackingAppendPos(req: Request, res: Response) {
     // ✅ NEW: Capture reject reason outside transaction scope for response
     let rejectReasonForResponse = '';
 
-    console.log('[TrackingController] LOG: Parsed data - empid:', empid, 'dateIso:', dateIso, 'docId:', id);
-    console.log('[TrackingController] LOG: Point data - lat:', pt.lat, 'lng:', pt.lng, 'accuracy:', pt.accuracy, 'ts:', pt.ts);
 
     const ref = db.collection(COL).doc(id);
 
@@ -135,7 +142,6 @@ export async function trackingAppendPos(req: Request, res: Response) {
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
 
-      console.log('[TrackingController] LOG: Transaction - checking if document exists for docId:', id);
 
       if (!snap.exists) {
         console.log('[TrackingController] LOG: Document does not exist - creating new tracking document');
@@ -144,6 +150,7 @@ export async function trackingAppendPos(req: Request, res: Response) {
           empid,
           dateIso,
           pathMap: [pt],
+          events: [],
           startedAt: nowIso,
           endedAt: null,
           lastUpdateAt: nowIso,
@@ -159,11 +166,6 @@ export async function trackingAppendPos(req: Request, res: Response) {
       const last = list.length ? list[list.length - 1] : null;
 
       console.log('[TrackingController] LOG: Existing document found - current pathMap length:', list.length);
-      if (last) {
-        console.log('[TrackingController] LOG: Last point - lat:', last.lat, 'lng:', last.lng, 'ts:', last.ts);
-      } else {
-        console.log('[TrackingController] LOG: No last point found in pathMap');
-      }
 
       let allow = false;
       let rejectReason = '';
@@ -194,19 +196,6 @@ export async function trackingAppendPos(req: Request, res: Response) {
       // ✅ UPDATED: Capture reason for response
       rejectReasonForResponse = rejectReason;
 
-      // Debug log
-      const lastPoint = last || { lat: 0, lng: 0, ts: '' };
-      const distance = last 
-        ? distanceMeters({lat: lastPoint.lat, lng: lastPoint.lng}, {lat: pt.lat, lng: pt.lng})
-        : 0;
-      const timeSinceLast = last ? minutesBetween(pt.ts, lastPoint.ts) : 0;
-      
-      console.log(`Tracking update - Allowed: ${allow}, ` +
-        `Since last: ${timeSinceLast.toFixed(1)} min, ` +
-        `Distance: ${distance.toFixed(1)}m, ` +
-        `Accuracy: ${pt.accuracy || 'N/A'}m, ` +
-        `Last: ${last ? `(${last.lat}, ${last.lng})` : 'none'}, ` +
-        `New: (${pt.lat}, ${pt.lng})`);
 
       if (allow) {
        const updatedPath = [...list.slice(-199), pt]; // keep last 200 only
@@ -221,7 +210,6 @@ export async function trackingAppendPos(req: Request, res: Response) {
     });
 
     // ✅ UPDATED: Include reason and throttle constants in response
-    console.log('[TrackingController] LOG: Final response - ok:', true, 'id:', id, 'added:', accepted ? 'YES' : 'NO', 'throttled:', !accepted, 'reason:', rejectReasonForResponse);
     return res.status(200).json({
       ok: true,
       id,
@@ -238,17 +226,38 @@ export async function trackingAppendPos(req: Request, res: Response) {
 
 /** POST /api/tracking/check-out */
 export async function trackingCheckOut(req: Request, res: Response) {
+  console.log('[TrackingController] CHECKOUT FUNCTION STARTED - NEW VERSION 2026-08-11');
   try {
     const empid = pickEmpId(req);
     const dateIso = dateFromReq(req);
     const id = docId(empid, dateIso);
     const ref = db.collection(COL).doc(id);
 
-    const now = new Date().toISOString();
-    await ref.set({ endedAt: now, lastUpdateAt: now } as Partial<TrackDayDoc>, { merge: true });
 
+    const now = new Date().toISOString();
+    
+    console.log('[TrackingController] check-out - Creating logout event');
+    // Create logout event
+    const logoutEvent: TrackEvent = {
+      type: 'account_logged_out',
+      ts: now,
+      message: 'User logged out',
+    };
+
+    console.log('[TrackingController] check-out - Logout event object:', JSON.stringify(logoutEvent));
+    console.log('[TrackingController] check-out - Before Firestore update');
+    
+    await ref.set({ 
+      endedAt: now, 
+      lastUpdateAt: now,
+      events: FieldValue.arrayUnion(logoutEvent)
+    } as any, { merge: true });
+
+    console.log('[TrackingController] check-out - After FieldValue.arrayUnion success');
+    
     return res.status(200).json({ ok: true, id, endedAt: now });
   } catch (e: any) {
+    console.error('[TrackingController] check-out - ERROR occurred');
     return res.status(400).json({ error: e?.message || String(e) });
   }
 }
@@ -260,20 +269,94 @@ export async function trackingGetDay(req: Request, res: Response) {
     const dateIso = dateFromReq(req);
     const id = docId(empid, dateIso);
 
+
     const snap = await db.collection(COL).doc(id).get();
+    
     if (!snap.exists) {
+      console.log('[TrackingController] getDay - Document not found, returning empty data');
       const empty: TrackDayDoc = {
         id,
         empid,
         dateIso,
         pathMap: [],
+        events: [],
         endedAt: null,
         lastUpdateAt: new Date().toISOString(),
       };
       return res.json({ ok: true, data: empty });
     }
+    
+    const data = snap.data() as TrackDayDoc;
+    console.log('[TrackingController] getDay - Document found, events count:', data.events?.length || 0);
+    
     return res.json({ ok: true, data: snap.data() });
   } catch (e: any) {
+    console.error('[TrackingController] getDay - Error:', e?.message || String(e));
+    return res.status(400).json({ error: e?.message || String(e) });
+  }
+}
+
+/** POST /api/tracking/event - Add tracking event */
+export async function trackingAddEvent(req: Request, res: Response) {
+  try {
+    const empid = pickEmpId(req);
+    const dateIso = dateFromReq(req);
+    const id = docId(empid, dateIso);
+    
+    const eventType = req.body?.type as string;
+    const message = req.body?.message as string | undefined;
+    const latitude = req.body?.latitude as number | undefined;
+    const longitude = req.body?.longitude as number | undefined;
+    
+    console.log('[TrackingController] addEvent - type:', eventType);
+    
+    const validTypes = ['poor_gps', 'gps_disabled', 'location_disabled', 'location_enabled', 'account_logged_out'];
+    if (!eventType || !validTypes.includes(eventType)) {
+      console.error('[TrackingController] addEvent - Invalid event type:', eventType);
+      return res.status(400).json({ error: 'Invalid event type. Must be one of: ' + validTypes.join(', ') });
+    }
+
+    const newEvent: TrackEvent = {
+      type: eventType as any,
+      ts: new Date().toISOString(),
+      message,
+      latitude,
+      longitude,
+    };
+
+
+    const ref = db.collection(COL).doc(id);
+    
+    // First ensure the document exists
+    const snap = await ref.get();
+    if (!snap.exists) {
+      console.log('[TrackingController] addEvent - Document does not exist, creating with event');
+      // Create document with this event if it doesn't exist
+      const now = new Date().toISOString();
+      const data: TrackDayDoc = {
+        id,
+        empid,
+        dateIso,
+        pathMap: [],
+        events: [newEvent],
+        startedAt: now,
+        endedAt: null,
+        lastUpdateAt: now,
+      };
+      await ref.set(data);
+    } else {
+      console.log('[TrackingController] addEvent - Document exists, adding event');
+      // Add event to existing document
+      await ref.update({
+        events: FieldValue.arrayUnion(newEvent),
+        lastUpdateAt: new Date().toISOString(),
+      } as any);
+    }
+
+    console.log('[TrackingController] addEvent - Event saved successfully');
+    return res.status(200).json({ ok: true, event: newEvent });
+  } catch (e: any) {
+    console.error('[TrackingController] addEvent - Error:', e?.message || String(e));
     return res.status(400).json({ error: e?.message || String(e) });
   }
 }

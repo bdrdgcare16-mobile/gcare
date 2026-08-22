@@ -180,6 +180,17 @@ export const generateSignedUrl = async (filePath: string): Promise<string> => {
   return getSignedUrl(filePath);
 };
 
+// Resolves a raw Firebase Storage object path (as stored in Firestore, e.g.
+// "onboarding-dev/EMP001/offerLetter-....png") to a short-lived signed URL.
+// Also tolerates being passed an already-public/legacy storage.googleapis.com
+// URL by normalizing it back down to an object path first.
+export const resolveDocumentStoragePath = async (
+  storagePath: string
+): Promise<string> => {
+  const normalizedPath = normalizeFilePath(storagePath);
+  return getSignedUrl(normalizedPath);
+};
+
 export const getOnboardingById = async (id: string) => {
   const doc = await collection.doc(id).get();
 

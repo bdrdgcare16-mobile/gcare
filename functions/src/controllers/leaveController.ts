@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { db } from '../config/firebase';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { trackUsage } from '../services/usageService';
+import { notifyCompanyAdminsOfRequest } from '../services/notification.service';
 
 /* ============================== Types ============================== */
 
@@ -350,6 +351,33 @@ export const createLeaveRequest = async (req: Request, res: Response): Promise<R
       apiCalls: 1,
       leaveCount: 1,
     });
+
+    // Send notification to company admins after successful Firestore save
+    try {
+      const leaveTypeLower = payload.leaveType.toLowerCase();
+      let requestCategory = 'leave';
+      if (leaveTypeLower.includes('permission')) {
+        requestCategory = 'permission';
+      } else if (leaveTypeLower.includes('overtime') || leaveTypeLower.includes('over time')) {
+        requestCategory = 'overtime';
+      } else if (leaveTypeLower.includes('half day') || leaveTypeLower.includes('halfday')) {
+        requestCategory = 'halfday';
+      } else if (leaveTypeLower.includes('comp off') || leaveTypeLower.includes('compoff')) {
+        requestCategory = 'compoff';
+      }
+
+      await notifyCompanyAdminsOfRequest({
+        companyId: payload.companyId,
+        requestType: payload.leaveType,
+        employeeId: payload.empid,
+        employeeName: payload.name,
+        requestId: ref.id,
+        requestCategory,
+      });
+    } catch (notifError: any) {
+      // Notification failure should not block the response
+      console.error('[Leave Controller] Failed to send notification:', notifError?.message || String(notifError));
+    }
 
     return res.status(201).json({ id: ref.id, ...snap.data() });
   } catch (error) {

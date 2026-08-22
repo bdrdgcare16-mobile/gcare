@@ -6,7 +6,11 @@ const router = Router();
 
 /* ================= Public ================= */
 router.post('/register', authController.register);
+
+// Legacy: validates against Firestore hashedPassword first. Kept for rollback only.
 router.post('/login', authController.login);
+
+router.post('/firebase-login', authController.firebaseLogin);
 
 // Legacy simple reset (direct change) — expects { email, newPassword }
 router.post('/forgot-password', authController.forgotPassword);
@@ -27,6 +31,13 @@ router.put('/profile', authController.updateProfile);
 router.get('/ping', (_req, res) => res.json({ ok: true, scope: 'auth' }));
 // Change password (direct) — expects { email, newPassword }
 router.post('/change-password', authController.changePassword);
+
+/* ================= Privileged user creation ================= */
+router.post(
+  '/admin/register',
+  roleMiddleware(['admin', 'super_admin']),
+  authController.createPrivilegedUser,
+);
 
 /* ================= Admin-only ================= */
 router.post(

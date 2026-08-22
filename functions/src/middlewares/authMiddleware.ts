@@ -74,9 +74,6 @@ export const authMiddleware = async (
         if (err) {
           console.error('JWT verification failed', {
             name: err?.name,
-            message: err?.message,
-            hasToken: Boolean(token),
-            tokenLength: token?.length ?? 0,
           });
           const statusCode = err?.name === 'TokenExpiredError' ? 401 : 403;
           const message = err?.name === 'TokenExpiredError' ? 'Session expired.' : 'Invalid or expired token';
@@ -105,10 +102,7 @@ export const authMiddleware = async (
           const normalizedUserId = jwtPayload.userId || jwtPayload.uid || 'unknown';
 
           // Safe logging: non-sensitive data only
-          console.log('[verifyToken] Authentication successful - role:', normalizedRole);
-          console.log('[verifyToken] User ID exists:', !!normalizedUserId);
-          console.log('[verifyToken] Company ID exists:', !!jwtPayload.companyId);
-          console.log('[verifyToken] Empid exists:', !!jwtPayload.empid);
+          console.log('[verifyToken] Authentication successful');
 
           // Initialize base user data
           let companyName: string | null = null;

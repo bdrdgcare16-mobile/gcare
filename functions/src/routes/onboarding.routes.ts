@@ -5,9 +5,10 @@ import {
   createEmployeeOnboarding,
   getEmployeeOnboardingById,
   getEmployeeOnboardings,
+  resolveOnboardingDocumentUrl,
 } from "../controllers/onboarding.controller";
 import { type Request, type Response } from "express";
-import { authMiddleware } from "../middlewares/authMiddleware";
+import { authMiddleware, roleMiddleware } from "../middlewares/authMiddleware";
 import { uploadOnboarding } from "../middlewares/upload.middleware";
 
 const router = Router();
@@ -65,10 +66,35 @@ router.post(
   createEmployeeOnboarding
 );
 
-router.get("/", getEmployeeOnboardings);
+router.get(
+  "/",
+  authMiddleware,
+  roleMiddleware(['super_admin']),
+  getEmployeeOnboardings,
+);
 
-router.get("/:id", getEmployeeOnboardingById);
+// Resolves a stored Firebase Storage object path to a short-lived signed
+// URL so onboarding documents (offer letters, ID proofs, etc.) can be
+// viewed even though they are stored as private object paths, not URLs.
+router.get(
+  "/documents/resolve-url",
+  authMiddleware,
+  roleMiddleware(['super_admin']),
+  resolveOnboardingDocumentUrl,
+);
 
-router.patch("/:id/status", changeOnboardingStatus);
+router.get(
+  "/:id",
+  authMiddleware,
+  roleMiddleware(['super_admin']),
+  getEmployeeOnboardingById,
+);
+
+router.patch(
+  "/:id/status",
+  authMiddleware,
+  roleMiddleware(['super_admin']),
+  changeOnboardingStatus,
+);
 
 export default router;

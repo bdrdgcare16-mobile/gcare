@@ -1076,13 +1076,10 @@ export const getDailyRoster = async (req: Request, res: Response) => {
 /** GET /api/attendance/range-summary?start=YYYY-MM-DD&end=YYYY-MM-DD */
 export const getRangeSummary = async (req: Request, res: Response) => {
   console.log('=== RANGE SUMMARY DEBUG START ===');
-  console.log('req.user:', req.user);
   
   const companyId = getReqCompanyId(req);
-  console.log('companyId:', companyId);
   
   if (!companyId) {
-    console.log('ERROR: companyId missing in token');
     return res.status(403).json({ error: 'companyId missing in token' });
   }
 
@@ -1608,7 +1605,7 @@ export const decideApproval = async (req: Request, res: Response) => {
     await leaveDoc.ref.update(updateData);
     return res.json({ message: `Leave ${clean.toLowerCase()} successfully` });
   } catch (err: any) {
-    console.error('decideApproval error:', err);
+    console.error('decideApproval error occurred');
     return res.status(500).json({ error: err.message });
   }
 };
@@ -1667,7 +1664,7 @@ export const listOtherLocationEvents = async (req: Request, res: Response) => {
       },
     });
   } catch (err: any) {
-    console.error('listOtherLocationEvents error:', err);
+    console.error('listOtherLocationEvents error occurred');
     return res.status(500).json({ error: err.message });
   }
 };
@@ -1722,10 +1719,8 @@ export const decideOtherLocationEvent = async (req: Request, res: Response) => {
     await docRef.update(updateData);
 
     console.log('OTHER LOCATION DECISION UPDATED:', {
-      requestId,
       source,
       status: normalizedStatus,
-      remarks,
       updatedAt: new Date().toISOString(),
     });
 
@@ -1736,7 +1731,7 @@ export const decideOtherLocationEvent = async (req: Request, res: Response) => {
       message: 'Request updated successfully'
     });
   } catch (error: any) {
-    console.error('OTHER LOCATION DECISION ERROR:', error);
+    console.error('OTHER LOCATION DECISION ERROR occurred');
     return res.status(500).json({
       error: 'Failed to update request',
       message: error?.message || 'Unknown error'
@@ -1911,9 +1906,8 @@ async function addMonthlyLeaveSummaries(
 
   if (debug) {
     for (const [key, summary] of totals) {
-      const [employeeId, targetMonth] = key.split('|');
+      const [, targetMonth] = key.split('|');
       console.log('[approvals] monthly leave summary', {
-        employeeId,
         targetMonth,
         skippedMalformedRecordCount: skippedMalformed,
         paidDayTotal: summary.paid,
@@ -1954,6 +1948,7 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
       .includes(wantType);
   const paginated = req.query.page != null || req.query.limit != null;
   const fetchLimit = paginated ? page * limit + 1 : 10000;
+  console.log(`[APPROVALS PAGINATION DEBUG] Request - page=${page}, limit=${limit}, paginated=${paginated}, fetchLimit=${fetchLimit}`);
 
   try {
     const out: any[] = [];
@@ -1968,6 +1963,8 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
     const attSnap = includeAttendance
       ? await attQuery.orderBy('date', 'desc').limit(fetchLimit).get()
       : ({ docs: [] } as any);
+    
+    console.log(`[APPROVALS PAGINATION DEBUG] Attendance fetch - includeAttendance=${includeAttendance}, fetchedDocs=${attSnap.docs.length}`);
     
     // Get all shifts for comparison
     const shiftsSnap = includeAttendance
@@ -2041,7 +2038,7 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
           employeeShift = a.shiftGroup || '';
         }
       } catch (empError) {
-        console.error('Error fetching employee data for empid', a.empid, ':', empError);
+        console.error('Error fetching employee data for empid');
         employeeShift = a.shiftGroup || '';
       }
 
@@ -2074,6 +2071,8 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
         out.push(result);
       }
     });
+    
+    console.log(`[APPROVALS PAGINATION DEBUG] After attendance processing - out.length=${out.length} (before leaves)`);
 
     // ---------- Leaves ----------
     let leaveDocs: any[] = [];
@@ -2161,8 +2160,7 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
         }
       } catch (empError) {
         console.error('=== LEAVE ENRICHMENT DEBUG ===');
-        console.log('Leave empid:', leave.empid);
-        console.error('Error fetching employee data for empid', leave.empid, ':', empError);
+        console.error('Error fetching employee data for leave');
       }
 
       // Extract request time from leave document
@@ -2237,12 +2235,16 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
       }
       return src === 'leaves' && itemType === wantType;
     });
+    
+    console.log(`[APPROVALS PAGINATION DEBUG] After type filter - wantType=${wantType}, typeFiltered.length=${typeFiltered.length}`);
 
     const branchFiltered = branch
       ? typeFiltered.filter((item) =>
           String(item.branchName || '').toLowerCase().includes(branch.toLowerCase())
         )
       : typeFiltered;
+    
+    console.log(`[APPROVALS PAGINATION DEBUG] After branch filter - branch="${branch}", branchFiltered.length=${branchFiltered.length}`);
 
     const searchFiltered = search
       ? branchFiltered.filter((item) =>
@@ -2251,11 +2253,15 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
           )
         )
       : branchFiltered;
+    
+    console.log(`[APPROVALS PAGINATION DEBUG] After search filter - search="${search}", searchFiltered.length=${searchFiltered.length}`);
 
     const startIdx = (page - 1) * limit;
     const endIdx = page * limit;
     const matching = searchFiltered.length;
     const data = searchFiltered.slice(startIdx, endIdx);
+    
+    console.log(`[APPROVALS PAGINATION DEBUG] Pagination calculation - startIdx=${startIdx}, endIdx=${endIdx}, matching=${matching}, data.length=${data.length}, hasMore=${matching > endIdx}`);
     await addMonthlyLeaveSummaries(
       data,
       companyId,
@@ -2281,9 +2287,16 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
               .where('approvalStatus', '==', s)
               .count()
               .get();
+            
+            const attCountVal = attCount.data().count || 0;
+            const leaveCountVal = leaveCount.data().count || 0;
+            const totalCount = attCountVal + leaveCountVal;
+            
+            console.log(`[APPROVALS COUNT DEBUG] Status=${s}, Attendance=${attCountVal}, Leaves=${leaveCountVal}, Total=${totalCount}`);
+            
             return {
               status: s,
-              count: (attCount.data().count || 0) + (leaveCount.data().count || 0),
+              count: totalCount,
             };
           })
         );
@@ -2291,6 +2304,7 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
           acc[c.status] = c.count;
           return acc;
         }, {});
+        console.log(`[APPROVALS COUNT DEBUG] Final totals:`, totals);
       } catch (countError: any) {
         console.warn(
           '[approvals] count query failed, falling back to fetched count:',
@@ -2402,15 +2416,9 @@ export const listMyRequests = async (req: Request, res: Response) => {
         
         // Debug logging
         console.log('MY-REQUESTS LATE CHECK-IN DEBUG:', {
-          empid: a.empid,
           shiftGroup: emp?.shiftGroup,
           shiftStartTime: startTime,
-          checkInTime: a.checkIn,
-          attendanceDate: a.date,
           graceMinutes,
-          calculatedShiftStartDateTime: shiftStartDateTime.toISOString(),
-          calculatedShiftStartWithGrace: shiftStartWithGrace.toISOString(),
-          calculatedCheckInDateTime: checkInDateTime.toISOString(),
           isLateCheckIn: checkInDateTime > shiftStartWithGrace
         });
         
@@ -2507,7 +2515,7 @@ export const listMyRequests = async (req: Request, res: Response) => {
 
     return res.json(out);
   } catch (err: any) {
-    console.error('listMyRequests error:', err);
+    console.error('listMyRequests error occurred');
     return res.status(500).json({ error: err.message });
   }
 };
@@ -2561,14 +2569,13 @@ export const getRequestDetails = async (req: Request, res: Response) => {
       ...data,
     });
   } catch (err: any) {
-    console.error('getRequestDetails error:', err);
+    console.error('getRequestDetails error occurred');
     return res.status(500).json({ error: err.message });
   }
 };
 
 export const getMonthlySummary = async (req: Request, res: Response) => {
-  console.log("[ MONTHLY] params:", req.params);
-  console.log("[MONTHLY] user:", req.user);
+  console.log('[MONTHLY] getMonthlySummary called');
 
   const companyId = req.user?.companyId;
 
@@ -2728,11 +2735,11 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
         .trim();
 
       console.log(
-        `[MONTHLY SHIFT] Employee: ${empid}, ShiftGroup: ${employeeShiftGroup}`
+        `[MONTHLY SHIFT] ShiftGroup: ${employeeShiftGroup}`
       );
     } else {
       console.log(
-        `[MONTHLY SHIFT] No employee found for empid: ${empid}, companyId: ${companyId}`
+        `[MONTHLY SHIFT] No employee found for empid`
       );
     }
 
@@ -2821,7 +2828,7 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
         });
 
         console.log(
-          `[MONTHLY PERMISSION] Employee: ${empid}, Date: ${leaveStartDate}, LeaveType: ${leave.leaveType}, ApprovalStatus: ${leave.approvalStatus}, Duration: ${duration}`
+          `[MONTHLY PERMISSION] Date: ${leaveStartDate}, LeaveType: ${leave.leaveType}, ApprovalStatus: ${leave.approvalStatus}, Duration: ${duration}`
         );
       }
 
@@ -2851,7 +2858,7 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
           });
 
           console.log(
-            `[MONTHLY LEAVE] Employee: ${empid}, Date: ${dateStr}, LeaveType: ${leave.leaveType}, ApprovalStatus: ${leave.approvalStatus}`
+            `[MONTHLY LEAVE] Date: ${dateStr}, LeaveType: ${leave.leaveType}, ApprovalStatus: ${leave.approvalStatus}`
           );
         }
       }
@@ -2987,7 +2994,7 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
         });
 
         console.log(
-          `[MONTHLY PERMISSION ONLY] Employee: ${empid}, Date: ${permissionDate}, PermissionCount: ${approvedPermissionByDate[permissionDate]}`
+          `[MONTHLY PERMISSION ONLY] Date: ${permissionDate}, PermissionCount: ${approvedPermissionByDate[permissionDate]}`
         );
       }
     });
@@ -3023,7 +3030,7 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
         });
 
         console.log(
-          `[MONTHLY LEAVE ONLY] Employee: ${empid}, Date: ${leaveDate}, LeaveType: ${leaveDetails[0]?.leaveType}, LeaveCount: ${leaveDetails.length}`
+          `[MONTHLY LEAVE ONLY] Date: ${leaveDate}, LeaveType: ${leaveDetails[0]?.leaveType}, LeaveCount: ${leaveDetails.length}`
         );
       }
     });
@@ -3085,7 +3092,6 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
       item.isAbsent = finalStatus === 'Absent';
 
       console.log('[MONTHLY ATTENDANCE] Resolved date', {
-        empid,
         date: ymd,
         status: finalStatus,
         isSunday: isWeekOffDay,
@@ -3139,7 +3145,6 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
             existingDates.add(ymd);
 
             console.log('[MONTHLY ATTENDANCE] Resolved date', {
-              empid,
               date: ymd,
               status,
               isSunday: isWeekOffDay,
@@ -3210,7 +3215,7 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
         });
 
         console.log(
-          `[MONTHLY ABSENT] Employee: ${empid}, Date: ${workingDate}, Status: Absent`
+          `[MONTHLY ABSENT] Date: ${workingDate}, Status: Absent`
         );
       }
     });
@@ -3248,12 +3253,12 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
     const totalHalfDay = data.filter((item: any) => item.isHalfDay).length;
 
     console.log(
-      `[MONTHLY] Employee: ${empid}, Total Working Days: ${totalWorkingDays}, Records: ${data.length}, Present: ${totalPresent}, Absent: ${totalAbsent}, Leave: ${totalLeave}, WeekOff: ${totalWeekOff}, Holiday: ${totalHoliday}, HalfDay: ${totalHalfDay}, Late: ${totalLate}, Early: ${totalEarly}, Permission: ${totalPermission}`
+      `[MONTHLY] Total Working Days: ${totalWorkingDays}, Records: ${data.length}, Present: ${totalPresent}, Absent: ${totalAbsent}, Leave: ${totalLeave}, WeekOff: ${totalWeekOff}, Holiday: ${totalHoliday}, HalfDay: ${totalHalfDay}, Late: ${totalLate}, Early: ${totalEarly}, Permission: ${totalPermission}`
     );
 
     return res.status(200).json(data);
   } catch (error: any) {
-    console.error("[MONTHLY] ERROR:", error);
+    console.error("[MONTHLY] ERROR occurred");
 
     return res.status(500).json({
       error: "Failed to fetch monthly attendance",

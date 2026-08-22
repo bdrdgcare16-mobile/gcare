@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { verifyToken, isAdmin } from '../middlewares/authMiddleware';
+import { uploadTaskProof } from '../middlewares/uploadMiddleware';
 import {
   createBroadcastTask,
   createSingleTask,
@@ -7,6 +8,8 @@ import {
   listTasksForUser,
   createDailyUpdateForSelf,
   listEmployeeTasks,
+  completeTask,
+  getTaskProofUrl,
 } from '../controllers/taskController';
 
 const router = Router();
@@ -23,6 +26,9 @@ router.post('/assign', verifyToken, isAdmin, createSingleTask);
 /** Employee self-post: create a Daily Update */
 router.post('/daily-update', verifyToken, createDailyUpdateForSelf);
 
+/** Employee: mark an assigned task completed, with optional proof file */
+router.post('/:id/complete', verifyToken, uploadTaskProof('proof'), completeTask);
+
 /** User view: merged list for the current employee */
 router.get('/user', verifyToken, listTasksForUser);
 
@@ -31,6 +37,9 @@ router.get('/employee', verifyToken, isAdmin, listEmployeeTasks);
 
 /** Admin view: employee task list */
 router.get('/', verifyToken, isAdmin, listEmployeeTasks);
+
+/** Admin: Get signed URL for task proof file */
+router.get('/:id/proof-url', verifyToken, isAdmin, getTaskProofUrl);
 
 /** Single task by id */
 router.get('/:id', verifyToken, getTask);

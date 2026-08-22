@@ -301,8 +301,6 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
       return errorResponse(res, 'Email and password are required', 400);
     }
 
-    console.log('[login] request body email:', req.body.email);
-
     const userSnap = await getByEmail(USERS_COL, email);
     console.log('[login] users query completed. empty =', !userSnap || userSnap.empty);
 
@@ -343,7 +341,7 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
             keepLast: 5,
           });
         } catch (e) {
-          console.warn('Password rotate failed:', e);
+          console.warn('Password rotate failed:', e instanceof Error ? e.name : 'Unknown');
         }
 
         match = true;
@@ -354,7 +352,7 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
       }
 
       const role = String(user.role || 'employee').toLowerCase();
-      if (!okRoles.has(role)) {
+      if (role !== 'employee' && role !== 'admin' && role !== 'super_admin') {
         return errorResponse(res, 'Invalid role on account', 403);
       }
 
@@ -997,6 +995,291 @@ export const updateProfile = async (
   _req: Request & { user?: { userId: string } },
   res: Response
 ) => successResponse(res, null, 'Profile updated successfully');
+
+export const createPrivilegedUser = async (
+  req: Request,
+  res: Response,
+): Promise<Response> => {
+  try {
+    const { name, email, password, role, companyId } = req.body || {};
+
+    const userName = String(name || '').trim();
+    const userEmail = normEmail(email || '');
+    const userPassword = String(password || '');
+    const userRole = String(role || '').trim().toLowerCase();
+    const userCompanyId = String(companyId || '').trim();
+
+    if (!userName || !userEmail || !userPassword || !userCompanyId) {
+      return errorResponse(res, 'Name, email, password and companyId are required', 400);
+    }
+
+    if (
+      userRole !== 'employee' &&
+      userRole !== 'admin' &&
+      userRole !== 'super_admin'
+    ) {
+      return errorResponse(res, 'Invalid role', 400);
+    }
+
+    const caller = (req as any).user;
+    const callerRole = String(caller?.role || '').toLowerCase();
+    const callerCompanyId = String(caller?.companyId || '').trim();
+
+    if (callerRole !== 'admin' && callerRole !== 'super_admin') {
+      return errorResponse(res, 'Not authorized', 403);
+    }
+
+    if (!callerCompanyId || callerCompanyId !== userCompanyId) {
+      return errorResponse(res, 'Company context mismatch', 403);
+    }
+
+    if (userRole === 'super_admin' && callerRole !== 'admin' && callerRole !== 'super_admin') {
+      return errorResponse(res, 'Not authorized to create super_admin', 403);
+    }
+
+    const byEmail = await getByEmail(USERS_COL, userEmail);
+    if (byEmail && !byEmail.empty) {
+      return errorResponse(res, 'Email is already in use', 400);
+    }
+
+    const hash = await bcrypt.hash(userPassword, 10);
+    const now = new Date();
+    const userId = uuidv4();
+
+    await db.collection(USERS_COL).doc(userId).set({
+      empid: null,
+      empId: null,
+      name: userName,
+      email: userEmail,
+      emailLower: userEmail,
+      password: hash,
+      passwordHash: hash,
+      hashedPassword: hash,
+      role: userRole,
+      status: 'active',
+      companyId: userCompanyId,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return successResponse(
+      res,
+      {
+        id: userId,
+        name: userName,
+        email: userEmail,
+        role: userRole,
+        companyId: userCompanyId,
+        status: 'active',
+      },
+      'Privileged user created',
+    );
+  } catch (error: any) {
+    console.error('createPrivilegedUser error:', error);
+    return errorResponse(
+      res,
+      error?.message || 'Failed to create user',
+      500,
+    );
+  }
+};
+
+export const firebaseLogin = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  try {
+    console.log('FIREBASE LOGIN START');
+
+    const authHeader = String(req.headers.authorization || '');
+    const idToken = authHeader.startsWith('Bearer ')
+      ? authHeader.slice(7).trim()
+      : String(req.body.idToken || '');
+
+    if (!idToken) {
+      return errorResponse(res, 'Firebase ID token required', 400);
+    }
+
+    let decoded: any;
+    try {
+      decoded = await auth.verifyIdToken(idToken);
+      console.log('FIREBASE TOKEN VERIFIED');
+    } catch (e: any) {
+      console.warn('FIREBASE TOKEN VERIFIED failed:', e.code || e.message);
+      return errorResponse(res, 'Invalid or expired Firebase token', 401);
+    }
+
+    const email = normEmail(decoded.email || '');
+    if (!email) {
+      return errorResponse(res, 'Firebase token does not contain an email', 401);
+    }
+
+    const userSnap = await getByEmail(USERS_COL, email);
+
+    if (userSnap && !userSnap.empty) {
+      const doc = userSnap.docs[0];
+      const user: any = doc.data();
+
+      const companyId = String(user.companyId || '').trim() || null;
+      if (!companyId) {
+        return errorResponse(res, 'companyId missing on user account', 403);
+      }
+
+      if (user.status && user.status !== 'active') {
+        return errorResponse(res, 'Account is not active', 403);
+      }
+
+      const role = String(user.role || 'employee').toLowerCase();
+      if (role !== 'employee' && role !== 'admin' && role !== 'super_admin') {
+        return errorResponse(res, 'Invalid role on account', 403);
+      }
+
+      let userEmpid = pickEmpId(user);
+      if (!userEmpid) {
+        const empQ = await db
+          .collection(EMPS_COL)
+          .where('emailLower', '==', email)
+          .limit(1)
+          .get();
+
+        if (!empQ.empty) {
+          userEmpid = pickEmpId(empQ.docs[0].data());
+          if (userEmpid) {
+            await doc.ref.set(
+              { empid: userEmpid, empId: userEmpid, updatedAt: new Date() },
+              { merge: true }
+            );
+          }
+        }
+      }
+
+      await doc.ref.set(
+        {
+          authSource: 'firebase',
+          lastFirebaseAuthAt: new Date(),
+          updatedAt: new Date(),
+        },
+        { merge: true }
+      );
+
+      const token = issueToken({
+        userId: doc.id,
+        email: user.email || email,
+        role,
+        empid: userEmpid || null,
+        companyId,
+      });
+
+      console.log('SERV USER FOUND');
+      console.log('SERV JWT ISSUED');
+      console.log('FIREBASE LOGIN SUCCESS');
+
+      return successResponse(
+        res,
+        {
+          token,
+          tokenType: 'Bearer',
+          expiresIn: JWT_EXPIRES,
+          role,
+          uid: doc.id,
+          empid: userEmpid || null,
+          companyId,
+          name: user.name || user.fullName || '',
+          user: {
+            id: doc.id,
+            name: user.name || user.fullName || '',
+            email: user.email || email,
+            role,
+            empid: userEmpid || null,
+            empId: userEmpid || null,
+            companyId,
+            status: user.status || 'active',
+          },
+        },
+        'Login successful'
+      );
+    }
+
+    console.log('checking employees fallback');
+    const empSnap = await getByEmail(EMPS_COL, email);
+    if (!empSnap || empSnap.empty) {
+      return errorResponse(res, 'Invalid email or password', 401);
+    }
+
+    const empDoc = empSnap.docs[0];
+    const emp: any = empDoc.data();
+    const employeeCompanyId = String(emp.companyId || '').trim() || null;
+
+    if (!employeeCompanyId) {
+      return errorResponse(res, 'companyId missing on employee record', 403);
+    }
+
+    if (emp.status && emp.status !== 'active') {
+      return errorResponse(res, 'Account is not active', 403);
+    }
+
+    const empIdVal = pickEmpId(emp);
+    const finalEmpid = empIdVal || null;
+    const finalCompanyId = employeeCompanyId;
+    const name = String(emp.name || emp.fullName || '').trim();
+    const now = new Date();
+
+    const ref = await db.collection(USERS_COL).add({
+      empid: finalEmpid,
+      empId: finalEmpid,
+      name,
+      email,
+      emailLower: email,
+      role: 'employee',
+      status: 'active',
+      companyId: finalCompanyId,
+      authSource: 'firebase',
+      lastFirebaseAuthAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const token = issueToken({
+      userId: ref.id,
+      email,
+      role: 'employee',
+      empid: finalEmpid,
+      companyId: finalCompanyId,
+    });
+
+    console.log('SERV USER FOUND (employees fallback)');
+    console.log('SERV JWT ISSUED');
+    console.log('FIREBASE LOGIN SUCCESS');
+
+    return successResponse(
+      res,
+      {
+        token,
+        tokenType: 'Bearer',
+        expiresIn: JWT_EXPIRES,
+        role: 'employee',
+        uid: ref.id,
+        empid: finalEmpid,
+        companyId: finalCompanyId,
+        name,
+        user: {
+          id: ref.id,
+          name,
+          email,
+          role: 'employee',
+          empid: finalEmpid,
+          empId: finalEmpid,
+          companyId: finalCompanyId,
+          status: 'active',
+        },
+      },
+      'Login successful'
+    );
+  } catch (error: any) {
+    console.error('FIREBASE LOGIN FAILED:', error?.message || error);
+    return errorResponse(res, 'Internal server error', 500);
+  }
+};
 
 export const resetPassword = async () => {
   /* unused */
