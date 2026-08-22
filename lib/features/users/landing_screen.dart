@@ -26,8 +26,38 @@ class _LandingScreenState extends State<LandingScreen> {
   Future<void> _checkBiometricsAndAuthenticate() async {
     try {
       // Check if device supports biometric authentication
-      final bool canAuthenticate = await _localAuth.canCheckBiometrics || 
+      final bool canCheckBiometrics =
+          await _localAuth.canCheckBiometrics;
+
+      final bool isDeviceSupported =
           await _localAuth.isDeviceSupported();
+
+      final List<BiometricType> availableBiometrics =
+          await _localAuth.getAvailableBiometrics();
+
+      debugPrint('BIO AUTH DEVICE CHECK');
+      debugPrint('canCheckBiometrics: $canCheckBiometrics');
+      debugPrint('isDeviceSupported: $isDeviceSupported');
+      debugPrint('availableBiometrics: $availableBiometrics');
+      debugPrint(
+        'Face available: '
+        '${availableBiometrics.contains(BiometricType.face)}',
+      );
+      debugPrint(
+        'Fingerprint available: '
+        '${availableBiometrics.contains(BiometricType.fingerprint)}',
+      );
+      debugPrint(
+        'Strong biometric available: '
+        '${availableBiometrics.contains(BiometricType.strong)}',
+      );
+      debugPrint(
+        'Weak biometric available: '
+        '${availableBiometrics.contains(BiometricType.weak)}',
+      );
+
+      final bool canAuthenticate =
+          canCheckBiometrics || isDeviceSupported;
       
       if (!canAuthenticate) {
         _showError('Biometric authentication not available on this device');
@@ -35,7 +65,6 @@ class _LandingScreenState extends State<LandingScreen> {
       }
 
       // Get available biometric types
-      final List<BiometricType> availableBiometrics = await _localAuth.getAvailableBiometrics();
       debugPrint('Available biometrics: $availableBiometrics');
       
       if (availableBiometrics.isEmpty) {

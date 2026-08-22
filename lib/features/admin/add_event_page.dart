@@ -11,8 +11,8 @@ import 'package:serv_app/services/api_service.dart';
 import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/utils/button_helpers.dart';
 // Conditional import for web localStorage
-import 'package:serv_app/html_stub.dart'
-    if (dart.library.html) 'dart:html' as html;
+import 'package:serv_app/html_stub.dart' if (dart.library.html) 'dart:html'
+    as html;
 
 // ⬇️ Using centralized API config
 final String apiBase = ApiConfig.baseUrl;
@@ -93,7 +93,7 @@ class _EventUploadPageState extends State<EventUploadPage> {
 
     // Get token using same logic as ApiService for consistency
     String? token = CompanyData.token;
-    
+
     if ((token == null || token.isEmpty) && kIsWeb) {
       try {
         final t1 = html.window.localStorage['token'];
@@ -101,7 +101,7 @@ class _EventUploadPageState extends State<EventUploadPage> {
         token = (t1 != null && t1.isNotEmpty) ? t1 : (t2 ?? token);
       } catch (_) {}
     }
-    
+
     // For mobile, try SharedPreferences as fallback
     if ((token == null || token.isEmpty) && !kIsWeb) {
       try {
@@ -109,8 +109,6 @@ class _EventUploadPageState extends State<EventUploadPage> {
         token = prefs.getString('token');
       } catch (_) {}
     }
-
-    debugPrint('[EventUpload] Token retrieved: ${token != null && token.isNotEmpty}');
 
     if (token == null || token.isEmpty) {
       _toast('Unauthorized: token missing. Please login again.');
@@ -167,10 +165,9 @@ class _EventUploadPageState extends State<EventUploadPage> {
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter
-          ),
+              colors: [kPrimaryBackgroundTop, kPrimaryBackgroundBottom],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter),
         ),
         child: LayoutBuilder(
           builder: (context, constraints) {

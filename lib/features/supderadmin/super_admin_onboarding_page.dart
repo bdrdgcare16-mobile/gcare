@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import '../models/onboarding_model.dart';
-import '../services/super_admin_onboarding_service_new.dart';
+import 'package:serv_app/models/onboarding_model.dart';
+import 'package:serv_app/services/super_admin_onboarding_service_new.dart';
+import 'package:serv_app/utils/logout.dart';
+
 import 'super_admin_onboarding_detail_page.dart';
-import 'payroll_admin_page.dart';
 
 class SuperAdminOnboardingPage extends StatefulWidget {
   const SuperAdminOnboardingPage({super.key});
@@ -12,7 +13,8 @@ class SuperAdminOnboardingPage extends StatefulWidget {
       _SuperAdminOnboardingPageState();
 }
 
-class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
+class _SuperAdminOnboardingPageState
+    extends State<SuperAdminOnboardingPage> {
   final TextEditingController _searchController = TextEditingController();
 
   List<OnboardingModel> _onboardings = [];
@@ -41,22 +43,30 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
 
     try {
       final data = await SuperAdminOnboardingService.getAllOnboardings(
-        search:
-            _searchController.text.trim().isEmpty ? null : _searchController.text.trim(),
-        status: _selectedStatus == 'All' ? null : _selectedStatus.toLowerCase(),
+        search: _searchController.text.trim().isEmpty
+            ? null
+            : _searchController.text.trim(),
+        status:
+            _selectedStatus == 'All' ? null : _selectedStatus.toLowerCase(),
       );
+
+      if (!mounted) return;
 
       setState(() {
         _onboardings = data;
       });
     } catch (e) {
+      if (!mounted) return;
+
       setState(() {
         _errorMessage = e.toString();
       });
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -68,15 +78,30 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
       final company = item.companyDetails;
 
       final matchesSearch = search.isEmpty ||
-          (personal['fullName']?.toString().toLowerCase().contains(search) ??
+          (personal['fullName']
+                  ?.toString()
+                  .toLowerCase()
+                  .contains(search) ??
               false) ||
-          (company['employeeId']?.toString().toLowerCase().contains(search) ??
+          (company['employeeId']
+                  ?.toString()
+                  .toLowerCase()
+                  .contains(search) ??
               false) ||
-          (company['department']?.toString().toLowerCase().contains(search) ??
+          (company['department']
+                  ?.toString()
+                  .toLowerCase()
+                  .contains(search) ??
               false) ||
-          (company['designation']?.toString().toLowerCase().contains(search) ??
+          (company['designation']
+                  ?.toString()
+                  .toLowerCase()
+                  .contains(search) ??
               false) ||
-          (company['branchLocation']?.toString().toLowerCase().contains(search) ??
+          (company['branchLocation']
+                  ?.toString()
+                  .toLowerCase()
+                  .contains(search) ??
               false);
 
       final matchesStatus = _selectedStatus == 'All' ||
@@ -90,7 +115,9 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
 
   int _countByStatus(String status) {
     return _onboardings
-        .where((item) => item.status.toLowerCase() == status.toLowerCase())
+        .where(
+          (item) => item.status.toLowerCase() == status.toLowerCase(),
+        )
         .length;
   }
 
@@ -115,7 +142,10 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
     });
 
     try {
-      await SuperAdminOnboardingService.updateOnboardingStatus(id, status);
+      await SuperAdminOnboardingService.updateOnboardingStatus(
+        id,
+        status,
+      );
 
       if (!mounted) return;
 
@@ -156,14 +186,23 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
     );
   }
 
-  Widget _summaryCard(String title, int count, Color color) {
+  Widget _summaryCard(
+    String title,
+    int count,
+    Color color,
+  ) {
     return Container(
       constraints: const BoxConstraints(minHeight: 64),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 8,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withOpacity(0.25)),
+        border: Border.all(
+          color: color.withOpacity(0.25),
+        ),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -195,76 +234,32 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
     );
   }
 
-  Widget _buildPayrollCard() {
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => const PayrollAdminPage(),
-          ),
-        );
-      },
-      child: Container(
-        constraints: const BoxConstraints(minHeight: 64),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: const Color(0xFF8C6EAF).withOpacity(0.25)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.payments_outlined,
-              size: 24,
-              color: Color(0xFF8C6EAF),
-            ),
-            const SizedBox(height: 4),
-            const FittedBox(
-              child: Text(
-                'Payroll',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF8C6EAF),
-                ),
-              ),
-            ),
-            const SizedBox(height: 2),
-            const FittedBox(
-              child: Text(
-                'Manage salary & payments',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.black54,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildSummaryCards() {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isMobile = constraints.maxWidth < 600;
 
         final cards = [
-          _summaryCard('Requests', _totalCount, Colors.blue),
-          _summaryCard('Approved', _countByStatus('approved'), Colors.green),
-          _summaryCard('Rejected', _countByStatus('rejected'), Colors.red),
+          _summaryCard(
+            'Requests',
+            _totalCount,
+            Colors.blue,
+          ),
+          _summaryCard(
+            'Approved',
+            _countByStatus('approved'),
+            Colors.green,
+          ),
+          _summaryCard(
+            'Rejected',
+            _countByStatus('rejected'),
+            Colors.red,
+          ),
           _summaryCard(
             'Completed',
             _countByStatus('completed'),
             const Color(0xFF655193),
           ),
-          _buildPayrollCard(),
         ];
 
         if (isMobile) {
@@ -309,18 +304,27 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
       labelText: label,
       filled: true,
       fillColor: Colors.white,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 12,
+      ),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide(color: Colors.grey.shade300),
+        borderSide: BorderSide(
+          color: Colors.grey.shade300,
+        ),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide(color: Colors.grey.shade300),
+        borderSide: BorderSide(
+          color: Colors.grey.shade300,
+        ),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: Color(0xFF655193)),
+        borderSide: const BorderSide(
+          color: Color(0xFF655193),
+        ),
       ),
     );
   }
@@ -334,7 +338,10 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
           controller: _searchController,
           decoration: _inputDecoration('Search').copyWith(
             hintText: 'Name, ID, department, designation',
-            prefixIcon: const Icon(Icons.search, size: 20),
+            prefixIcon: const Icon(
+              Icons.search,
+              size: 20,
+            ),
           ),
           onChanged: (_) => setState(() {}),
         );
@@ -343,7 +350,13 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
           value: _selectedStatus,
           decoration: _inputDecoration('Status'),
           isExpanded: true,
-          items: const ['All', 'pending', 'approved', 'rejected', 'completed']
+          items: const [
+            'All',
+            'pending',
+            'approved',
+            'rejected',
+            'completed',
+          ]
               .map(
                 (status) => DropdownMenuItem<String>(
                   value: status,
@@ -358,6 +371,7 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
             setState(() {
               _selectedStatus = value ?? 'All';
             });
+
             _fetchOnboardings();
           },
         );
@@ -374,16 +388,24 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
 
         return Row(
           children: [
-            Expanded(flex: 2, child: searchField),
+            Expanded(
+              flex: 2,
+              child: searchField,
+            ),
             const SizedBox(width: 12),
-            Expanded(child: statusField),
+            Expanded(
+              child: statusField,
+            ),
           ],
         );
       },
     );
   }
 
-  Widget _infoRow(String label, dynamic value) {
+  Widget _infoRow(
+    String label,
+    dynamic value,
+  ) {
     final text = value?.toString() ?? '-';
 
     return Padding(
@@ -419,7 +441,10 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
 
   Widget _statusBadge(String status) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 9,
+        vertical: 4,
+      ),
       decoration: BoxDecoration(
         color: _statusColor(status),
         borderRadius: BorderRadius.circular(20),
@@ -435,7 +460,9 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
     );
   }
 
-  Widget _buildOnboardingCard(OnboardingModel onboarding) {
+  Widget _buildOnboardingCard(
+    OnboardingModel onboarding,
+  ) {
     final personal = onboarding.personalDetails;
     final company = onboarding.companyDetails;
 
@@ -445,7 +472,9 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(
+          color: Colors.grey.shade200,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -476,10 +505,22 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
             ),
           ),
           const Divider(height: 18),
-          _infoRow('Department', company['department']),
-          _infoRow('Designation', company['designation']),
-          _infoRow('Branch', company['branchLocation']),
-          _infoRow('DOJ', company['dateOfJoining']),
+          _infoRow(
+            'Department',
+            company['department'],
+          ),
+          _infoRow(
+            'Designation',
+            company['designation'],
+          ),
+          _infoRow(
+            'Branch',
+            company['branchLocation'],
+          ),
+          _infoRow(
+            'DOJ',
+            company['dateOfJoining'],
+          ),
           const SizedBox(height: 10),
           _buildActionButtons(onboarding),
         ],
@@ -487,7 +528,9 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
     );
   }
 
-  Widget _buildActionButtons(OnboardingModel onboarding) {
+  Widget _buildActionButtons(
+    OnboardingModel onboarding,
+  ) {
     final status = onboarding.status.toLowerCase();
 
     return LayoutBuilder(
@@ -500,23 +543,38 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
         );
 
         final approveButton = ElevatedButton(
-          onPressed:
-              _isUpdating ? null : () => _updateStatus(onboarding.id, 'approved'),
-          style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+          onPressed: _isUpdating
+              ? null
+              : () => _updateStatus(
+                    onboarding.id,
+                    'approved',
+                  ),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.green,
+          ),
           child: const Text('Approve'),
         );
 
         final rejectButton = ElevatedButton(
-          onPressed:
-              _isUpdating ? null : () => _updateStatus(onboarding.id, 'rejected'),
-          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+          onPressed: _isUpdating
+              ? null
+              : () => _updateStatus(
+                    onboarding.id,
+                    'rejected',
+                  ),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red,
+          ),
           child: const Text('Reject'),
         );
 
         final completeButton = ElevatedButton(
           onPressed: _isUpdating
               ? null
-              : () => _updateStatus(onboarding.id, 'completed'),
+              : () => _updateStatus(
+                    onboarding.id,
+                    'completed',
+                  ),
           style: ElevatedButton.styleFrom(
             backgroundColor: const Color(0xFF655193),
           ),
@@ -536,7 +594,8 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
             children: [
               for (int i = 0; i < buttons.length; i++) ...[
                 buttons[i],
-                if (i != buttons.length - 1) const SizedBox(height: 8),
+                if (i != buttons.length - 1)
+                  const SizedBox(height: 8),
               ],
             ],
           );
@@ -545,8 +604,11 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
         return Row(
           children: [
             for (int i = 0; i < buttons.length; i++) ...[
-              Expanded(child: buttons[i]),
-              if (i != buttons.length - 1) const SizedBox(width: 8),
+              Expanded(
+                child: buttons[i],
+              ),
+              if (i != buttons.length - 1)
+                const SizedBox(width: 8),
             ],
           ],
         );
@@ -558,7 +620,9 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
     if (_isLoading) {
       return const Padding(
         padding: EdgeInsets.all(32),
-        child: Center(child: CircularProgressIndicator()),
+        child: Center(
+          child: CircularProgressIndicator(),
+        ),
       );
     }
 
@@ -569,7 +633,9 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
           child: Text(
             _errorMessage!,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.red),
+            style: const TextStyle(
+              color: Colors.red,
+            ),
           ),
         ),
       );
@@ -581,7 +647,9 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
         child: Center(
           child: Text(
             'No onboarding requests found',
-            style: TextStyle(color: Colors.black54),
+            style: TextStyle(
+              color: Colors.black54,
+            ),
           ),
         ),
       );
@@ -592,7 +660,9 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemBuilder: (context, index) {
-        return _buildOnboardingCard(_filteredOnboardings[index]);
+        return _buildOnboardingCard(
+          _filteredOnboardings[index],
+        );
       },
     );
   }
@@ -602,29 +672,25 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
     return Scaffold(
       backgroundColor: const Color(0xFFF7F5FB),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF8C6EAF),
-        elevation: 0,
-        centerTitle: true,
         title: const Text(
-          'Employee Onboarding',
+          'Super Admin Dashboard',
           style: TextStyle(
-            color: Colors.white,
+            fontSize: 20,
             fontWeight: FontWeight.w600,
+            color: Colors.white,
           ),
         ),
-        iconTheme: const IconThemeData(color: Colors.white),
+        centerTitle: false,
+        backgroundColor: const Color(0xFF6F52A3),
+        foregroundColor: Colors.white,
+        elevation: 0,
         actions: [
           IconButton(
             onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const PayrollAdminPage(),
-                ),
-              );
+              logout(context);
             },
-            icon: const Icon(Icons.attach_money),
-            tooltip: 'Payroll',
+            icon: const Icon(Icons.logout),
+            tooltip: 'Logout',
           ),
         ],
       ),
@@ -632,9 +698,35 @@ class _SuperAdminOnboardingPageState extends State<SuperAdminOnboardingPage> {
         onRefresh: _fetchOnboardings,
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           child: Column(
             children: [
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  RichText(
+                    text: TextSpan(
+                      style: TextStyle(
+                        fontSize: 25,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.5,
+                        height: 1.15,
+                      ),
+                      children: [
+                        TextSpan(
+                          text: 'Employee',
+                          style: TextStyle(color: Color(0xFF1E1B4B)),
+                        ),
+                        TextSpan(
+                          text: ' Onboarding',
+                          style: TextStyle(color: Color(0xFF8B5CF6)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
               _buildSummaryCards(),
               const SizedBox(height: 16),
               _buildFilters(),

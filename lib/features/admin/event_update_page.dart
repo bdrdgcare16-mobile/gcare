@@ -34,8 +34,7 @@ const double _locationWidth = 120;
 const double _descriptionWidth = 220;
 const double _deleteWidth = 40;
 
-const double _tableRowContentWidth =
-    _eventNameWidth +
+const double _tableRowContentWidth = _eventNameWidth +
     _fromDateWidth +
     _toDateWidth +
     _locationWidth +
@@ -281,7 +280,8 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
       } catch (_) {}
     }
 
-    debugPrint('[Events] Token retrieved: ${token != null && token.isNotEmpty}');
+    debugPrint(
+        '[Events] Token retrieved: ${token != null && token.isNotEmpty}');
     return token;
   }
 
@@ -306,9 +306,6 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
       }
 
       debugPrint('[Events] Fetching events from: ${ApiService.baseUrl}/events');
-      debugPrint(
-        '[Events] Token available: ${token != null && token.isNotEmpty}',
-      );
 
       final response = await http.get(
         Uri.parse('${ApiService.baseUrl}/events'),
@@ -316,7 +313,6 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
       );
 
       debugPrint('[Events] Response status code: ${response.statusCode}');
-      debugPrint('[Events] Response body: ${response.body}');
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);

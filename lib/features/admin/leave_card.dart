@@ -166,42 +166,44 @@ class LeaveCard extends StatelessWidget {
                   final isLeaveRequest = _isLeaveRequest();
 
                   if (isMobile) {
-                    // Mobile layout: Wrap buttons
+                    // Mobile layout: Side by side buttons with equal width
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         if (isLeaveRequest)
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: isProcessing ? null : () => onStatusChange('approved_paid'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFE8F5E8),
-                                foregroundColor: const Color(0xFF2E7D32),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 10,
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: isProcessing ? null : () => onStatusChange('approved_paid'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFE8F5E8),
+                                  foregroundColor: const Color(0xFF2E7D32),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
+                                  minimumSize: const Size(0, 40),
+                                  textStyle: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  elevation: 0,
                                 ),
-                                minimumSize: const Size(0, 40),
-                                textStyle: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                elevation: 0,
+                                child: isProcessing
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      )
+                                    : const Text("Approve as Paid"),
                               ),
-                              child: isProcessing
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
-                                    )
-                                  : const Text("Approve as Paid"),
                             ),
                           ),
-                        if (isLeaveRequest) const SizedBox(height: 8),
                         if (isLeaveRequest)
                           Row(
                             children: [
@@ -212,7 +214,7 @@ class LeaveCard extends StatelessWidget {
                                     backgroundColor: const Color(0xFFFFF3E0),
                                     foregroundColor: const Color(0xFFEF6C00),
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
+                                      horizontal: 8,
                                       vertical: 10,
                                     ),
                                     minimumSize: const Size(0, 40),
@@ -236,7 +238,7 @@ class LeaveCard extends StatelessWidget {
                                     backgroundColor: const Color(0xFFFFEBEE),
                                     foregroundColor: const Color(0xFFD32F2F),
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
+                                      horizontal: 8,
                                       vertical: 10,
                                     ),
                                     minimumSize: const Size(0, 40),
@@ -264,7 +266,7 @@ class LeaveCard extends StatelessWidget {
                                     backgroundColor: const Color(0xFFE8F5E8),
                                     foregroundColor: const Color(0xFF2E7D32),
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
+                                      horizontal: 8,
                                       vertical: 10,
                                     ),
                                     minimumSize: const Size(0, 40),
@@ -294,7 +296,7 @@ class LeaveCard extends StatelessWidget {
                                     backgroundColor: const Color(0xFFFFEBEE),
                                     foregroundColor: const Color(0xFFD32F2F),
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
+                                      horizontal: 8,
                                       vertical: 10,
                                     ),
                                     minimumSize: const Size(0, 40),

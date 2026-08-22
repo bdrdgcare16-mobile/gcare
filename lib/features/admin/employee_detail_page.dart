@@ -62,7 +62,8 @@ List<_TrackPoint> _simplifyByDistance(
 }
 
 class EmployeeDetailPage extends StatefulWidget {
-  final Map<String, dynamic> employee; // at least {'id': empid}, optional {'date': 'YYYY-MM-DD'}
+  final Map<String, dynamic>
+      employee; // at least {'id': empid}, optional {'date': 'YYYY-MM-DD'}
   const EmployeeDetailPage({super.key, required this.employee});
 
   @override
@@ -97,8 +98,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
   GoogleMapController? _mapController;
   final Set<Marker> _markers = {};
   final Set<Polyline> _polylines = {};
-  CameraPosition _initialCam =
-      const CameraPosition(target: LatLng(13.0827, 80.2707), zoom: 16); // Chennai
+  CameraPosition _initialCam = const CameraPosition(
+      target: LatLng(13.0827, 80.2707), zoom: 16); // Chennai
 
   // Tracking UI parity with My Track
   final DateFormat _timeFmt = DateFormat('hh:mm a');
@@ -117,7 +118,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
   @override
   void initState() {
     super.initState();
-    empid = (widget.employee['id'] ?? widget.employee['empid'] ?? '').toString();
+    empid =
+        (widget.employee['id'] ?? widget.employee['empid'] ?? '').toString();
     final passedDate = (widget.employee['date'] ?? '').toString();
     dateIso = passedDate.isNotEmpty
         ? passedDate
@@ -133,7 +135,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
   }
 
   void _renderTrackingPath(Map<String, dynamic> data) {
-    _sessionEnded = (data['endedAt'] != null && '${data['endedAt']}'.isNotEmpty);
+    _sessionEnded =
+        (data['endedAt'] != null && '${data['endedAt']}'.isNotEmpty);
 
     final raw = (data['pathMap'] is List) ? List.from(data['pathMap']) : [];
 
@@ -191,7 +194,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
           markerId: MarkerId('p$i'),
           position: p.ll,
           infoWindow: InfoWindow(title: _timeFmt.format(p.ts)),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+          icon:
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
         ),
       );
     }
@@ -264,8 +268,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
         name = (data['name'] ?? '-') as String;
         shift = (data['shiftGroup'] ?? data['shift'] ?? '-') as String;
         department = (data['dept'] ?? data['department'] ?? '-') as String;
-        branchName =
-            (data['location'] ?? '-') as String; // server sends branchName as 'location'
+        branchName = (data['location'] ?? '-')
+            as String; // server sends branchName as 'location'
         status = (data['status'] ?? '-') as String;
 
         final ci = (data['checkIn'] as String?);
@@ -294,7 +298,7 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
       }
     } catch (e) {
       if (kDebugMode) {
-        print('Employee detail error: $e');
+        debugPrint('[EMP_DETAIL] Failed to load employee details');
       }
 
       setState(() => _error = 'Failed to load employee details');
@@ -315,16 +319,20 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
 
   List<Map<String, dynamic>> _getTrackingEvents(Map<String, dynamic> data) {
     final raw = data['events'];
-    if (raw is! List) return [];
+
+    if (raw is! List) {
+      return [];
+    }
 
     final events = raw
         .where((e) => e is Map)
         .map((e) => Map<String, dynamic>.from(e as Map))
         .where((event) {
-          final type = event['type']?.toString();
-          return type == 'poor_gps' || type == 'gps_disabled' || type == 'account_logged_out';
-        })
-        .toList();
+      final type = event['type']?.toString();
+      return type == 'poor_gps' ||
+          type == 'gps_disabled' ||
+          type == 'account_logged_out';
+    }).toList();
 
     events.sort((a, b) {
       final ta = _parseEventTs(a['ts']);
@@ -413,6 +421,7 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
   Widget _buildTrackingEventsSection() {
     // Show the button only after the Geolocation button loads tracking data.
     // This keeps the employee detail card clean and avoids showing events directly on the page.
+
     if (!_showTrackingEvents) {
       return const SizedBox.shrink();
     }
@@ -511,7 +520,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                               final typeLabel = _formatTrackingEventType(
                                 event['type']?.toString(),
                               );
-                              final message = _formatTrackingEventMessage(event);
+                              final message =
+                                  _formatTrackingEventMessage(event);
                               final durationText =
                                   _trackingEventDurationText(index);
 
@@ -532,7 +542,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Icon(
-                                      event['type']?.toString() == 'gps_disabled'
+                                      event['type']?.toString() ==
+                                              'gps_disabled'
                                           ? Icons.location_off
                                           : Icons.gps_not_fixed,
                                       size: 24,
@@ -593,7 +604,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
   void _showCheckInOnMap() {
     if (checkInLat == null || checkInLng == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No stored check-in location for this day.')),
+        const SnackBar(
+            content: Text('No stored check-in location for this day.')),
       );
     } else {
       final pos = LatLng(checkInLat!, checkInLng!);
@@ -605,7 +617,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
             markerId: const MarkerId('checkin'),
             position: pos,
             infoWindow: const InfoWindow(title: 'Check-in location'),
-            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+                BitmapDescriptor.hueGreen),
           ),
         );
 
@@ -655,21 +668,17 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
       );
 
       // Debug logs: request info
-      debugPrint('[EMP_DETAIL] GET ${uri.toString()}');
-      debugPrint('[EMP_DETAIL] header x-empid=${headers['x-empid']}');
-      debugPrint('[EMP_DETAIL] dateIso=$selectedDateIso');
+      debugPrint('[EMP_DETAIL] GET /tracking/day');
 
       final resp = await http
           .get(uri, headers: headers)
           .timeout(const Duration(seconds: 15));
 
-      // Debug: full response body
       debugPrint(
-        '[EMP_DETAIL] /tracking/day response status=${resp.statusCode} body=${resp.body}',
-      );
+          '[EMP_DETAIL] /tracking/day response status=${resp.statusCode}');
 
       if (resp.statusCode != 200) {
-        throw 'HTTP ${resp.statusCode}: ${resp.body}';
+        throw 'HTTP ${resp.statusCode}';
       }
 
       final json = jsonDecode(resp.body);
@@ -678,28 +687,33 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
           ? Map<String, dynamic>.from(json['data'])
           : <String, dynamic>{};
 
+      // Debug: inspect events presence and content
+      try {
+        final ev = data['events'];
+        if (ev == null) {
+          // no events
+        } else if (ev is List) {
+          debugPrint('[EMP_DETAIL] events count=${ev.length}');
+        } else {
+          debugPrint('[EMP_DETAIL] events present but not a List');
+        }
+      } catch (e) {
+        debugPrint('[EMP_DETAIL] events inspect error');
+      }
+
       // Debug: inspect pathMap presence and content
       try {
         final pm = data['pathMap'];
-        debugPrint('[EMP_DETAIL] data.keys=${data.keys.toList()}');
 
         if (pm == null) {
-          debugPrint('[EMP_DETAIL] pathMap: null');
+          // no pathMap
         } else if (pm is List) {
-          debugPrint('[EMP_DETAIL] pathMap is List, length=${pm.length}');
-          if (pm.isNotEmpty) {
-            // show first 3 entries for sampling
-            for (var i = 0; i < (pm.length < 3 ? pm.length : 3); i++) {
-              debugPrint('[EMP_DETAIL] pathMap[$i]=${pm[i]}');
-            }
-          }
+          debugPrint('[EMP_DETAIL] pathMap count=${pm.length}');
         } else {
-          debugPrint(
-            '[EMP_DETAIL] pathMap present but not a List, type=${pm.runtimeType}',
-          );
+          debugPrint('[EMP_DETAIL] pathMap present but not a List');
         }
       } catch (e) {
-        debugPrint('[EMP_DETAIL] pathMap inspect error: $e');
+        debugPrint('[EMP_DETAIL] pathMap inspect error');
       }
 
       _cachedTrackingDay = data;
@@ -737,7 +751,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
           markerId: const MarkerId('branch'),
           position: pos,
           infoWindow: InfoWindow(title: 'Branch location', snippet: branchName),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet),
+          icon:
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet),
         ),
       );
 
@@ -776,7 +791,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
       northeast: LatLng(maxLat!, maxLng!),
     );
 
-    _mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, padding));
+    _mapController!
+        .animateCamera(CameraUpdate.newLatLngBounds(bounds, padding));
   }
 
   @override
@@ -836,7 +852,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                         (name.isEmpty ? '-' : name),
                         style: const TextStyle(
                           fontSize: 18, // Changed from 20 to 18
-                          fontWeight: FontWeight.w600, // Changed from w700 to w600
+                          fontWeight:
+                              FontWeight.w600, // Changed from w700 to w600
                           color: kButtonColor,
                         ),
                       ),
@@ -853,7 +870,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                         value: _fmt(checkOut, dash: '—'),
                       ),
                       _DetailRow(label: 'Latitude', value: _fmtNum(checkInLat)),
-                      _DetailRow(label: 'Longitude', value: _fmtNum(checkInLng)),
+                      _DetailRow(
+                          label: 'Longitude', value: _fmtNum(checkInLng)),
                       _DetailRow(label: 'Status', value: _fmt(status)),
 
                       const SizedBox(height: 16),
@@ -908,8 +926,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                                 ChoiceChip(
                                   label: const Text('Satellite'),
                                   selected: _mapType == MapType.satellite,
-                                  onSelected: (_) =>
-                                      setState(() => _mapType = MapType.satellite),
+                                  onSelected: (_) => setState(
+                                      () => _mapType = MapType.satellite),
                                   materialTapTargetSize:
                                       MaterialTapTargetSize.shrinkWrap,
                                 ),
@@ -932,7 +950,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: kButtonColor,
                                 foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),
@@ -948,7 +967,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.orange.shade600,
                                 foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),
@@ -1007,8 +1027,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                                 tiltGesturesEnabled: true,
 
                                 // 👇 This is the key so gestures win over the ListView
-                                gestureRecognizers:
-                                    <Factory<OneSequenceGestureRecognizer>>{
+                                gestureRecognizers: <Factory<
+                                    OneSequenceGestureRecognizer>>{
                                   Factory<OneSequenceGestureRecognizer>(
                                     () => EagerGestureRecognizer(),
                                   ),
@@ -1019,7 +1039,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                                 polylines: _polylines,
                                 onMapCreated: (c) {
                                   _mapController = c;
-                                  if (checkInLat != null && checkInLng != null) {
+                                  if (checkInLat != null &&
+                                      checkInLng != null) {
                                     _mapController!.moveCamera(
                                       CameraUpdate.newLatLngZoom(
                                         LatLng(checkInLat!, checkInLng!),
@@ -1076,8 +1097,7 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
     );
 
     if (picked != null) {
-      final formattedDisplayDate =
-          "${picked.day.toString().padLeft(2, '0')}/"
+      final formattedDisplayDate = "${picked.day.toString().padLeft(2, '0')}/"
           "${picked.month.toString().padLeft(2, '0')}/"
           "${picked.year}";
 

@@ -1,11 +1,56 @@
 // lib/utils/logout.dart
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:serv_app/features/users/login_page.dart';
+import 'package:serv_app/services/fcm_test_service.dart';
+import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/html_stub.dart'
-  if (dart.library.html) 'package:serv_app/html_web.dart' as html;
+    if (dart.library.html) 'package:serv_app/html_web.dart' as html;
+import 'package:intl/intl.dart';
 
 Future<void> logout(BuildContext context) async {
+  // Deactivate this device's FCM token on the backend before the JWT that
+  // authorizes the request is cleared.
+  try {
+    await FcmTestService.instance.unregisterDevice();
+  } catch (_) {}
+
+  // Call tracking check-out to create logout event before clearing token
+  try {
+    final sp = await SharedPreferences.getInstance();
+    final empId = sp.getString('empid') ?? sp.getString('empId');
+    final token = CompanyData.token;
+
+    if (empId != null && token.isNotEmpty) {
+      // Use local date for tracking document to match admin view
+      final localDateIso = DateFormat('yyyy-MM-dd').format(DateTime.now());
+
+      final trackingUri = Uri.parse('${ApiService.baseUrl}/tracking/check-out');
+      final response = await http.post(
+        trackingUri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'empid': empId,
+          'dateIso': localDateIso,
+        }),
+      );
+
+      debugPrint('[Logout] Tracking check-out status: ${response.statusCode}');
+      if (response.statusCode != 200) {
+        debugPrint(
+            '[Logout] Tracking check-out failed: ${response.statusCode}');
+      }
+    }
+  } catch (e) {
+    debugPrint('[Logout] Tracking check-out error occurred');
+  }
+
   try {
     try {
       html.window.localStorage.remove('token');

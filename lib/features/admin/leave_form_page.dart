@@ -53,7 +53,7 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
   Future<void> _loadAuthData() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      
+
       // Load token from SharedPreferences
       final tokenKeys = ['jwt', 'token', 'access_token', 'auth_token'];
       for (final key in tokenKeys) {
@@ -73,24 +73,19 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
           final parts = _token!.split('.');
           if (parts.length == 3) {
             final payload = jsonDecode(
-              utf8.decode(base64.decode(base64.normalize(parts[1])))
-            );
+                utf8.decode(base64.decode(base64.normalize(parts[1]))));
             _role = payload['role']?.toString();
           }
         } catch (e) {
-          print('JWT parse error: $e');
+          debugPrint('[AUTH] JWT parse error occurred');
         }
       }
-
-      print('SHARED PREF TOKEN: $_token');
-      print('SHARED PREF ROLE: $_role');
-      print('ADMIN CHECK FINAL: ${_isAdmin()}');
 
       setState(() {
         _loadingAuth = false;
       });
     } catch (e) {
-      print('Error loading auth data: $e');
+      debugPrint('[AUTH] Error loading auth data');
       setState(() {
         _loadingAuth = false;
       });
@@ -107,13 +102,13 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
   }
 
   String? _getUserRole() {
-  return _role;
-}
+    return _role;
+  }
 
   bool _isAdmin() {
-  final role = _role?.trim().toLowerCase();
-  return role != null && role.contains('admin');
-}
+    final role = _role?.trim().toLowerCase();
+    return role != null && role.contains('admin');
+  }
 
   Future<void> _selectDate(TextEditingController ctrl,
       {DateTime? minDate, bool isFrom = false}) async {
@@ -269,7 +264,8 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
                     ),
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: _isAdmin() ? kButtonColor : Colors.grey,
+                        backgroundColor:
+                            _isAdmin() ? kButtonColor : Colors.grey,
                         foregroundColor: Colors.white,
                       ),
                       onPressed: _isAdmin() ? _saveLeave : null,

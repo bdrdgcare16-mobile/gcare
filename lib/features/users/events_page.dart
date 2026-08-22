@@ -19,7 +19,8 @@ const Color kTextColor = Colors.white;
 // ------- API base (using centralized config) -------
 final String apiBase = ApiConfig.baseUrl;
 // To resolve /uploads/... into a full URL
-final String _apiOrigin = ApiConfig.baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
+final String _apiOrigin =
+    ApiConfig.baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
 
 class UserEventUpdatesPage extends StatefulWidget {
   const UserEventUpdatesPage({super.key});
@@ -59,15 +60,14 @@ class _UserEventUpdatesPageState extends State<UserEventUpdatesPage> {
         for (final key in tokenKeys) {
           final value = html.window.localStorage[key];
           if (value != null && value.isNotEmpty) {
-            debugPrint('[Events] Token found in localStorage: $key');
             return value;
           }
         }
       } catch (e) {
-        debugPrint('[Events] Error reading token from localStorage: $e');
+        debugPrint('[Events] Error reading token from localStorage');
       }
     }
-    
+
     // Try mobile SharedPreferences
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -75,97 +75,88 @@ class _UserEventUpdatesPageState extends State<UserEventUpdatesPage> {
       for (final key in tokenKeys) {
         final value = prefs.getString(key);
         if (value != null && value.isNotEmpty) {
-          debugPrint('[Events] Token found in SharedPreferences: $key');
           return value;
         }
       }
     } catch (e) {
-      debugPrint('[Events] Error reading token from SharedPreferences: $e');
+      debugPrint('[Events] Error reading token from SharedPreferences');
     }
-    
+
     // Try centralized CompanyData token
     if (CompanyData.token != null && CompanyData.token.toString().isNotEmpty) {
-      debugPrint('[Events] Token found in CompanyData');
       return CompanyData.token.toString();
     }
-    
-    debugPrint('[Events] No token found in any source');
+
+    debugPrint('[Events] No token found');
     return null;
   }
 
   Future<List<Map<String, String>>> fetchEventData() async {
-  try {
-    final token = await _getToken();
+    try {
+      final token = await _getToken();
 
-    debugPrint('[Events] Fetching events from: ${ApiService.baseUrl}/events');
-    debugPrint(
-      '[Events] Token available: ${token != null ? 'Yes (${token.length} chars)' : 'No'}',
-    );
+      debugPrint('[Events] Fetching events');
 
-    final headers = <String, String>{
-      'Content-Type': 'application/json',
-    };
-
-    if (token != null && token.isNotEmpty) {
-      headers['Authorization'] = 'Bearer $token';
-      debugPrint('[Events] Authorization header added');
-    } else {
-      debugPrint('[Events] WARNING: No token available, request may fail');
-    }
-
-    final res = await http.get(
-      Uri.parse('${ApiService.baseUrl}/events'),
-      headers: headers,
-    );
-
-    debugPrint('[Events] Response status code: ${res.statusCode}');
-    debugPrint('[Events] Response body: ${res.body}');
-
-    if (res.statusCode != 200) {
-      throw Exception('HTTP ${res.statusCode}: ${res.body}');
-    }
-
-    final decoded = jsonDecode(res.body);
-
-    List rawEvents = [];
-
-    if (decoded is List) {
-      rawEvents = decoded;
-    } else if (decoded is Map<String, dynamic>) {
-      if (decoded['events'] is List) {
-        rawEvents = decoded['events'] as List;
-      } else if (decoded['data'] is List) {
-        rawEvents = decoded['data'] as List;
-      } else {
-        throw Exception('Invalid response format: no events list found');
-      }
-    } else {
-      throw Exception('Invalid response format');
-    }
-
-    return rawEvents.map<Map<String, String>>((e) {
-      final event = Map<String, dynamic>.from(e as Map);
-
-      final title = (event['title'] ?? '').toString();
-      final location = (event['location'] ?? '').toString();
-      final desc = (event['description'] ?? '').toString();
-      final fromDateStr = (event['fromDate'] ?? '').toString();
-      final toDateStr = (event['toDate'] ?? '').toString();
-      final imageUrl = _resolveUrl((event['imageUrl'] ?? '').toString());
-
-      return {
-        'event': title,
-        'from': _fmtDate(fromDateStr),
-        'to': _fmtDate(toDateStr),
-        'location': location,
-        'image': imageUrl,
-        'desc': desc,
+      final headers = <String, String>{
+        'Content-Type': 'application/json',
       };
-    }).toList();
-  } catch (e) {
-    throw Exception('Error fetching events: $e');
+
+      if (token != null && token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+
+      final res = await http.get(
+        Uri.parse('${ApiService.baseUrl}/events'),
+        headers: headers,
+      );
+
+      debugPrint('[Events] Response status code: ${res.statusCode}');
+
+      if (res.statusCode != 200) {
+        throw Exception('HTTP ${res.statusCode}: ${res.body}');
+      }
+
+      final decoded = jsonDecode(res.body);
+
+      List rawEvents = [];
+
+      if (decoded is List) {
+        rawEvents = decoded;
+      } else if (decoded is Map<String, dynamic>) {
+        if (decoded['events'] is List) {
+          rawEvents = decoded['events'] as List;
+        } else if (decoded['data'] is List) {
+          rawEvents = decoded['data'] as List;
+        } else {
+          throw Exception('Invalid response format: no events list found');
+        }
+      } else {
+        throw Exception('Invalid response format');
+      }
+
+      return rawEvents.map<Map<String, String>>((e) {
+        final event = Map<String, dynamic>.from(e as Map);
+
+        final title = (event['title'] ?? '').toString();
+        final location = (event['location'] ?? '').toString();
+        final desc = (event['description'] ?? '').toString();
+        final fromDateStr = (event['fromDate'] ?? '').toString();
+        final toDateStr = (event['toDate'] ?? '').toString();
+        final imageUrl = _resolveUrl((event['imageUrl'] ?? '').toString());
+
+        return {
+          'event': title,
+          'from': _fmtDate(fromDateStr),
+          'to': _fmtDate(toDateStr),
+          'location': location,
+          'image': imageUrl,
+          'desc': desc,
+        };
+      }).toList();
+    } catch (e) {
+      throw Exception('Error fetching events: $e');
+    }
   }
-}
 
   @override
   Widget build(BuildContext context) {
@@ -203,7 +194,8 @@ class _UserEventUpdatesPageState extends State<UserEventUpdatesPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                    padding:
+                        const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
                     decoration: BoxDecoration(
                       color: kButtonColor,
                       borderRadius: BorderRadius.circular(8),

@@ -3,19 +3,38 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'
     show kIsWeb;
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 import 'package:workmanager/workmanager.dart';
 import 'package:serv_app/features/auth/auth_guard.dart';
 import 'core/app_messenger.dart';
+import 'core/app_navigator.dart';
 import 'package:serv_app/features/users/login_page.dart';
 import 'package:serv_app/features/admin/leave_page.dart';
 import 'package:serv_app/features/admin/leave_form_page.dart';
 import 'package:serv_app/features/users/landing_screen.dart';
 import 'package:serv_app/features/users/background_tasks.dart';
 import 'package:serv_app/services/connectivity_service.dart';
+import 'package:serv_app/services/fcm_test_service.dart';
 import 'package:serv_app/widgets/network_gate.dart';
+import 'firebase_options_prod.dart';
 
 bool get _isAndroid => !kIsWeb && Platform.isAndroid;
+
+// Must be a top-level (or static) function, not a class member, so it can
+// run in the background isolate when the app is terminated.
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(
+  RemoteMessage message,
+) async {
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+  debugPrint(
+    'FCM background message: ${message.messageId}',
+  );
+}
 
 Future<void> startApp({
   required FirebaseOptions firebaseOptions,
@@ -38,6 +57,18 @@ Future<void> startApp({
     );
     debugPrint('Firebase initialized for [$environmentName]: ${app.options.projectId}');
     debugPrint('API key configured: ${app.options.apiKey.isNotEmpty ? 'YES' : 'NO'}');
+
+    FirebaseMessaging.onBackgroundMessage(
+      firebaseMessagingBackgroundHandler,
+    );
+
+    if (_isAndroid) {
+      try {
+        await FcmTestService.instance.init();
+      } catch (e) {
+        debugPrint('FcmTestService init failed [$environmentName]: $e');
+      }
+    }
   } catch (e) {
     debugPrint('Firebase initialization error [$environmentName]: $e');
   }
@@ -123,6 +154,7 @@ class MyApp extends StatelessWidget {
       title: 'SERV App',
       debugShowCheckedModeBanner: false,
       theme: myTheme,
+      navigatorKey: AppNavigator.key,
       scaffoldMessengerKey: AppMessenger.key,
       builder: (context, child) {
         final media = MediaQuery.of(context);

@@ -18,6 +18,11 @@ const _kChannelName = 'SERV Tracking';
 const _kChannelDesc = 'Foreground location tracking';
 const _kNotifId = 1212;
 
+// General/updates channel (task notifications, etc.) - used by FCM handling.
+const kUpdatesChannelId = 'serv_updates';
+const _kUpdatesChannelName = 'SERV Updates';
+const _kUpdatesChannelDesc = 'Task and general notifications';
+
 bool get _isAndroid => !kIsWeb && Platform.isAndroid;
 
 // Workmanager names & keys
@@ -34,28 +39,54 @@ const _kPendingLocationsKey = 'tracking_pending_locations';
 // In-memory identity
 String? _empid, _token;
 
-const Duration _kForegroundServiceInterval = Duration(minutes:20);
+const Duration _kForegroundServiceInterval = Duration(minutes: 20);
 Timer? _foregroundServiceTimer;
 bool _foregroundServiceTickRunning = false;
 
-// Single notifications plugin
+// Single notifications plugin (this class is a singleton internally, so any
+// other module that does `FlutterLocalNotificationsPlugin()` gets this same
+// instance — see [sharedLocalNotificationsPlugin] below for safe reuse).
 final _flnp = FlutterLocalNotificationsPlugin();
+
+// Guards against calling plugin.initialize() more than once, since the
+// plugin instance is process-wide: a second call would silently overwrite
+// the notification-tap callback registered by the first call.
+bool _flnpInitialized = false;
+
+// Other modules (e.g. FCM foreground/tap handling) can register a callback
+// here *before* the first _ensureNotifChannel() run to receive local
+// notification taps without fighting over plugin.initialize().
+void Function(NotificationResponse)? notificationTapHandler;
+
+/// Exposes the shared (singleton) plugin instance for other modules that
+/// need to `.show()` notifications on channels created here.
+FlutterLocalNotificationsPlugin get sharedLocalNotificationsPlugin => _flnp;
+
+/// Public wrapper so other modules can make sure the plugin + channels are
+/// ready before calling `.show()`, without duplicating initialization logic.
+Future<void> ensureNotificationChannelsReady() => _ensureNotifChannel();
 
 /// Create the Android notification channel & ask notification permission (13+)
 Future<void> _ensureNotifChannel() async {
   if (!_isAndroid) return;
 
-  // Init plugin once
-  const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-  await _flnp.initialize(const InitializationSettings(android: androidInit));
+  if (!_flnpInitialized) {
+    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+    await _flnp.initialize(
+      settings: const InitializationSettings(android: androidInit),
+      onDidReceiveNotificationResponse: (details) =>
+          notificationTapHandler?.call(details),
+    );
+    _flnpInitialized = true;
+  }
 
-  final android =
-      _flnp.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+  final android = _flnp.resolvePlatformSpecificImplementation<
+      AndroidFlutterLocalNotificationsPlugin>();
 
   // Android 13+ runtime permission
   final enabled = await android?.areNotificationsEnabled();
   if (enabled == false) {
-    await android?.requestNotificationsPermission(); 
+    await android?.requestNotificationsPermission();
   }
 
   // Create (idempotent) low-importance channel for foreground notification
@@ -64,6 +95,14 @@ Future<void> _ensureNotifChannel() async {
     _kChannelName,
     description: _kChannelDesc,
     importance: Importance.low,
+  ));
+
+  // Create (idempotent) high-importance channel for task/general updates
+  await android?.createNotificationChannel(const AndroidNotificationChannel(
+    kUpdatesChannelId,
+    _kUpdatesChannelName,
+    description: _kUpdatesChannelDesc,
+    importance: Importance.high,
   ));
 }
 
@@ -112,21 +151,23 @@ Future<void> startForegroundTracking() async {
   // Make sure channel + (13+) permission exist before we show a foreground notif
   await _ensureNotifChannel();
 
-  final androidImpl = _flnp
-      .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>();
+  final androidImpl = _flnp.resolvePlatformSpecificImplementation<
+      AndroidFlutterLocalNotificationsPlugin>();
 
   // 1) Are notifications enabled?
-  bool? granted = await (androidImpl?.areNotificationsEnabled() ?? Future.value(true));
+  bool? granted =
+      await (androidImpl?.areNotificationsEnabled() ?? Future.value(true));
 
   // 2) If not, try requesting once.
   if (!granted!) {
-    granted = await (androidImpl?.requestNotificationsPermission() ?? Future.value(false));
+    granted = await (androidImpl?.requestNotificationsPermission() ??
+        Future.value(false));
   }
 
   // 3) If still not granted, DO NOT start the service (it would crash).
   if (!granted!) {
-    debugPrint('[FG] Notifications permission not granted – skip startForeground to avoid crash.');
+    debugPrint(
+        '[FG] Notifications permission not granted – skip startForeground to avoid crash.');
     return;
   }
 
@@ -166,7 +207,8 @@ Future<Position?> _captureBestPositionWithSampling({
     Position? bestPosition;
     int sampleCount = 0;
 
-    debugPrint('[BG] starting GPS sampling: max=$maxSamples, target=$targetAccuracyMeters m, max=$maxAccuracyMeters m');
+    debugPrint(
+        '[BG] starting GPS sampling: max=$maxSamples, target=$targetAccuracyMeters m, max=$maxAccuracyMeters m');
 
     // Try quick single-shots first
     for (int i = 0; i < maxSamples; i++) {
@@ -185,12 +227,14 @@ Future<Position?> _captureBestPositionWithSampling({
 
         if (bestPosition == null || pos.accuracy < bestPosition.accuracy) {
           bestPosition = pos;
-          debugPrint('[BG] sample $sampleCount: acc=${pos.accuracy.toStringAsFixed(1)}m (best so far)');
+          debugPrint(
+              '[BG] sample $sampleCount: acc=${pos.accuracy.toStringAsFixed(1)}m (best so far)');
         }
 
         // Early exit if accuracy is excellent
         if (pos.accuracy <= targetAccuracyMeters) {
-          debugPrint('[BG] target accuracy reached after $sampleCount samples, stopping');
+          debugPrint(
+              '[BG] target accuracy reached after $sampleCount samples, stopping');
           break;
         }
       } catch (e) {
@@ -207,11 +251,13 @@ Future<Position?> _captureBestPositionWithSampling({
     }
 
     if (bestPosition.accuracy > maxAccuracyMeters) {
-      debugPrint('[BG] SKIPPED: accuracy=${bestPosition.accuracy.toStringAsFixed(1)}m exceeds max=${maxAccuracyMeters}m after $sampleCount samples');
+      debugPrint(
+          '[BG] SKIPPED: accuracy=${bestPosition.accuracy.toStringAsFixed(1)}m exceeds max=${maxAccuracyMeters}m after $sampleCount samples');
       return null;
     }
 
-    debugPrint('[BG] selected best position: acc=${bestPosition.accuracy.toStringAsFixed(1)}m lat=${bestPosition.latitude} lng=${bestPosition.longitude}');
+    debugPrint(
+        '[BG] selected best position: acc=${bestPosition.accuracy.toStringAsFixed(1)}m');
     return bestPosition;
   } catch (e) {
     debugPrint('[BG] GPS sampling error: $e');
@@ -232,18 +278,19 @@ void callbackDispatcher() {
 
     final emp = inputData?[_kEmpKey]?.toString();
     final tok = inputData?[_kTokKey]?.toString();
-    debugPrint('[Workmanager] Task=$task empid=$emp');
+    debugPrint('[Workmanager] Task=$task');
 
     try {
       if ((emp ?? '').isNotEmpty && (tok ?? '').isNotEmpty) {
         debugPrint('[Workmanager] pending sync started (sync-only mode)');
         await _syncPendingLocations(emp!, tok!);
         debugPrint('[Workmanager] pending sync completed');
-        
+
         // ✅ FIXED: Workmanager is now sync-only (retries pending offline locations only)
         // Fresh location posting is handled by Foreground Service (20 min interval)
         // and TrackingService (20 min interval). This prevents duplicate location posts.
-        debugPrint('[Workmanager] skipping fresh location posting (sync-only mode, handled by FG service)');
+        debugPrint(
+            '[Workmanager] skipping fresh location posting (sync-only mode, handled by FG service)');
       }
     } catch (e) {
       debugPrint('[Workmanager] task error: $e');
@@ -279,13 +326,13 @@ Future<void> scheduleBackgroundTracking({
     ),
     existingWorkPolicy: ExistingPeriodicWorkPolicy.replace,
   );
-  debugPrint('[Workmanager] scheduled for $empid');
+  debugPrint('[Workmanager] scheduled');
 }
 
 Future<void> cancelBackgroundTracking({required String empid}) async {
   if (!_isAndroid) return;
   await Workmanager().cancelByUniqueName(_wmUniqueTask);
-  debugPrint('[Workmanager] cancelled for $empid');
+  debugPrint('[Workmanager] cancelled');
 }
 
 Future<SharedPreferences> _prefs() => SharedPreferences.getInstance();
@@ -329,7 +376,8 @@ Future<List<Map<String, dynamic>>> _loadPendingLocations() async {
 
 Future<void> _savePendingLocations(List<Map<String, dynamic>> items) async {
   final prefs = await _prefs();
-  final trimmed = items.length <= 200 ? items : items.sublist(items.length - 200);
+  final trimmed =
+      items.length <= 200 ? items : items.sublist(items.length - 200);
   final encoded = trimmed.map((item) => jsonEncode(item)).toList();
   await prefs.setStringList(_kPendingLocationsKey, encoded);
 }
@@ -370,18 +418,20 @@ Future<void> _syncPendingLocations(String empid, String token) async {
   for (final item in pending) {
     try {
       final uri = Uri.parse('${ApiService.baseUrl}/tracking/pos');
-      final response = await http.post(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-          'x-empid': empid,
-        },
-        body: jsonEncode(item),
-      ).timeout(const Duration(seconds: 10));
+      final response = await http
+          .post(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+              'x-empid': empid,
+            },
+            body: jsonEncode(item),
+          )
+          .timeout(const Duration(seconds: 10));
 
       if (kDebugMode) {
-        debugPrint('[BG] sync pending status=${response.statusCode} item=$item');
+        debugPrint('[BG] sync pending status=${response.statusCode}');
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {
         kept.add(item);
@@ -399,7 +449,8 @@ Future<void> _syncPendingLocations(String empid, String token) async {
     if (kept.isEmpty) {
       debugPrint('[BG] pending offline locations synced successfully');
     } else {
-      debugPrint('[BG] pending offline locations sync completed with ${kept.length} remaining');
+      debugPrint(
+          '[BG] pending offline locations sync completed with ${kept.length} remaining');
     }
   }
 }
@@ -483,7 +534,8 @@ void _onStart(ServiceInstance service) async {
         return;
       }
 
-      debugPrint('[BG] location captured lat=${p.latitude}, lng=${p.longitude}, acc=${p.accuracy.toStringAsFixed(1)}m');
+      debugPrint(
+          '[BG] location captured acc=${p.accuracy.toStringAsFixed(1)}m');
 
       if (_empid != null && _token != null) {
         final success = await _pingServer(
@@ -494,7 +546,8 @@ void _onStart(ServiceInstance service) async {
           accuracy: p.accuracy,
         );
         if (success) {
-          debugPrint('[BG] location post success from tick() - _pingServer returned true');
+          debugPrint(
+              '[BG] location post success from tick() - _pingServer returned true');
         }
       }
 
@@ -553,14 +606,16 @@ Future<bool> _pingServer(
       );
 
       if (p == null) {
-        debugPrint('[BG] SKIPPED: location rejected due to poor accuracy in _pingServer');
+        debugPrint(
+            '[BG] SKIPPED: location rejected due to poor accuracy in _pingServer');
         return false;
       }
 
       lat0 = p.latitude;
       lng0 = p.longitude;
       acc0 = p.accuracy;
-      debugPrint('[BG] captured location for _pingServer: acc=${acc0.toStringAsFixed(1)}m');
+      debugPrint(
+          '[BG] captured location for _pingServer: acc=${acc0.toStringAsFixed(1)}m');
     }
   } catch (e) {
     debugPrint('[BG] GPS capture error in _pingServer: $e');
@@ -588,23 +643,22 @@ Future<bool> _pingServer(
   try {
     debugPrint('[BG] DEBUG VERSION 2 - before tracking API call');
 
-    final response = await http.post(uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-          'x-empid': empid,
-        },
-        body: jsonEncode(payload))
+    final response = await http
+        .post(uri,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+              'x-empid': empid,
+            },
+            body: jsonEncode(payload))
         .timeout(const Duration(seconds: 10));
 
- 
-
     if (response.statusCode >= 200 && response.statusCode < 300) {
-
       return true;
     }
 
-    debugPrint('[BG] location post failed and queued status=${response.statusCode}');
+    debugPrint(
+        '[BG] location post failed and queued status=${response.statusCode}');
     await _enqueuePendingLocation(payload);
     return false;
   } catch (e) {

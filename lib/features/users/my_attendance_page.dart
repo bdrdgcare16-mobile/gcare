@@ -231,7 +231,8 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
   bool _isLoadingAttendance = true;
   String? _attendanceLoadError;
 
-  AttendanceData get _fallbackData => widget.data ??
+  AttendanceData get _fallbackData =>
+      widget.data ??
       AttendanceData(
         totalDays: 0,
         presentCount: 0,
@@ -312,32 +313,28 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
   }
 
   String? _tryEmpIdFromLocalStorage() {
-    debugPrint('[MyAttendance] Checking localStorage for employee ID...');
-
-    final allKeys = html.window.localStorage.keys.toList();
-    debugPrint('[MyAttendance] Available localStorage keys: $allKeys');
-
     final meRaw = html.window.localStorage['me'];
     if (meRaw != null && meRaw.isNotEmpty) {
       try {
         final me = jsonDecode(meRaw);
         if (me is Map) {
-          debugPrint('[MyAttendance] Found me object with keys: ${me.keys.toList()}');
-
-          final directKeys = ['empid', 'empId', 'employeeId', 'employee_id', 'id'];
+          final directKeys = [
+            'empid',
+            'empId',
+            'employeeId',
+            'employee_id',
+            'id'
+          ];
           for (final key in directKeys) {
             if (me[key] != null && me[key].toString().isNotEmpty) {
-              debugPrint('[MyAttendance] Found employee ID in me.$key: ${me[key]}');
               return me[key].toString();
             }
           }
 
           final ep = me['employeeProfile'];
           if (ep is Map) {
-            debugPrint('[MyAttendance] Found employeeProfile with keys: ${ep.keys.toList()}');
             for (final key in directKeys) {
               if (ep[key] != null && ep[key].toString().isNotEmpty) {
-                debugPrint('[MyAttendance] Found employee ID in employeeProfile.$key: ${ep[key]}');
                 return ep[key].toString();
               }
             }
@@ -348,16 +345,22 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
       }
     }
 
-    const keys = ['empid', 'empId', 'employeeId', 'employee_id', 'id', 'userId', 'user_id'];
+    const keys = [
+      'empid',
+      'empId',
+      'employeeId',
+      'employee_id',
+      'id',
+      'userId',
+      'user_id'
+    ];
     for (final k in keys) {
       final v = html.window.localStorage[k];
       if (v != null && v.isNotEmpty) {
-        debugPrint('[MyAttendance] Found employee ID in localStorage key $k: $v');
         return v;
       }
     }
 
-    debugPrint('[MyAttendance] No employee ID found in localStorage');
     return null;
   }
 
@@ -445,8 +448,6 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
     final fallback = _fallbackData;
 
     if (_empid == null || _empid!.isEmpty) {
-      debugPrint('EmpId is null or empty');
-
       setState(() {
         _present = fallback.presentCount;
         _absent = fallback.absentCount;
@@ -466,17 +467,16 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
     final m = anchor.month.toString().padLeft(2, '0');
     final token = _token;
 
-    final uri = Uri.parse('${ApiService.baseUrl}/attendance/monthly/$_empid/$y/$m');
-
-    debugPrint('EmpId: $_empid');
-    debugPrint('Monthly URL: $uri');
+    final uri =
+        Uri.parse('${ApiService.baseUrl}/attendance/monthly/$_empid/$y/$m');
 
     try {
       final resp = await http.get(
         uri,
         headers: {
           'Content-Type': 'application/json',
-          if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+          if (token != null && token.isNotEmpty)
+            'Authorization': 'Bearer $token',
         },
       );
 
@@ -487,19 +487,14 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
         startTime: startTime,
         endTime: endTime,
         statusCode: resp.statusCode,
-        itemCount: resp.statusCode == 200 ? (jsonDecode(resp.body) as List).length : 0,
+        itemCount:
+            resp.statusCode == 200 ? (jsonDecode(resp.body) as List).length : 0,
       );
 
-      debugPrint('Monthly API status code: ${resp.statusCode}');
-      debugPrint('Monthly API body: ${resp.body}');
+      debugPrint('[MyAttendance] Monthly API status: ${resp.statusCode}');
 
       if (resp.statusCode == 200) {
         final List data = jsonDecode(resp.body);
-        debugPrint('[MyAttendance] Monthly API body: ${resp.body}');
-
-        if (data.isNotEmpty) {
-          debugPrint('[MyAttendance] First item keys: ${(data.first as Map).keys.toList()}');
-        }
 
         final Map<String, String> ds = {};
 
@@ -525,19 +520,12 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
 
           if (date == null || date.isEmpty) continue;
 
-          debugPrint('[MyAttendance] Processing item: $date');
-          debugPrint('[MyAttendance] Item keys: ${item.keys.toList()}');
-          debugPrint('[MyAttendance] Raw item data: $item');
-
           final bool isLate = item['isLate'] == true;
           final bool isEarly = item['isEarly'] == true;
 
-          final num permissionCount =
-              item['permissionCount'] is num ? item['permissionCount'] as num : 0;
-
-          debugPrint(
-            '[MyAttendance] Date: ${item['date']} | isLate: $isLate | isEarly: $isEarly | permissionCount: $permissionCount',
-          );
+          final num permissionCount = item['permissionCount'] is num
+              ? item['permissionCount'] as num
+              : 0;
 
           if (isLate) {
             lateDates.add(date);
@@ -554,8 +542,7 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
           final String statusText =
               item['status']?.toString().trim().toLowerCase() ?? '';
 
-          final bool isWeekOff =
-              item['isWeekOff'] == true ||
+          final bool isWeekOff = item['isWeekOff'] == true ||
               statusText == 'weekoff' ||
               statusText == 'week off' ||
               statusText == 'weekly off';
@@ -563,13 +550,11 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
           final bool isHoliday =
               item['isHoliday'] == true || statusText == 'holiday';
 
-          final bool isHalfDay =
-              item['isHalfDay'] == true ||
+          final bool isHalfDay = item['isHalfDay'] == true ||
               statusText == 'half day' ||
               statusText == 'halfday';
 
-          final bool isLeave =
-              item['isLeave'] == true ||
+          final bool isLeave = item['isLeave'] == true ||
               statusText == 'leave' ||
               statusText == 'on leave';
 
@@ -581,15 +566,10 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
 
           final bool isPermission = item['isPermission'] == true;
 
-          final bool hasCheckIn =
-              item['checkIn'] != null &&
+          final bool hasCheckIn = item['checkIn'] != null &&
               item['checkIn'].toString().isNotEmpty &&
               item['checkIn'].toString() != '-' &&
               item['checkIn'].toString().toLowerCase() != 'null';
-
-          debugPrint(
-            '[MyAttendance] Status determination - Date: $date, isWeekOff: $isWeekOff, isHoliday: $isHoliday, isHalfDay: $isHalfDay, isLeave: $isLeave, isAbsent: $isAbsent, isPresent: $isPresent, isPermission: $isPermission, isLate: $isLate, isEarly: $isEarly, hasCheckIn: $hasCheckIn, status: ${item['status']}',
-          );
 
           if (isHoliday) {
             ds[date] = 'Holiday';
@@ -661,16 +641,14 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
         final int halfDay = halfDayDates.length;
         final int late = lateDates.length;
         final int early = earlyDates.length;
-        final int permission = permissionByDate.values.fold<num>(
-          0,
-          (total, value) => total + value,
-        ).toInt();
+        final int permission = permissionByDate.values
+            .fold<num>(
+              0,
+              (total, value) => total + value,
+            )
+            .toInt();
 
-        debugPrint('[MyAttendance] Monthly counts - Present: $present, Absent: $absent, Leave: $leave, WeekOff: $weekOff, Holiday: $holiday, HalfDay: $halfDay');
-        debugPrint('[MyAttendance] Late check-in count: $late');
-        debugPrint('[MyAttendance] Early checkout count: $early');
-        debugPrint('[MyAttendance] Permission count: $permission');
-        debugPrint('[MyAttendance] Monthly statuses: $ds');
+        debugPrint('[MyAttendance] Monthly counts loaded');
 
         setState(() {
           _dayStatusByDate = ds;
@@ -705,7 +683,7 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
         statusCode: 0,
         error: e.toString(),
       );
-      debugPrint('LOAD MONTH ERROR: $e');
+      debugPrint('[MyAttendance] Load month error occurred');
 
       setState(() {
         _present = fallback.presentCount;
@@ -770,7 +748,8 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
     if (_empid == null || _empid!.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Unable to load attendance details. Please log out and log in again.'),
+          content: Text(
+              'Unable to load attendance details. Please log out and log in again.'),
           duration: Duration(seconds: 4),
         ),
       );
@@ -875,7 +854,8 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
                           const SizedBox(height: 20),
                           const Text(
                             "Legend",
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(height: 8),
                           const _LegendRow(),
@@ -983,18 +963,24 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
   }
 
   Widget _buildStatusSummary() {
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      alignment: WrapAlignment.center,
-      children: [
-        StatusCard("Present", _present.toString(), kPresentColor),
-        StatusCard("Absent", _absent.toString(), kAbsentColor),
-        StatusCard("Leave", _leave.toString(), kLeaveColor),
-        StatusCard("Week Off", _weekOff.toString(), kWeekOffColor),
-        StatusCard("Holiday", _holiday.toString(), kHolidayColor),
-        StatusCard("Half Day", _halfDay.toString(), kHalfDayColor),
-      ],
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          StatusCard("Present", _present.toString(), kPresentColor),
+          const SizedBox(width: 12),
+          StatusCard("Absent", _absent.toString(), kAbsentColor),
+          const SizedBox(width: 12),
+          StatusCard("Leave", _leave.toString(), kLeaveColor),
+          const SizedBox(width: 12),
+          StatusCard("Week Off", _weekOff.toString(), kWeekOffColor),
+          const SizedBox(width: 12),
+          StatusCard("Holiday", _holiday.toString(), kHolidayColor),
+          const SizedBox(width: 12),
+          StatusCard("Half Day", _halfDay.toString(), kHalfDayColor),
+        ],
+      ),
     );
   }
 

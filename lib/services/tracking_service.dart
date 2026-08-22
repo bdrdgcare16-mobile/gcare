@@ -48,7 +48,9 @@ class TrackingService {
       return;
     }
 
-    print('[TrackingService] LOG: Starting tracking service for empId: $empId');
+    if (kDebugMode) {
+      print('[TrackingService] LOG: Starting tracking service');
+    }
     await _ensureLocationPermission();
     await _syncPendingLocations();
 
@@ -60,7 +62,7 @@ class TrackingService {
         body: jsonEncode({'empid': empId}),
       );
       if (kDebugMode) {
-        print('[TrackingService] check-in session created for empId: $empId');
+        print('[TrackingService] check-in session created');
       }
     } catch (e) {
       if (kDebugMode) {
@@ -93,14 +95,16 @@ class TrackingService {
       _periodic = null;
     }
     if (kDebugMode) {
-      print('[TrackingService] periodic location posting delegated to Foreground Service');
+      print(
+          '[TrackingService] periodic location posting delegated to Foreground Service');
     }
 
     // ✅ NEW: Start listening to connectivity changes to trigger sync on offline→online
     _listenToConnectivityChanges();
 
     if (kDebugMode) {
-      print('[TrackingService] started with connectivity listener (periodic posting delegated to FG service)');
+      print(
+          '[TrackingService] started with connectivity listener (periodic posting delegated to FG service)');
     }
   }
 
@@ -182,7 +186,8 @@ class TrackingService {
             _sending = true;
             Future.delayed(const Duration(seconds: 5), () {
               if (kDebugMode) {
-                print('[TrackingService] attempting to restart continuous stream');
+                print(
+                    '[TrackingService] attempting to restart continuous stream');
               }
               _startContinuousTracking();
               _sending = false;
@@ -220,7 +225,8 @@ class TrackingService {
       int sampleCount = 0;
 
       if (kDebugMode) {
-        print('[TrackingService] starting GPS sampling: max=$maxSamples, target=$targetAccuracyMeters m, max=$maxAccuracyMeters m');
+        print(
+            '[TrackingService] starting GPS sampling: max=$maxSamples, target=$targetAccuracyMeters m, max=$maxAccuracyMeters m');
       }
 
       // Try quick single-shots first
@@ -228,7 +234,8 @@ class TrackingService {
         final elapsed = DateTime.now().difference(startTime);
         if (elapsed.inMilliseconds > totalTimeout.inMilliseconds) {
           if (kDebugMode) {
-            print('[TrackingService] sampling timeout reached after $sampleCount samples');
+            print(
+                '[TrackingService] sampling timeout reached after $sampleCount samples');
           }
           break;
         }
@@ -243,14 +250,16 @@ class TrackingService {
           if (bestPosition == null || pos.accuracy < bestPosition.accuracy) {
             bestPosition = pos;
             if (kDebugMode) {
-              print('[TrackingService] sample $sampleCount: acc=${pos.accuracy.toStringAsFixed(1)}m (best so far)');
+              print(
+                  '[TrackingService] sample $sampleCount: acc=${pos.accuracy.toStringAsFixed(1)}m (best so far)');
             }
           }
 
           // Early exit if accuracy is excellent
           if (pos.accuracy <= targetAccuracyMeters) {
             if (kDebugMode) {
-              print('[TrackingService] target accuracy reached after $sampleCount samples, stopping');
+              print(
+                  '[TrackingService] target accuracy reached after $sampleCount samples, stopping');
             }
             break;
           }
@@ -273,13 +282,15 @@ class TrackingService {
 
       if (bestPosition.accuracy > maxAccuracyMeters) {
         if (kDebugMode) {
-          print('[TrackingService] SKIPPED: accuracy=${bestPosition.accuracy.toStringAsFixed(1)}m exceeds max=${maxAccuracyMeters}m after $sampleCount samples');
+          print(
+              '[TrackingService] SKIPPED: accuracy=${bestPosition.accuracy.toStringAsFixed(1)}m exceeds max=${maxAccuracyMeters}m after $sampleCount samples');
         }
         return null;
       }
 
       if (kDebugMode) {
-        print('[TrackingService] selected best position: acc=${bestPosition.accuracy.toStringAsFixed(1)}m lat=${bestPosition.latitude} lng=${bestPosition.longitude}');
+        print(
+            '[TrackingService] selected best position: acc=${bestPosition.accuracy.toStringAsFixed(1)}m');
       }
       return bestPosition;
     } catch (e) {
@@ -309,7 +320,8 @@ class TrackingService {
       await _postPos(best, tag: 'fg-sampling');
     } else {
       if (kDebugMode) {
-        print('[TrackingService] initial check-in location rejected due to poor accuracy');
+        print(
+            '[TrackingService] initial check-in location rejected due to poor accuracy');
       }
     }
   }
@@ -396,9 +408,8 @@ class TrackingService {
 
       if (kDebugMode) {
         print(
-          '[TrackingService] posted lat=${p.latitude}, lng=${p.longitude}, acc=${p.accuracy}m ($tag), status=${response.statusCode}',
+          '[TrackingService] posted acc=${p.accuracy.toStringAsFixed(1)}m ($tag), status=${response.statusCode}',
         );
-        // print('[TrackingService] response body: ${response.body}');
       }
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -456,7 +467,7 @@ class TrackingService {
         );
 
         if (kDebugMode) {
-          print('[TrackingService] sync pending status=${response.statusCode} item=$item');
+          print('[TrackingService] sync pending status=${response.statusCode}');
         }
 
         if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -492,7 +503,8 @@ class TrackingService {
       // Detect transition: was offline, now online
       if (_lastConnectivityState == false && isOnline == true) {
         if (kDebugMode) {
-          print('[TrackingService] offline→online transition detected, triggering sync');
+          print(
+              '[TrackingService] offline→online transition detected, triggering sync');
         }
 
         // Only sync if not already in a periodic/manual sync
@@ -511,7 +523,8 @@ class TrackingService {
           });
         } else {
           if (kDebugMode) {
-            print('[TrackingService] sync already in progress, skipping duplicate trigger');
+            print(
+                '[TrackingService] sync already in progress, skipping duplicate trigger');
           }
         }
       }

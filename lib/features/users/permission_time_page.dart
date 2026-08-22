@@ -244,7 +244,7 @@
 //     );
 
 //    return DateFormat('hh:mm a').format(dt);
-//   }  
+//   }
 
 //   String _to24h(TimeOfDay t) {
 //     final h = t.hour.toString().padLeft(2, '0');
@@ -639,7 +639,7 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
       final t = CompanyData.token;
       if (t != null && t.isNotEmpty) {
         html.window.localStorage.putIfAbsent('token', () => t);
-        debugPrint('[PermissionTime] token from CompanyData (${t.length})');
+        debugPrint('[PermissionTime] Token found');
         return t;
       }
     } catch (_) {}
@@ -647,7 +647,7 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
     for (final k in ['jwt', 'token', 'access_token', 'auth_token']) {
       final v = html.window.localStorage[k];
       if (v != null && v.isNotEmpty) {
-        debugPrint('[PermissionTime] token from localStorage "$k" (${v.length})');
+        debugPrint('[PermissionTime] Token found');
         return v;
       }
     }
@@ -655,7 +655,7 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
     for (final k in html.window.localStorage.keys) {
       final v = html.window.localStorage[k];
       if (v != null && _looksLikeJwt(v)) {
-        debugPrint('[PermissionTime] token from localStorage "$k" (${v.length})');
+        debugPrint('[PermissionTime] Token found');
         return v;
       }
     }
@@ -809,7 +809,8 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
       );
 
       if (res.statusCode != 200) {
-        debugPrint('[PermissionTime] Failed to fetch shifts: ${res.statusCode}');
+        debugPrint(
+            '[PermissionTime] Failed to fetch shifts: ${res.statusCode}');
         return;
       }
 
@@ -874,10 +875,10 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
 
     final picked = await showDatePicker(
       context: context,
-      initialDate: selectedDate != null &&
-              !selectedDate!.isBefore(firstAllowedDate)
-          ? selectedDate!
-          : firstAllowedDate,
+      initialDate:
+          selectedDate != null && !selectedDate!.isBefore(firstAllowedDate)
+              ? selectedDate!
+              : firstAllowedDate,
       firstDate: firstAllowedDate,
       lastDate: DateTime(2101),
       builder: (context, child) {
@@ -1115,9 +1116,6 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
 
     final uri = Uri.parse('${ApiService.baseUrl}/leaves');
 
-    debugPrint('[PermissionTime] POST $uri');
-    debugPrint('[PermissionTime] payload: $payload');
-
     try {
       final resp = await http.post(
         uri,
@@ -1129,7 +1127,6 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
       );
 
       debugPrint('[PermissionTime] status=${resp.statusCode}');
-      debugPrint('[PermissionTime] body=${resp.body}');
 
       if (resp.statusCode == 201) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1160,7 +1157,7 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
         );
       }
     } catch (e) {
-      debugPrint('[PermissionTime] error: $e');
+      debugPrint('[PermissionTime] error occurred');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Network error: $e')),
       );
@@ -1248,7 +1245,8 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         IconButton(
-                          icon: const Icon(Icons.arrow_back, color: Colors.white),
+                          icon:
+                              const Icon(Icons.arrow_back, color: Colors.white),
                           onPressed: () => Navigator.pop(context),
                         ),
                         const SizedBox(width: 8),
@@ -1312,7 +1310,6 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
                           validator: (value) =>
                               value == null ? 'Please select a shift' : null,
                         ),
-
                         if (selectedShift != null) ...[
                           const SizedBox(height: 8),
                           Text(
@@ -1323,7 +1320,6 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
                             ),
                           ),
                         ],
-
                         if (shiftStartTime != null && shiftEndTime != null) ...[
                           const SizedBox(height: 6),
                           Text(
@@ -1335,9 +1331,7 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
                             ),
                           ),
                         ],
-
                         const SizedBox(height: 16),
-
                         GestureDetector(
                           onTap: () => _selectTime(context, true),
                           child: AbsorbPointer(
@@ -1351,9 +1345,7 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
                             ),
                           ),
                         ),
-
                         const SizedBox(height: 16),
-
                         GestureDetector(
                           onTap: () => _selectTime(context, false),
                           child: AbsorbPointer(
@@ -1367,9 +1359,7 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
                             ),
                           ),
                         ),
-
                         const SizedBox(height: 16),
-
                         DropdownButtonFormField<String>(
                           initialValue: selectedReason,
                           decoration: inputBoxDecoration('Reason'),
@@ -1384,9 +1374,7 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
                           validator: (value) =>
                               value == null ? 'Please select a reason' : null,
                         ),
-
                         const SizedBox(height: 16),
-
                         GestureDetector(
                           onTap: () => _selectDate(context),
                           child: AbsorbPointer(
@@ -1400,9 +1388,7 @@ class _PermissionTimePageState extends State<PermissionTimePage> {
                             ),
                           ),
                         ),
-
                         const SizedBox(height: 24),
-
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton(

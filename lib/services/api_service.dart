@@ -265,7 +265,8 @@ class ApiService {
         ? await _authHeaders()
         : {'Content-Type': 'application/json'};
     final queryParams = query ?? queryParameters;
-    final uri = Uri.parse('$baseUrl$endpoint').replace(queryParameters: queryParams);
+    final uri =
+        Uri.parse('$baseUrl$endpoint').replace(queryParameters: queryParams);
     return _safeGet(uri, headers: headers);
   }
 
@@ -395,7 +396,6 @@ class ApiService {
     final res = await _getWithFallback(_approvalsPaths, query: qp);
 
     if (!_ok(res)) {
-      debugPrint(res.body);
       throw Exception('Failed to fetch approvals (${res.statusCode})');
     }
 

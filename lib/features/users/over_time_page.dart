@@ -55,7 +55,7 @@ class _OverTimePageState extends State<OverTimePage> {
       final t = CompanyData.token;
       if (t != null && t.isNotEmpty) {
         html.window.localStorage.putIfAbsent('token', () => t);
-        debugPrint('[Overtime] token from CompanyData (${t.length})');
+        debugPrint('[Overtime] Token found');
         return t;
       }
     } catch (_) {}
@@ -64,7 +64,7 @@ class _OverTimePageState extends State<OverTimePage> {
     for (final k in ['jwt', 'token', 'access_token', 'auth_token']) {
       final v = html.window.localStorage[k];
       if (v != null && v.isNotEmpty) {
-        debugPrint('[Overtime] token from localStorage "$k" (${v.length})');
+        debugPrint('[Overtime] Token found');
         return v;
       }
     }
@@ -73,7 +73,7 @@ class _OverTimePageState extends State<OverTimePage> {
     for (final k in html.window.localStorage.keys) {
       final v = html.window.localStorage[k];
       if (v != null && _looksLikeJwt(v)) {
-        debugPrint('[Overtime] token from localStorage "$k" (${v.length})');
+        debugPrint('[Overtime] Token found');
         return v;
       }
     }
@@ -81,267 +81,269 @@ class _OverTimePageState extends State<OverTimePage> {
     debugPrint('[Overtime] No token found');
     return null;
   }
+
   TimeOfDay? _parseTimeOfDay(dynamic value) {
-  if (value == null) return null;
+    if (value == null) return null;
 
-  final text = value.toString().trim();
+    final text = value.toString().trim();
 
-  // Supports "09:30", "18:30", "09:30 AM", "06:30 PM"
-  try {
-    if (RegExp(r'^\d{1,2}:\d{2}$').hasMatch(text)) {
-      final parts = text.split(':');
-      return TimeOfDay(
-        hour: int.parse(parts[0]),
-        minute: int.parse(parts[1]),
-      );
+    // Supports "09:30", "18:30", "09:30 AM", "06:30 PM"
+    try {
+      if (RegExp(r'^\d{1,2}:\d{2}$').hasMatch(text)) {
+        final parts = text.split(':');
+        return TimeOfDay(
+          hour: int.parse(parts[0]),
+          minute: int.parse(parts[1]),
+        );
+      }
+
+      final parsed = DateFormat.jm().parse(text);
+      return TimeOfDay(hour: parsed.hour, minute: parsed.minute);
+    } catch (_) {
+      return null;
     }
-
-    final parsed = DateFormat.jm().parse(text);
-    return TimeOfDay(hour: parsed.hour, minute: parsed.minute);
-  } catch (_) {
-    return null;
   }
-}
 
-int _toMinutes(TimeOfDay time) {
-  return time.hour * 60 + time.minute;
-}
+  int _toMinutes(TimeOfDay time) {
+    return time.hour * 60 + time.minute;
+  }
 
-bool _isAfterOrEqual(TimeOfDay selected, TimeOfDay limit) {
-  return _toMinutes(selected) >= _toMinutes(limit);
-}
+  bool _isAfterOrEqual(TimeOfDay selected, TimeOfDay limit) {
+    return _toMinutes(selected) >= _toMinutes(limit);
+  }
 
-String _formatShiftTime(TimeOfDay? time) {
-  if (time == null) return '-';
+  String _formatShiftTime(TimeOfDay? time) {
+    if (time == null) return '-';
 
-  final now = DateTime.now();
-  final dt = DateTime(
-    now.year,
-    now.month,
-    now.day,
-    time.hour,
-    time.minute,
-  );
-
-  return DateFormat('hh:mm a').format(dt);
-}
-  // ========== NEW: pull employee's default shift from /auth/me ==========
-  Future<void> _loadDefaultShiftFromProfile() async {
-  final token = CompanyData.token.isNotEmpty
-      ? CompanyData.token
-      : (await _getJwt()) ?? '';
-
-  if (token.isEmpty) return;
-
-  try {
-    final res = await http.get(
-      Uri.parse('${ApiService.baseUrl}/auth/me'),
-      headers: {'Authorization': 'Bearer $token'},
+    final now = DateTime.now();
+    final dt = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      time.hour,
+      time.minute,
     );
 
-    if (res.statusCode != 200) return;
-
-    final data = jsonDecode(res.body) as Map<String, dynamic>;
-
-    final profile = (data['employeeProfile'] is Map<String, dynamic>)
-        ? data['employeeProfile'] as Map<String, dynamic>
-        : const <String, dynamic>{};
-
-    final raw = (profile['shiftGroup'] ?? data['shiftGroup'] ?? '')
-        .toString()
-        .trim();
-
-    if (raw.isEmpty) return;
-
-    if (!shifts.contains(raw)) {
-      shifts.insert(0, raw);
-    }
-
-    if (!mounted) return;
-
-    setState(() {
-      selectedShift = raw;
-    });
-
-    await _loadShiftTimingByShiftName(raw);
-  } catch (e) {
-    debugPrint('[Overtime] Failed to load default shift: $e');
+    return DateFormat('hh:mm a').format(dt);
   }
-}
+
+  // ========== NEW: pull employee's default shift from /auth/me ==========
+  Future<void> _loadDefaultShiftFromProfile() async {
+    final token = CompanyData.token.isNotEmpty
+        ? CompanyData.token
+        : (await _getJwt()) ?? '';
+
+    if (token.isEmpty) return;
+
+    try {
+      final res = await http.get(
+        Uri.parse('${ApiService.baseUrl}/auth/me'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (res.statusCode != 200) return;
+
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+
+      final profile = (data['employeeProfile'] is Map<String, dynamic>)
+          ? data['employeeProfile'] as Map<String, dynamic>
+          : const <String, dynamic>{};
+
+      final raw =
+          (profile['shiftGroup'] ?? data['shiftGroup'] ?? '').toString().trim();
+
+      if (raw.isEmpty) return;
+
+      if (!shifts.contains(raw)) {
+        shifts.insert(0, raw);
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        selectedShift = raw;
+      });
+
+      await _loadShiftTimingByShiftName(raw);
+    } catch (e) {
+      debugPrint('[Overtime] Failed to load default shift: $e');
+    }
+  }
   // =====================================================================
 
   Future<void> _loadShiftTimingByShiftName(String shiftName) async {
-  final token = CompanyData.token.isNotEmpty
-      ? CompanyData.token
-      : (await _getJwt()) ?? '';
+    final token = CompanyData.token.isNotEmpty
+        ? CompanyData.token
+        : (await _getJwt()) ?? '';
 
-  if (token.isEmpty) return;
+    if (token.isEmpty) return;
 
-  try {
-    final res = await http.get(
-      Uri.parse('${ApiService.baseUrl}/shifts'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $token',
+    try {
+      final res = await http.get(
+        Uri.parse('${ApiService.baseUrl}/shifts'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (res.statusCode != 200) {
+        debugPrint('[Overtime] Failed to fetch shifts: ${res.statusCode}');
+        return;
+      }
+
+      final decoded = jsonDecode(res.body);
+
+      final List<dynamic> data = decoded is List
+          ? decoded
+          : decoded is Map<String, dynamic> && decoded['data'] is List
+              ? decoded['data'] as List<dynamic>
+              : <dynamic>[];
+
+      for (final item in data) {
+        final map = Map<String, dynamic>.from(item as Map);
+
+        final name = (map['shiftname'] ??
+                map['shiftName'] ??
+                map['name'] ??
+                map['title'] ??
+                '')
+            .toString()
+            .trim();
+
+        if (name.toLowerCase() == shiftName.toLowerCase()) {
+          final startRaw = map['startTime'] ??
+              map['shiftStartTime'] ??
+              map['start_time'] ??
+              map['fromTime'];
+
+          final endRaw = map['endTime'] ??
+              map['shiftEndTime'] ??
+              map['end_time'] ??
+              map['toTime'];
+
+          final parsedStart = _parseTimeOfDay(startRaw);
+          final parsedEnd = _parseTimeOfDay(endRaw);
+
+          if (!mounted) return;
+
+          setState(() {
+            shiftStartTime = parsedStart;
+            shiftEndTime = parsedEnd;
+          });
+
+          debugPrint(
+            '[Overtime] Shift matched: $name, '
+            'start=$startRaw, end=$endRaw',
+          );
+
+          return;
+        }
+      }
+
+      debugPrint('[Overtime] No matching shift found for: $shiftName');
+    } catch (e) {
+      debugPrint('[Overtime] Shift timing fetch error: $e');
+    }
+  }
+
+  Future<void> pickTime(BuildContext context, bool isStart) async {
+    if (selectedShift == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a shift first')),
+      );
+      return;
+    }
+
+    // if (shiftEndTime == null) {
+    //   ScaffoldMessenger.of(context).showSnackBar(
+    //     const SnackBar(
+    //       content: Text('Shift end time is not available for this employee'),
+    //     ),
+    //   );
+    //   return;
+    // }
+
+    final TimeOfDay initialTime = isStart
+        ? (startTime ?? shiftEndTime!)
+        : (endTime ?? startTime ?? shiftEndTime!);
+
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: initialTime,
+      builder: (context, child) {
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(
+            alwaysUse24HourFormat: false,
+          ),
+          child: Theme(
+            data: Theme.of(context).copyWith(
+              colorScheme: const ColorScheme.light(
+                primary: kAppBarColor,
+                onPrimary: Colors.white,
+                onSurface: Colors.black,
+              ),
+            ),
+            child: child!,
+          ),
+        );
       },
     );
 
-    if (res.statusCode != 200) {
-      debugPrint('[Overtime] Failed to fetch shifts: ${res.statusCode}');
-      return;
-    }
+    if (picked == null) return;
 
-    final decoded = jsonDecode(res.body);
-
-    final List<dynamic> data = decoded is List
-        ? decoded
-        : decoded is Map<String, dynamic> && decoded['data'] is List
-            ? decoded['data'] as List<dynamic>
-            : <dynamic>[];
-
-    for (final item in data) {
-      final map = Map<String, dynamic>.from(item as Map);
-
-      final name = (map['shiftname'] ??
-              map['shiftName'] ??
-              map['name'] ??
-              map['title'] ??
-              '')
-          .toString()
-          .trim();
-
-      if (name.toLowerCase() == shiftName.toLowerCase()) {
-        final startRaw = map['startTime'] ??
-            map['shiftStartTime'] ??
-            map['start_time'] ??
-            map['fromTime'];
-
-        final endRaw = map['endTime'] ??
-            map['shiftEndTime'] ??
-            map['end_time'] ??
-            map['toTime'];
-
-        final parsedStart = _parseTimeOfDay(startRaw);
-        final parsedEnd = _parseTimeOfDay(endRaw);
-
-        if (!mounted) return;
-
-        setState(() {
-          shiftStartTime = parsedStart;
-          shiftEndTime = parsedEnd;
-        });
-
-        debugPrint(
-          '[Overtime] Shift matched: $name, '
-          'start=$startRaw, end=$endRaw',
-        );
-
-        return;
-      }
-    }
-
-    debugPrint('[Overtime] No matching shift found for: $shiftName');
-  } catch (e) {
-    debugPrint('[Overtime] Shift timing fetch error: $e');
-  }
-}
-  Future<void> pickTime(BuildContext context, bool isStart) async {
-  if (selectedShift == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Please select a shift first')),
-    );
-    return;
-  }
-
-  // if (shiftEndTime == null) {
-  //   ScaffoldMessenger.of(context).showSnackBar(
-  //     const SnackBar(
-  //       content: Text('Shift end time is not available for this employee'),
-  //     ),
-  //   );
-  //   return;
-  // }
-
-  final TimeOfDay initialTime = isStart
-      ? (startTime ?? shiftEndTime!)
-      : (endTime ?? startTime ?? shiftEndTime!);
-
-  final TimeOfDay? picked = await showTimePicker(
-    context: context,
-    initialTime: initialTime,
-    builder: (context, child) {
-      return MediaQuery(
-        data: MediaQuery.of(context).copyWith(
-          alwaysUse24HourFormat: false,
-        ),
-        child: Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: kAppBarColor,
-              onPrimary: Colors.white,
-              onSurface: Colors.black,
+    if (isStart) {
+      if (!_isAfterOrEqual(picked, shiftEndTime!)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Overtime start time must be after shift end time '
+              '(${_formatShiftTime(shiftEndTime)})',
             ),
           ),
-          child: child!,
-        ),
-      );
-    },
-  );
-
-  if (picked == null) return;
-
-  if (isStart) {
-    if (!_isAfterOrEqual(picked, shiftEndTime!)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Overtime start time must be after shift end time '
-            '(${_formatShiftTime(shiftEndTime)})',
-          ),
-        ),
-      );
-      return;
-    }
-
-    setState(() {
-      startTime = picked;
-
-      if (endTime != null && !_isAfter(startTime!, endTime!)) {
-        endTime = null;
+        );
+        return;
       }
-    });
-  } else {
-    if (startTime == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select start time first')),
-      );
-      return;
-    }
 
-    if (!_isAfter(startTime!, picked)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('End time must be after start time')),
-      );
-      return;
-    }
+      setState(() {
+        startTime = picked;
 
-    setState(() {
-      endTime = picked;
-    });
+        if (endTime != null && !_isAfter(startTime!, endTime!)) {
+          endTime = null;
+        }
+      });
+    } else {
+      if (startTime == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select start time first')),
+        );
+        return;
+      }
+
+      if (!_isAfter(startTime!, picked)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('End time must be after start time')),
+        );
+        return;
+      }
+
+      setState(() {
+        endTime = picked;
+      });
+    }
   }
-}
 
   bool _isAfter(TimeOfDay a, TimeOfDay b) =>
       b.hour > a.hour || (b.hour == a.hour && b.minute > a.minute);
 
   String _formatTimeDisplay(TimeOfDay? t) {
-  if (t == null) return '';
+    if (t == null) return '';
 
-  final now = DateTime.now();
-  final dt = DateTime(now.year, now.month, now.day, t.hour, t.minute);
+    final now = DateTime.now();
+    final dt = DateTime(now.year, now.month, now.day, t.hour, t.minute);
 
-  return DateFormat('hh:mm a').format(dt);
-}
+    return DateFormat('hh:mm a').format(dt);
+  }
 
   String _to24h(TimeOfDay t) {
     final h = t.hour.toString().padLeft(2, '0');
@@ -427,7 +429,7 @@ String _formatShiftTime(TimeOfDay? time) {
       "selectDate": DateFormat('yyyy-MM-dd').format(selectedDate!),
       "selectShift": selectedShift!,
       "startTime": _to24h(startTime!), // HH:mm
-      "endTime": _to24h(endTime!),     // HH:mm
+      "endTime": _to24h(endTime!), // HH:mm
       "reason": reason,
     };
 
@@ -443,7 +445,6 @@ String _formatShiftTime(TimeOfDay? time) {
       );
 
       debugPrint('[Overtime] status=${resp.statusCode}');
-      debugPrint('[Overtime] body=${resp.body}');
 
       if (resp.statusCode == 201) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -515,7 +516,8 @@ String _formatShiftTime(TimeOfDay? time) {
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         IconButton(
-                          icon: const Icon(Icons.arrow_back, color: Colors.white),
+                          icon:
+                              const Icon(Icons.arrow_back, color: Colors.white),
                           onPressed: () => Navigator.pop(context),
                         ),
                         const SizedBox(width: 8),
@@ -544,8 +546,7 @@ String _formatShiftTime(TimeOfDay? time) {
             ),
           ),
           child: Column(
-              children: [
-
+            children: [
               // Form + Submit button (button placed right after fields)
               Expanded(
                 child: SingleChildScrollView(
@@ -584,31 +585,31 @@ String _formatShiftTime(TimeOfDay? time) {
 
                         // Shift dropdown (prefilled from /auth/me)
                         DropdownButtonFormField<String>(
-  decoration: inputBoxDecoration("Select Shift"),
-  initialValue: selectedShift,
-  items: shifts
-      .map(
-        (s) => DropdownMenuItem<String>(
-          value: s,
-          child: Text(s),
-        ),
-      )
-      .toList(),
-  onChanged: (v) async {
-    setState(() {
-      selectedShift = v;
-      startTime = null;
-      endTime = null;
-      shiftStartTime = null;
-      shiftEndTime = null;
-    });
+                          decoration: inputBoxDecoration("Select Shift"),
+                          initialValue: selectedShift,
+                          items: shifts
+                              .map(
+                                (s) => DropdownMenuItem<String>(
+                                  value: s,
+                                  child: Text(s),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (v) async {
+                            setState(() {
+                              selectedShift = v;
+                              startTime = null;
+                              endTime = null;
+                              shiftStartTime = null;
+                              shiftEndTime = null;
+                            });
 
-    if (v != null) {
-      await _loadShiftTimingByShiftName(v);
-    }
-  },
-  validator: (v) => v == null ? 'Select a shift' : null,
-),
+                            if (v != null) {
+                              await _loadShiftTimingByShiftName(v);
+                            }
+                          },
+                          validator: (v) => v == null ? 'Select a shift' : null,
+                        ),
                         const SizedBox(height: 12),
 
                         // Start time
@@ -619,8 +620,9 @@ String _formatShiftTime(TimeOfDay? time) {
                               controller: TextEditingController(
                                   text: _formatTimeDisplay(startTime)),
                               decoration: inputBoxDecoration("Start Time"),
-                              validator: (_) =>
-                                  startTime == null ? 'Select start time' : null,
+                              validator: (_) => startTime == null
+                                  ? 'Select start time'
+                                  : null,
                             ),
                           ),
                         ),
@@ -653,10 +655,9 @@ String _formatShiftTime(TimeOfDay? time) {
                           maxLines: 2,
                           decoration: inputBoxDecoration("Reason")
                               .copyWith(hintText: "Enter reason"),
-                          validator: (v) =>
-                              (v == null || v.trim().isEmpty)
-                                  ? 'Enter reason'
-                                  : null,
+                          validator: (v) => (v == null || v.trim().isEmpty)
+                              ? 'Enter reason'
+                              : null,
                         ),
 
                         const SizedBox(height: 24),
@@ -668,8 +669,7 @@ String _formatShiftTime(TimeOfDay? time) {
                             onPressed: _submitting ? null : _submitForm,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: kButtonColor,
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 14),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
@@ -693,6 +693,6 @@ String _formatShiftTime(TimeOfDay? time) {
           ),
         ),
       ),
-      );
+    );
   }
 }

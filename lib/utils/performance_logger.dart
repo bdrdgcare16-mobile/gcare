@@ -48,7 +48,6 @@ class PerformanceLogger {
     print('Duration: ${duration}ms');
     print('Status: $statusCode');
     print('Items: ${itemCount ?? 0}');
-    print('Token exists: $hasToken');
     if (error != null) print('Error: $error');
     print('========================');
   }

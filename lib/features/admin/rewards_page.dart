@@ -462,23 +462,19 @@ class _RewardsPageState extends State<RewardsPage> {
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
-      backgroundColor: kCardBg,
+      backgroundColor: const Color(0xFF8C6EAF),
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       shadowColor: Colors.transparent,
-      bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(1),
-        child: Container(height: 1, color: kBorder),
-      ),
       leading: IconButton(
         icon: const Icon(Icons.arrow_back_ios_new_rounded,
-            color: kTextPrimary, size: 18),
+            color: Colors.white, size: 18),
         onPressed: () => Navigator.pop(context),
       ),
       title: const Text(
         'Rewards',
         style: TextStyle(
-          color: kTextPrimary,
+          color: Colors.white,
           fontWeight: FontWeight.w600,
           fontSize: 18,
           letterSpacing: -0.3,

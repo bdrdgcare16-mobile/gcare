@@ -750,6 +750,7 @@ import 'package:serv_app/shared/app_theme.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 // Auth token you already use elsewhere (e.g., LiveAttendancePage)
 import 'package:serv_app/config/api_config.dart';
@@ -803,15 +804,9 @@ class _MyTasksPageState extends State<MyTasksPage> {
     final prefs = await SharedPreferences.getInstance();
 
     CompanyData.empid =
-        prefs.getString('empid') ??
-        prefs.getString('empId') ??
-        '';
+        prefs.getString('empid') ?? prefs.getString('empId') ?? '';
 
-    CompanyData.companyId =
-        prefs.getString('companyId') ?? '';
-
-    print("INIT EMPID: ${CompanyData.empid}");
-    print("INIT COMPANY ID: ${CompanyData.companyId}");
+    CompanyData.companyId = prefs.getString('companyId') ?? '';
 
     await fetchMyAssignedTasks();
     await fetchDailyUpdates();
@@ -825,16 +820,15 @@ class _MyTasksPageState extends State<MyTasksPage> {
     setState(() => isLoadingUpdates = true);
     try {
       final uri = Uri.parse(
-        '${ApiService.baseUrl}/tasks/employee?limit=50&t=${DateTime.now().millisecondsSinceEpoch}'
-      );
-      
+          '${ApiService.baseUrl}/tasks/employee?limit=50&t=${DateTime.now().millisecondsSinceEpoch}');
+
       final headers = <String, String>{
         'Content-Type': 'application/json',
         'Accept': 'application/json',
         'Cache-Control': 'no-cache',
         'Pragma': 'no-cache',
       };
-      
+
       final token = CompanyData.token;
 
       if (token != null && token.isNotEmpty) {
@@ -843,18 +837,12 @@ class _MyTasksPageState extends State<MyTasksPage> {
 
       final resp = await http.get(uri, headers: headers);
 
-      print("ADMIN DAILY UPDATE URL: $uri");
-      print("ADMIN DAILY UPDATE STATUS: ${resp.statusCode}");
-      print("ADMIN DAILY UPDATE BODY: ${resp.body}");
-
       if (resp.statusCode == 200) {
         final List<dynamic> list = jsonDecode(resp.body);
 
         final daily = list.where((e) {
-          final kind = (e['kind'] ?? '')
-              .toString()
-              .toLowerCase()
-              .replaceAll(' ', '');
+          final kind =
+              (e['kind'] ?? '').toString().toLowerCase().replaceAll(' ', '');
 
           return kind == 'dailyupdate';
         }).toList();
@@ -875,7 +863,8 @@ class _MyTasksPageState extends State<MyTasksPage> {
         setState(() => isLoadingUpdates = false);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to fetch updates: ${resp.statusCode}')),
+            SnackBar(
+                content: Text('Failed to fetch updates: ${resp.statusCode}')),
           );
         }
       }
@@ -1015,10 +1004,7 @@ class _MyTasksPageState extends State<MyTasksPage> {
 
     try {
       final uri = Uri.parse(
-        '${ApiService.baseUrl}/tasks/employee?limit=50&t=${DateTime.now().millisecondsSinceEpoch}'
-      );
-
-      print("ASSIGNED TASK API URL: $uri");
+          '${ApiService.baseUrl}/tasks/employee?limit=50&t=${DateTime.now().millisecondsSinceEpoch}');
 
       final headers = <String, String>{
         'Content-Type': 'application/json',
@@ -1031,29 +1017,44 @@ class _MyTasksPageState extends State<MyTasksPage> {
 
       final resp = await http.get(uri, headers: headers);
 
-      print("ADMIN ASSIGNED TASK URL: $uri");
-      print("ADMIN ASSIGNED TASK STATUS: ${resp.statusCode}");
-      print("ADMIN ASSIGNED TASK BODY: ${resp.body}");
-
       if (resp.statusCode == 200) {
         final List<dynamic> list = jsonDecode(resp.body);
 
         final assigned = list.where((e) {
-          final kind = (e['kind'] ?? '').toString().toLowerCase().replaceAll(' ', '');
+          final kind =
+              (e['kind'] ?? '').toString().toLowerCase().replaceAll(' ', '');
           return kind == 'task';
         }).toList();
 
         final mapped = assigned.map<Map<String, dynamic>>((e) {
           final createdAt = (e['createdAt'] ?? '').toString();
-          final date = createdAt.contains('T') ? createdAt.split('T').first : createdAt;
+          final date =
+              createdAt.contains('T') ? createdAt.split('T').first : createdAt;
+          final totalAssignments =
+              e['totalAssignments'] is int ? e['totalAssignments'] as int : 0;
+          final completedCount =
+              e['completedCount'] is int ? e['completedCount'] as int : 0;
+          final assignments = e['assignments'] is List
+              ? List<Map<String, dynamic>>.from(e['assignments'] as List)
+              : <Map<String, dynamic>>[];
 
           return {
+            "id": (e['id'] ?? '').toString(),
             "title": (e['title'] ?? 'Task').toString(),
             "description": (e['description'] ?? '').toString(),
             "dueDate": (e['dueDate'] ?? '').toString(),
             "createdAt": date,
             "assignedTo": (e['assignedTo'] ?? 'All employees').toString(),
+            "audience": (e['audience'] ?? 'all').toString(),
             "kind": (e['kind'] ?? '').toString(),
+            "status": (e['status'] ?? 'assigned').toString(),
+            "createdBy": (e['createdBy'] ?? '').toString(),
+            "completedAt": (e['completedAt'] ?? '').toString(),
+            "completionNote": (e['completionNote'] ?? '').toString(),
+            "proofFileUrl": (e['proofFileUrl'] ?? '').toString(),
+            "completedCount": completedCount,
+            "totalAssignments": totalAssignments,
+            "assignments": assignments,
           };
         }).toList();
 
@@ -1066,7 +1067,8 @@ class _MyTasksPageState extends State<MyTasksPage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Failed to fetch assigned tasks: ${resp.statusCode}'),
+              content:
+                  Text('Failed to fetch assigned tasks: ${resp.statusCode}'),
             ),
           );
         }
@@ -1087,7 +1089,7 @@ class _MyTasksPageState extends State<MyTasksPage> {
       builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text(
-          "Assigned Tasks",
+          "Company Tasks",
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         content: SizedBox(
@@ -1095,7 +1097,7 @@ class _MyTasksPageState extends State<MyTasksPage> {
           child: isLoadingAssigned
               ? const Center(child: CircularProgressIndicator())
               : myAssigned.isEmpty
-                  ? const Text("No assigned tasks yet.")
+                  ? const Text("No tasks found.")
                   : ListView.builder(
                       shrinkWrap: true,
                       itemCount: myAssigned.length,
@@ -1103,6 +1105,16 @@ class _MyTasksPageState extends State<MyTasksPage> {
                         final t = myAssigned[i];
                         final hasDue =
                             (t['dueDate'] as String).trim().isNotEmpty;
+                        final status = (t['status'] as String).toString();
+                        final isCompleted = status.toLowerCase() == 'completed';
+
+                        final completedCount = t['completedCount'] as int? ?? 0;
+                        final totalAssignments =
+                            t['totalAssignments'] as int? ?? 0;
+                        final hasProgress = totalAssignments > 0;
+                        final progressText = hasProgress
+                            ? "$completedCount / $totalAssignments Completed"
+                            : "Status: $status";
 
                         return Card(
                           margin: const EdgeInsets.symmetric(vertical: 6),
@@ -1112,11 +1124,38 @@ class _MyTasksPageState extends State<MyTasksPage> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 if ((t['description'] as String).isNotEmpty)
-                                  Text(t['description'] as String),
-                                Text("Assigned on: ${t['createdAt']}"),
+                                  Text(t['description'] as String,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis),
+                                Text("Assigned to: ${t['assignedTo']}"),
+                                Text(progressText),
+                                if (hasProgress)
+                                  Padding(
+                                    padding: const EdgeInsets.only(
+                                        top: 4, bottom: 2),
+                                    child: LinearProgressIndicator(
+                                      value: totalAssignments == 0
+                                          ? 0
+                                          : completedCount / totalAssignments,
+                                      backgroundColor: Colors.grey.shade300,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        isCompleted
+                                            ? Colors.green
+                                            : const Color(0xFF8C6EAF),
+                                      ),
+                                    ),
+                                  ),
+                                Text("Created: ${t['createdAt']}"),
                                 if (hasDue) Text("Due: ${t['dueDate']}"),
                               ],
                             ),
+                            trailing: Icon(
+                              isCompleted
+                                  ? Icons.check_circle
+                                  : Icons.assignment,
+                              color: isCompleted ? Colors.green : Colors.orange,
+                            ),
+                            onTap: () => showTaskDetailDialog(t),
                           ),
                         );
                       },
@@ -1129,6 +1168,261 @@ class _MyTasksPageState extends State<MyTasksPage> {
               "Close",
               style: TextStyle(color: Colors.deepPurple),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void showTaskDetailDialog(Map<String, dynamic> task) {
+    final status = (task['status'] as String).toString();
+    final isCompleted = status.toLowerCase() == 'completed';
+    final completedCount = task['completedCount'] as int? ?? 0;
+    final totalAssignments = task['totalAssignments'] as int? ?? 0;
+    final hasProgress = totalAssignments > 0;
+    final assignments = task['assignments'] is List
+        ? List<Map<String, dynamic>>.from(task['assignments'] as List)
+        : <Map<String, dynamic>>[];
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          "Task Details",
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _detailRow("Title", task['title'] as String),
+              _detailRow("Description", task['description'] as String),
+              _detailRow("Assigned To", task['assignedTo'] as String),
+              _detailRow("Status", status),
+              _detailRow("Created By", task['createdBy'] as String),
+              _detailRow("Created Date", task['createdAt'] as String),
+              if ((task['dueDate'] as String).trim().isNotEmpty)
+                _detailRow("Due Date", task['dueDate'] as String),
+              if (hasProgress) ...[
+                const Divider(),
+                const Text(
+                  "Progress",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                const SizedBox(height: 8),
+                _detailRow("Completed", "$completedCount / $totalAssignments"),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: LinearProgressIndicator(
+                    value: completedCount / totalAssignments,
+                    backgroundColor: Colors.grey.shade300,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      isCompleted ? Colors.green : const Color(0xFF8C6EAF),
+                    ),
+                  ),
+                ),
+              ],
+              if (assignments.isNotEmpty) ...[
+                const Divider(),
+                const Text(
+                  "Employee Progress",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                const SizedBox(height: 8),
+                ...assignments.map((a) =>
+                    _buildAssignmentTile(context, task['id'] as String, a)),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              "Close",
+              style: TextStyle(color: Colors.deepPurple),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAssignmentTile(
+      BuildContext context, String taskId, Map<String, dynamic> a) {
+    final employeeId = (a['employeeId'] ?? '').toString();
+    final assignmentStatus =
+        (a['status'] ?? 'assigned').toString().toLowerCase();
+    final isCompleted = assignmentStatus == 'completed';
+    final completedAt = (a['completedAt'] ?? '').toString();
+    final completionNote = (a['completionNote'] ?? '').toString();
+    final proofFileUrl = (a['proofFileUrl'] ?? '').toString();
+    final hasProof = isCompleted && proofFileUrl.trim().isNotEmpty;
+
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    employeeId,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isCompleted
+                        ? Colors.green.shade100
+                        : Colors.orange.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    isCompleted ? "Completed" : "Assigned",
+                    style: TextStyle(
+                      color: isCompleted
+                          ? Colors.green.shade800
+                          : Colors.orange.shade800,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (isCompleted && completedAt.trim().isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                "Completed: ${_formatDate(completedAt)}",
+                style: const TextStyle(fontSize: 12, color: Color(0xFF666666)),
+              ),
+            ],
+            if (isCompleted && completionNote.trim().isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                "Note: $completionNote",
+                style: const TextStyle(fontSize: 12, color: Color(0xFF666666)),
+              ),
+            ],
+            if (hasProof) ...[
+              const SizedBox(height: 8),
+              ElevatedButton.icon(
+                onPressed: () => _viewProof(taskId, employeeId),
+                icon: const Icon(Icons.visibility, size: 18),
+                label: const Text("View Proof"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.deepPurple,
+                  foregroundColor: Colors.white,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  textStyle: const TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatDate(String iso) {
+    if (iso.trim().isEmpty) return '-';
+    final dt = DateTime.tryParse(iso);
+    if (dt == null) return iso;
+    final day = dt.day.toString().padLeft(2, '0');
+    final month = dt.month.toString().padLeft(2, '0');
+    final year = dt.year;
+    final hour = dt.hour.toString().padLeft(2, '0');
+    final minute = dt.minute.toString().padLeft(2, '0');
+    return '$day-$month-$year $hour:$minute';
+  }
+
+  Future<void> _viewProof(String taskId, String employeeId) async {
+    try {
+      final uri = Uri.parse(
+        '${ApiService.baseUrl}/tasks/$taskId/proof-url?empid=${Uri.encodeComponent(employeeId)}',
+      );
+      final headers = <String, String>{
+        'Content-Type': 'application/json',
+      };
+      final token = CompanyData.token;
+      if (token != null && token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+
+      debugPrint('[ADMIN PROOF] Fetching proof URL');
+      final resp = await http.get(uri, headers: headers);
+      debugPrint('[ADMIN PROOF] Response status: ${resp.statusCode}');
+
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body);
+        final signedUrl = data['url'] as String;
+        debugPrint('[ADMIN PROOF] Signed URL received');
+
+        if (signedUrl.isNotEmpty) {
+          final launched = await launchUrl(
+            Uri.parse(signedUrl),
+            mode: LaunchMode.externalApplication,
+          );
+          if (!launched) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Could not open file')),
+              );
+            }
+          }
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Failed to get proof URL')),
+            );
+          }
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to load proof: ${resp.statusCode}')),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('[ADMIN PROOF] Error occurred');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading proof: $e')),
+        );
+      }
+    }
+  }
+
+  Widget _detailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+              color: Colors.deepPurple,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value.isEmpty ? '-' : value,
+            style: const TextStyle(fontSize: 14),
           ),
         ],
       ),
@@ -1155,8 +1449,8 @@ class _MyTasksPageState extends State<MyTasksPage> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F6FF),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF8E71B7),
-        centerTitle: true,
+        backgroundColor: const Color(0xFF8C6EAF),
+        centerTitle: false,
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
@@ -1196,7 +1490,8 @@ class _MyTasksPageState extends State<MyTasksPage> {
                           _buildDropdownField(),
                           const SizedBox(height: 16),
                           if (_audience == 'employee') _buildEmployeeIdField(),
-                          if (_audience == 'employee') const SizedBox(height: 16),
+                          if (_audience == 'employee')
+                            const SizedBox(height: 16),
                           _buildTitleField(),
                           const SizedBox(height: 16),
                           _buildDescriptionField(),
@@ -1209,53 +1504,20 @@ class _MyTasksPageState extends State<MyTasksPage> {
                 ),
               ),
               const SizedBox(height: 24),
-
               _buildSectionCard(
-                title: "My Assigned Tasks",
+                title: "Task Management",
                 child: Column(
                   children: [
-                    const Text(
-                      "View tasks assigned by admin",
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFF666666),
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
                     const SizedBox(height: 16),
-                    _buildViewButton(
-                      text: "View Assigned Tasks",
-                      onPressed: () async {
-                        await fetchMyAssignedTasks();
-                        if (!mounted) return;
-                        showAssignedTasksDialog();
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              _buildSectionCard(
-                title: "Daily Updates",
-                child: Column(
-                  children: [
-                    const Text(
-                      "View user's daily work updates",
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFF666666),
+                    Center(
+                      child: _buildViewButton(
+                        text: "View Completed Tasks",
+                        onPressed: () async {
+                          await fetchMyAssignedTasks();
+                          if (!mounted) return;
+                          showAssignedTasksDialog();
+                        },
                       ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 16),
-                    _buildViewButton(
-                      text: "View Daily Updates",
-                      onPressed: () async {
-                        await fetchDailyUpdates();
-                        if (!mounted) return;
-                        showDailyUpdateDialog();
-                      },
                     ),
                   ],
                 ),
@@ -1425,7 +1687,8 @@ class _MyTasksPageState extends State<MyTasksPage> {
               onTap: _pickDueDate,
               borderRadius: BorderRadius.circular(12),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 child: Row(
                   children: [
                     const Icon(

@@ -8,7 +8,8 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:serv_app/html_stub.dart'
-    if (dart.library.html) 'package:serv_app/html_web.dart' as html; // Web: localStorage/sessionStorage
+    if (dart.library.html) 'package:serv_app/html_web.dart'
+    as html; // Web: localStorage/sessionStorage
 import 'package:serv_app/features/admin/globals_page.dart';
 import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/services/api_service.dart';
@@ -52,7 +53,8 @@ DateTime? _parseAnyDate(dynamic v) {
     if (v is Map && v.containsKey('_seconds')) {
       final sec = v['_seconds'];
       if (sec is num) {
-        return DateTime.fromMillisecondsSinceEpoch((sec * 1000).round(), isUtc: true)
+        return DateTime.fromMillisecondsSinceEpoch((sec * 1000).round(),
+                isUtc: true)
             .toLocal();
       }
     }
@@ -67,19 +69,21 @@ DateTime? _parseAnyDate(dynamic v) {
 DateTime? _parseFirestoreTimestamp(dynamic v) {
   try {
     if (v == null) return null;
-    
+
     // Handle Firestore timestamp format: { "_seconds": 1775001600, "_nanoseconds": 0 }
     if (v is Map && v.containsKey('_seconds')) {
       final sec = v['_seconds'];
       final nanos = v['_nanoseconds'] ?? 0;
-      
+
       if (sec is num && nanos is num) {
         final totalMs = (sec * 1000) + (nanos / 1000000).round();
-        print('DEBUG: Converting Firestore timestamp: seconds=$sec, nanoseconds=$nanos, totalMs=$totalMs');
-        return DateTime.fromMillisecondsSinceEpoch(totalMs.round(), isUtc: true).toLocal();
+        print(
+            'DEBUG: Converting Firestore timestamp: seconds=$sec, nanoseconds=$nanos, totalMs=$totalMs');
+        return DateTime.fromMillisecondsSinceEpoch(totalMs.round(), isUtc: true)
+            .toLocal();
       }
     }
-    
+
     // Fallback to original parsing for string dates or other formats
     return _parseAnyDate(v);
   } catch (e) {
@@ -110,6 +114,7 @@ class _LeavePageState extends State<LeavePage> {
   bool showWeekOffForm = false;
 
   bool _loading = false;
+  String? deletingLeaveId; // Track which leave is being deleted by its ID
 
   DateTime? fromDate;
   DateTime? toDate;
@@ -135,6 +140,10 @@ class _LeavePageState extends State<LeavePage> {
   Future<void> _fetchLeaveTypes() async {
     if (!mounted) return;
 
+    // Reset loading state before starting fetch
+    if (_loading) {
+      setState(() => _loading = false);
+    }
     setState(() => _loading = true);
 
     try {
@@ -152,13 +161,11 @@ class _LeavePageState extends State<LeavePage> {
       }
 
       final res = await http
-          .get(Uri.parse('${ApiService.baseUrl}/leave-types'), headers: _headers(token))
+          .get(Uri.parse('${ApiService.baseUrl}/leave-types'),
+              headers: _headers(token))
           .timeout(const Duration(seconds: 15));
 
       // Debug prints for troubleshooting
-      print('DEBUG: Response status code: ${res.statusCode}');
-      print('DEBUG: Response body: ${res.body}');
-
       if (res.statusCode == 200) {
         final dynamic body = jsonDecode(res.body);
         final List<Map<String, String>> fresh = [];
@@ -166,9 +173,7 @@ class _LeavePageState extends State<LeavePage> {
         // Parse response as Map<String, dynamic> with 'data' field
         if (body is Map<String, dynamic>) {
           final dynamic data = body['data'];
-          print('DEBUG: Parsed data type: ${data.runtimeType}');
-          print('DEBUG: Parsed data length: ${data is List ? data.length : 'N/A'}');
-          
+
           if (data is List) {
             for (final item in data) {
               if (item is Map<String, dynamic>) {
@@ -177,7 +182,8 @@ class _LeavePageState extends State<LeavePage> {
                     (item['shift'] ?? item['dept'] ?? '').toString();
 
                 // Enhanced Firestore timestamp conversion
-                final DateTime? fromDt = _parseFirestoreTimestamp(item['fromDate']);
+                final DateTime? fromDt =
+                    _parseFirestoreTimestamp(item['fromDate']);
                 final DateTime? toDt = _parseFirestoreTimestamp(item['toDate']);
 
                 int? allowedDays;
@@ -204,14 +210,14 @@ class _LeavePageState extends State<LeavePage> {
           }
         } else if (body is List) {
           // Fallback for direct list response (if API format changes)
-          print('DEBUG: Using fallback list parsing');
           for (final item in body) {
             if (item is Map<String, dynamic>) {
               final String type = (item['type'] ?? '').toString();
               final String shift =
                   (item['shift'] ?? item['dept'] ?? '').toString();
 
-              final DateTime? fromDt = _parseFirestoreTimestamp(item['fromDate']);
+              final DateTime? fromDt =
+                  _parseFirestoreTimestamp(item['fromDate']);
               final DateTime? toDt = _parseFirestoreTimestamp(item['toDate']);
 
               int? allowedDays;
@@ -237,8 +243,6 @@ class _LeavePageState extends State<LeavePage> {
           }
         }
 
-        print('DEBUG: Final leaveTypes list length: ${fresh.length}');
-        
         leaveList
           ..clear()
           ..addAll(fresh);
@@ -372,23 +376,14 @@ class _LeavePageState extends State<LeavePage> {
     final scaffoldMessenger = ScaffoldMessenger.of(context);
 
     try {
-      setState(() => _loading = true);
-
-      // Show loading indicator
-      if (!mounted) return;
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
+      // Set deleting state for this specific leave
+      final leaveId = leaveToDelete['id']?.toString();
+      setState(() => deletingLeaveId = leaveId);
 
       // Get token
       final token = await _getToken();
       if (token == null || token.isEmpty) {
         if (mounted) {
-          Navigator.of(context).pop(); // hide dialog
           scaffoldMessenger.showSnackBar(
             const SnackBar(
               content: Text('Session expired. Please login again.'),
@@ -400,15 +395,20 @@ class _LeavePageState extends State<LeavePage> {
       }
 
       // Get the document ID from the leave item or find it by querying
-      String? docId = leaveToDelete['id'];
+      String? docId = leaveToDelete['id']?.toString();
 
-      if (docId!.isEmpty) {
+      if (docId == null || docId.isEmpty) {
+        final type = leaveToDelete['type'] ?? '';
+        final shift = leaveToDelete['shift'] ?? leaveToDelete['dept'] ?? '';
+        final fromDate = leaveToDelete['fromDate'] ?? '';
+        final toDate = leaveToDelete['toDate'] ?? '';
+
         final queryResponse = await http.get(
           Uri.parse(
-              '${ApiService.baseUrl}/leave-types?type=${Uri.encodeComponent(leaveToDelete['type'] ?? '')}'
-              '&shift=${Uri.encodeComponent(leaveToDelete['shift'] ?? '')}'
-              '&fromDate=${Uri.encodeComponent(leaveToDelete['fromDate'] ?? '')}'
-              '&toDate=${Uri.encodeComponent(leaveToDelete['toDate'] ?? '')}'),
+              '${ApiService.baseUrl}/leave-types?type=${Uri.encodeComponent(type)}'
+              '&shift=${Uri.encodeComponent(shift)}'
+              '&fromDate=${Uri.encodeComponent(fromDate)}'
+              '&toDate=${Uri.encodeComponent(toDate)}'),
           headers: _headers(token),
         );
 
@@ -432,24 +432,28 @@ class _LeavePageState extends State<LeavePage> {
           )
           .timeout(const Duration(seconds: 15));
 
-      // Hide loading dialog
-      if (mounted) Navigator.of(context).pop();
-
-      final Map<String, dynamic>? responseData =
-          response.body.isNotEmpty ? jsonDecode(response.body) : null;
+      // Handle API response - can be Map or List
+      dynamic responseData;
+      if (response.body.isNotEmpty) {
+        responseData = jsonDecode(response.body);
+      }
 
       if (response.statusCode == 200) {
         if (mounted) {
           setState(() => leaveList.removeAt(index));
           scaffoldMessenger.showSnackBar(
             SnackBar(
-              content: Text(responseData?['message'] ??
-                  'Leave type deleted successfully'),
+              content: Text(responseData is Map
+                  ? (responseData['message'] ??
+                      'Leave type deleted successfully')
+                  : 'Leave type deleted successfully'),
               backgroundColor: Colors.green,
               behavior: SnackBarBehavior.floating,
               margin: const EdgeInsets.all(10),
             ),
           );
+          // Refresh leave list from backend to ensure UI is in sync
+          await _fetchLeaveTypes();
         }
       } else if (response.statusCode == 401) {
         if (!mounted) return;
@@ -462,13 +466,14 @@ class _LeavePageState extends State<LeavePage> {
           ),
         );
       } else {
-        throw responseData?['error'] ??
-            responseData?['message'] ??
-            'Failed to delete leave type';
+        throw responseData is Map
+            ? (responseData['error'] ??
+                responseData['message'] ??
+                'Failed to delete leave type')
+            : 'Failed to delete leave type';
       }
     } on TimeoutException {
       if (mounted) {
-        Navigator.of(context).pop(); // Hide loading dialog
         scaffoldMessenger.showSnackBar(
           const SnackBar(
             content: Text('Request timed out. Please try again.'),
@@ -480,11 +485,10 @@ class _LeavePageState extends State<LeavePage> {
       }
     } catch (e) {
       if (mounted) {
-        Navigator.of(context).pop(); // Hide loading dialog
         scaffoldMessenger.showSnackBar(
           SnackBar(
-            content: Text(
-                'Error: ${e.toString().replaceAll('Exception: ', '')}'),
+            content:
+                Text('Error: ${e.toString().replaceAll('Exception: ', '')}'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
             margin: const EdgeInsets.all(10),
@@ -493,7 +497,7 @@ class _LeavePageState extends State<LeavePage> {
       }
     } finally {
       if (mounted) {
-        setState(() => _loading = false);
+        setState(() => deletingLeaveId = null);
       }
     }
   }
@@ -582,7 +586,8 @@ class _LeavePageState extends State<LeavePage> {
                       physics: const AlwaysScrollableScrollPhysics(),
                       // Force content to be at least as tall as the viewport
                       child: ConstrainedBox(
-                        constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                        constraints:
+                            BoxConstraints(minHeight: constraints.maxHeight),
                         child: Padding(
                           padding: const EdgeInsets.all(16.0),
                           child: Column(
@@ -601,7 +606,8 @@ class _LeavePageState extends State<LeavePage> {
                                     borderRadius: BorderRadius.circular(12),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: Colors.purpleAccent.withValues(alpha: 0.1),
+                                        color: Colors.purpleAccent
+                                            .withValues(alpha: 0.1),
                                         spreadRadius: 1,
                                         blurRadius: 8,
                                         offset: const Offset(0, 2),
@@ -611,7 +617,8 @@ class _LeavePageState extends State<LeavePage> {
                                   child: Form(
                                     key: _formKey,
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
                                       children: [
                                         const Text(
                                           "Add Week Off",
@@ -624,22 +631,30 @@ class _LeavePageState extends State<LeavePage> {
                                         const SizedBox(height: 16),
                                         _buildTextField("Name", nameController),
                                         const SizedBox(height: 12),
-                                        _buildTextField("Location", locationController),
+                                        _buildTextField(
+                                            "Location", locationController),
                                         const SizedBox(height: 12),
-                                        _buildDateField("From Date", fromDateController, isFrom: true),
+                                        _buildDateField(
+                                            "From Date", fromDateController,
+                                            isFrom: true),
                                         const SizedBox(height: 12),
-                                        _buildDateField("To Date", toDateController, minDate: fromDate),
+                                        _buildDateField(
+                                            "To Date", toDateController,
+                                            minDate: fromDate),
                                         const SizedBox(height: 12),
-                                        _buildTextField("Department", deptController),
+                                        _buildTextField(
+                                            "Department", deptController),
                                         const SizedBox(height: 16),
                                         Row(
-                                          mainAxisAlignment: MainAxisAlignment.end,
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.end,
                                           children: [
                                             TextButton(
                                               onPressed: () {
                                                 setState(() {
                                                   showWeekOffForm = false;
-                                                  _formKey.currentState?.reset();
+                                                  _formKey.currentState
+                                                      ?.reset();
                                                 });
                                               },
                                               child: const Text("CANCEL"),
@@ -675,7 +690,9 @@ class _LeavePageState extends State<LeavePage> {
                               // Leave List
                               leaveList.isEmpty
                                   ? Container(
-                                      height: MediaQuery.of(context).size.height * 0.4,
+                                      height:
+                                          MediaQuery.of(context).size.height *
+                                              0.4,
                                       alignment: Alignment.center,
                                       child: const Text(
                                         "No leave data available",
@@ -687,73 +704,99 @@ class _LeavePageState extends State<LeavePage> {
                                     )
                                   : ListView.builder(
                                       shrinkWrap: true,
-                                      physics: const NeverScrollableScrollPhysics(),
+                                      physics:
+                                          const NeverScrollableScrollPhysics(),
                                       itemCount: leaveList.length,
                                       itemBuilder: (context, index) {
                                         final leave = leaveList[index];
                                         return Container(
-                                          margin: const EdgeInsets.only(bottom: 15),
+                                          margin:
+                                              const EdgeInsets.only(bottom: 15),
                                           padding: const EdgeInsets.all(15),
                                           decoration: BoxDecoration(
                                             color: Colors.white,
-                                            borderRadius: BorderRadius.circular(15),
+                                            borderRadius:
+                                                BorderRadius.circular(15),
                                             boxShadow: [
                                               BoxShadow(
-                                                color: Colors.purpleAccent.withValues(alpha: 0.2),
+                                                color: Colors.purpleAccent
+                                                    .withValues(alpha: 0.2),
                                                 spreadRadius: 2,
                                                 blurRadius: 5,
                                                 offset: const Offset(0, 3),
                                               ),
                                             ],
-                                            border: Border.all(color: Colors.deepPurple.shade100),
+                                            border: Border.all(
+                                                color:
+                                                    Colors.deepPurple.shade100),
                                           ),
                                           child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
                                             children: [
                                               Row(
-                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment
+                                                        .spaceBetween,
                                                 children: [
                                                   Expanded(
                                                     child: Text(
                                                       leave['type'] ?? '',
-                                                      overflow: TextOverflow.ellipsis,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
                                                       style: const TextStyle(
-                                                        color: Colors.deepPurple,
+                                                        color:
+                                                            Colors.deepPurple,
                                                         fontSize: 16,
-                                                        fontWeight: FontWeight.bold,
+                                                        fontWeight:
+                                                            FontWeight.bold,
                                                       ),
                                                     ),
                                                   ),
                                                   IconButton(
-                                                    icon: _loading
+                                                    icon: deletingLeaveId ==
+                                                            leave['id']
+                                                                ?.toString()
                                                         ? const SizedBox(
                                                             width: 20,
                                                             height: 20,
-                                                            child: CircularProgressIndicator(
-                                                                strokeWidth: 2),
+                                                            child:
+                                                                CircularProgressIndicator(
+                                                                    strokeWidth:
+                                                                        2),
                                                           )
                                                         : const Icon(
-                                                            Icons.delete_outline,
+                                                            Icons
+                                                                .delete_outline,
                                                             color: Colors.red,
                                                           ),
-                                                    onPressed: _loading
+                                                    onPressed: deletingLeaveId ==
+                                                            leave['id']
+                                                                ?.toString()
                                                         ? null
-                                                        : () => _deleteLeaveItem(index),
+                                                        : () =>
+                                                            _deleteLeaveItem(
+                                                                index),
                                                   ),
                                                 ],
                                               ),
                                               const SizedBox(height: 5),
-                                              Text("Shift: ${leave['shift']}",
-                                                  style: const TextStyle(color: Colors.black87)),
+                                              Text(
+                                                  "Shift: ${leave['shift'] ?? '-'}",
+                                                  style: const TextStyle(
+                                                      color: Colors.black87)),
                                               const SizedBox(height: 5),
                                               Text(
-                                                  "From: ${leave['fromDate']}   To: ${leave['toDate']}",
-                                                  style: const TextStyle(color: Colors.black54)),
+                                                  "From: ${leave['fromDate'] ?? '-'}   To: ${leave['toDate'] ?? '-'}",
+                                                  style: const TextStyle(
+                                                      color: Colors.black54)),
                                               const SizedBox(height: 5),
-                                              Text("No of Days: ${leave['allowedDays']}",
+                                              Text(
+                                                  "No of Days: ${leave['allowedDays'] ?? 0}",
                                                   style: const TextStyle(
                                                       color: Colors.redAccent,
-                                                      fontWeight: FontWeight.w500)),
+                                                      fontWeight:
+                                                          FontWeight.w500)),
                                             ],
                                           ),
                                         );
@@ -772,10 +815,17 @@ class _LeavePageState extends State<LeavePage> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: kButtonColor,
+        foregroundColor: Colors.white,
         onPressed: () async {
           final updated = await Navigator.pushNamed(context, '/add-leave');
           if (updated == true && mounted) {
-            setState(() {});
+            // Reset any loading states that might have been set
+            setState(() {
+              _loading = false;
+              deletingLeaveId = null;
+            });
+            // Refresh leave list from backend
+            await _fetchLeaveTypes();
           }
         },
         icon: const Icon(Icons.add),

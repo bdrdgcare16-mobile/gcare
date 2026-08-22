@@ -1,4 +1,5 @@
 // package:serv_app/features/auth/auth_guard.dart
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:jwt_decoder/jwt_decoder.dart';
@@ -18,8 +19,10 @@ import 'package:serv_app/features/users/home_screen_page.dart';
 import 'package:serv_app/features/admin/admin_dashboard_page.dart';
 import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/services/fcm_test_service.dart';
 
 import 'package:serv_app/features/admin/company_details_page.dart';
+import 'package:serv_app/features/supderadmin/super_admin_onboarding_page.dart';
 
 // Same base URL you use elsewhere
 final String _apiBase = ApiConfig.baseUrl;
@@ -110,7 +113,9 @@ class _AuthGuardState extends State<AuthGuard> {
     try {
       // Read saved token/role
       final token = await _readPersisted('token');
-      final role = await _readPersisted('role');
+      String role = await _readPersisted('role');
+      String persistedCompanyId = await _readPersisted('companyId');
+      String persistedStatus = await _readPersisted('status');
 
       // If no token or expired -> Login
       if (token.isEmpty || JwtDecoder.isExpired(token)) {
@@ -123,6 +128,10 @@ class _AuthGuardState extends State<AuthGuard> {
 
       // Keep token globally
       CompanyData.token = token;
+
+      // App startup may have already obtained an FCM token before we had a
+      // JWT; now that we have one (persisted session), register the device.
+      unawaited(FcmTestService.instance.registerDeviceIfReady());
 
       // Try to validate on server, but DON'T auto-logout on network hiccups
       http.Response? meRes;
@@ -158,12 +167,49 @@ class _AuthGuardState extends State<AuthGuard> {
             .toString()
             .trim()
             .toLowerCase();
+
+        // Authoritative values from the backend user record
+        final meRole = (me['role'] ??
+                me['user']?['role'] ??
+                me['data']?['role'] ??
+                '')
+            .toString()
+            .trim()
+            .toLowerCase();
+        final meStatus = (me['status'] ??
+                me['user']?['status'] ??
+                me['data']?['status'] ??
+                '')
+            .toString()
+            .trim()
+            .toLowerCase();
+        final meCompanyId = (me['companyId'] ??
+                me['user']?['companyId'] ??
+                me['data']?['companyId'] ??
+                '')
+            .toString()
+            .trim();
+
+        if (meRole.isNotEmpty) role = meRole;
+        if (meStatus.isNotEmpty) persistedStatus = meStatus;
+        if (meCompanyId.isNotEmpty) persistedCompanyId = meCompanyId;
       } else {
         // No response or non-200: continue offline using cached values.
         email = (await _readPersisted('email')).trim().toLowerCase();
       }
 
+      CompanyData.role = role;
+      CompanyData.companyId = persistedCompanyId;
+
       if (role == 'employee') {
+        if (persistedStatus != 'active' || persistedCompanyId.isEmpty) {
+          if (!mounted) return;
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const LoginPage()),
+          );
+          return;
+        }
+
         // Display name: prefer stored 'name', else email prefix
         final storedName = await _readPersisted('name');
         final displayName =
@@ -184,6 +230,14 @@ class _AuthGuardState extends State<AuthGuard> {
       }
 
       if (role == 'admin') {
+        if (persistedStatus != 'active' || persistedCompanyId.isEmpty) {
+          if (!mounted) return;
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const LoginPage()),
+          );
+          return;
+        }
+
         // If we got a 200 from /auth/me, try to fetch profile; otherwise, use a safe fallback profile.
         if (meRes != null && meRes.statusCode == 200) {
           try {
@@ -236,6 +290,22 @@ class _AuthGuardState extends State<AuthGuard> {
         }
       }
 
+      if (role == 'super_admin') {
+        if (persistedStatus != 'active' || persistedCompanyId.isEmpty) {
+          if (!mounted) return;
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const LoginPage()),
+          );
+          return;
+        }
+
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const SuperAdminOnboardingPage()),
+        );
+        return;
+      }
+
       // Unknown role -> Login
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
@@ -266,6 +336,14 @@ class _AuthGuardState extends State<AuthGuard> {
           MaterialPageRoute(
             builder: (_) => AdminDashboard(companyProfile: fallback),
           ),
+        );
+        return;
+      }
+
+      if (cachedRole == 'super_admin') {
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const SuperAdminOnboardingPage()),
         );
         return;
       }

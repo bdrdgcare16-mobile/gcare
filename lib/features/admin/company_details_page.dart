@@ -149,7 +149,6 @@ class _CompanyDetailsFormPageState extends State<CompanyDetailsFormPage> {
 
       if (response.statusCode == 200) {
         final responseData = jsonDecode(response.body);
-        print('Response data: $responseData'); // Debug log
 
         // Check for success message in the response
         final bool isSuccess = responseData['message']

@@ -59,25 +59,25 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       final url = Uri.parse('${ApiService.baseUrl}/auth/me');
-      final res = await http.get(url, headers: {'Authorization': 'Bearer $token'});
-      
+      final res =
+          await http.get(url, headers: {'Authorization': 'Bearer $token'});
+
       debugPrint('[Home] Auth/me preload response status: ${res.statusCode}');
-      
+
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
-        debugPrint('[Home] Auth/me preload successful: ${data['name']}');
+        debugPrint('[Home] Auth/me preload successful');
         return data;
       } else {
         debugPrint('[Home] Auth/me preload failed: ${res.statusCode}');
         return null;
       }
     } catch (e) {
-      debugPrint('[Home] Auth/me preload error: $e');
+      debugPrint('[Home] Auth/me preload error occurred');
       return null;
     }
   }
 
-  
   @override
   Widget build(BuildContext context) {
     final overlay = SystemUiOverlayStyle(
@@ -140,10 +140,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                     child: Row(
-                      children: [
-                      
-                       
-                      ],
+                      children: [],
                     ),
                   ),
 
@@ -187,7 +184,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Image.asset(
                             'assets/images/attendance-management.png',
                             width: MediaQuery.of(context).size.width * 0.78,
-                            height: MediaQuery.of(context).size.height < 650 ? 230 : 300,
+                            height: MediaQuery.of(context).size.height < 650
+                                ? 230
+                                : 300,
                             fit: BoxFit.contain,
                           ),
                         ),
@@ -207,10 +206,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                   label: 'Attendance',
                                   onTap: () async {
                                     if (!mounted) return;
-                                    
+
                                     // SAFETY: Preload auth/me data before navigation
-                                    final preloadedUserInfo = await _preloadUserInfo();
-                                    
+                                    final preloadedUserInfo =
+                                        await _preloadUserInfo();
+
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
@@ -266,16 +266,17 @@ class _HomeScreenState extends State<HomeScreen> {
                   label: 'Profile',
                   onTap: () async {
                     if (!mounted) return;
-                    
+
                     // SAFETY: Preload auth/me profile data before navigation
                     final preloadedProfile = await _preloadUserInfo();
-                    
+
                     // Extract empid from preloaded data, fallback to '-' if not available
-                    final empid = preloadedProfile?['empid'] ?? 
-                                  preloadedProfile?['empId'] ?? 
-                                  preloadedProfile?['employeeId'] ?? 
-                                  preloadedProfile?['employeeProfile']?['empid'] ?? '-';
-                    
+                    final empid = preloadedProfile?['empid'] ??
+                        preloadedProfile?['empId'] ??
+                        preloadedProfile?['employeeId'] ??
+                        preloadedProfile?['employeeProfile']?['empid'] ??
+                        '-';
+
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -333,7 +334,7 @@ class _HeaderIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 42,  // Increased from 34
+      width: 42, // Increased from 34
       height: 42, // Increased from 34
       decoration: BoxDecoration(
         color: Colors.white,
@@ -426,7 +427,8 @@ class _HomeTile extends StatelessWidget {
                 offset: Offset(0, 6),
               ),
             ],
-            border: Border.all(color: Colors.white.withValues(alpha: 0.6), width: 1),
+            border: Border.all(
+                color: Colors.white.withValues(alpha: 0.6), width: 1),
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -464,10 +466,10 @@ class BottomNavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DebouncedGestureDetector(
-        key: ValueKey('bottom_nav_$label'),
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: SizedBox(
+      key: ValueKey('bottom_nav_$label'),
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
         width: 86,
         height: 50,
         child: Column(

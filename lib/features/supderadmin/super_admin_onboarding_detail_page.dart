@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../models/onboarding_model.dart';
+import 'package:serv_app/models/onboarding_model.dart';
+import 'package:serv_app/services/super_admin_onboarding_service_new.dart';
 
 class SuperAdminOnboardingDetailPage extends StatelessWidget {
   final OnboardingModel onboarding;
@@ -238,20 +239,32 @@ class SuperAdminOnboardingDetailPage extends StatelessWidget {
       return;
     }
 
-    final uri = Uri.parse(documentUrl);
-
     try {
+      // Old records store a full URL directly; open those as-is. Newer
+      // records store the private Firebase Storage object path, which must
+      // first be resolved to a short-lived signed URL via the backend.
+      final isDirectUrl = documentUrl.startsWith('http://') ||
+          documentUrl.startsWith('https://');
+
+      final resolvedUrl = isDirectUrl
+          ? documentUrl
+          : await SuperAdminOnboardingService.resolveDocumentUrl(documentUrl);
+
+      final uri = Uri.parse(resolvedUrl);
+
       final opened = await launchUrl(
         uri,
         mode: LaunchMode.externalApplication,
       );
 
       if (!opened) {
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Unable to open document')),
         );
       }
     } catch (e) {
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Unable to open document: $e')),
       );

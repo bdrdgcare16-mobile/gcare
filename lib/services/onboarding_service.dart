@@ -116,6 +116,12 @@ class OnboardingService {
       }
     }
 
+    // Debug log for form data (excluding sensitive fields)
+    final safeFields = request.fields.keys.where((key) =>
+      !['aadhaarNumber', 'accountNumber', 'panNumber', 'password'].contains(key)
+    ).toList();
+    debugPrint('Onboarding submission debug: fields=${safeFields.length}, files=${request.files.length}');
+
     for (final entry in files.entries) {
       final file = entry.value;
       if (file.bytes != null && file.bytes!.isNotEmpty) {

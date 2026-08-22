@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'package:jwt_decoder/jwt_decoder.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,11 +15,13 @@ import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
 import 'package:serv_app/models/company_data.dart';
-import 'package:serv_app/config/api_config.dart';
+
 import 'package:serv_app/features/users/home_screen_page.dart';
 import 'package:serv_app/features/admin/admin_dashboard_page.dart';
 import 'package:serv_app/features/admin/company_details_page.dart';
+import 'package:serv_app/features/supderadmin/super_admin_onboarding_page.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/services/fcm_test_service.dart';
 
 import 'forgot_password_page.dart';
 
@@ -95,6 +99,22 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         margin: const EdgeInsets.all(16),
       ),
     );
+  }
+
+  String _firebaseErrorMessage(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'invalid-credential':
+      case 'invalid-email':
+      case 'user-not-found':
+      case 'wrong-password':
+        return 'Invalid email or password';
+      case 'user-disabled':
+        return 'This account has been disabled. Contact admin.';
+      case 'network-request-failed':
+        return 'Network error. Please check your connection.';
+      default:
+        return 'Login failed. Please try again.';
+    }
   }
 
   Future<void> _persist(String key, String value) async {
@@ -176,24 +196,31 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       final email = idController.text.trim().toLowerCase();
       final pwd = passwordController.text;
 
-      debugPrint('Current API Base URL: ${ApiService.baseUrl}');
+      debugPrint('FIREBASE LOGIN START');
+
+      final userCredential = await FirebaseAuth.instance
+          .signInWithEmailAndPassword(email: email, password: pwd);
+      final idToken = await userCredential.user!.getIdToken(true);
+
+      if (idToken == null || idToken.isEmpty) {
+        throw Exception('Failed to obtain Firebase token');
+      }
+
+      debugPrint('FIREBASE LOGIN SUCCESS');
 
       final response = await http
           .post(
-            Uri.parse('${ApiService.baseUrl}/auth/login'),
+            Uri.parse('${ApiService.baseUrl}/auth/firebase-login'),
             headers: {
               'Content-Type': 'application/json',
               'Accept': 'application/json',
+              'Authorization': 'Bearer $idToken',
             },
-            body: jsonEncode({
-              'email': email,
-              'password': pwd,
-            }),
+            body: jsonEncode({}),
           )
           .timeout(const Duration(seconds: 15));
 
       debugPrint('LOGIN STATUS: ${response.statusCode}');
-      debugPrint('LOGIN BODY: ${response.body}');
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
 
@@ -219,6 +246,14 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             .toString()
             .trim();
 
+        final status = (data['status'] ??
+                data['data']?['status'] ??
+                data['user']?['status'] ??
+                '')
+            .toString()
+            .trim()
+            .toLowerCase();
+
         final name = (data['name'] ??
                 data['data']?['name'] ??
                 data['user']?['name'] ??
@@ -231,7 +266,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           return;
         }
 
-        if (isAdmin && role != 'admin') {
+        if (isAdmin && role != 'admin' && role != 'super_admin') {
           _showSnack("Not authorized as admin.");
           return;
         }
@@ -245,6 +280,10 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         CompanyData.role = role;
         CompanyData.empid = empId;
         CompanyData.companyId = companyId;
+
+        // We may already have an FCM token from app startup; now that we
+        // have a JWT, register (or refresh) the device with the backend.
+        unawaited(FcmTestService.instance.registerDeviceIfReady());
 
         final decoded = JwtDecoder.decode(token);
 
@@ -271,15 +310,24 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           await _persist('companyId', companyId);
         }
 
+        await _persist('status', status);
+
         if (name.isNotEmpty) {
           await _persist('name', name);
         }
 
-        debugPrint('User authentication completed - role: ${CompanyData.role}');
-        debugPrint('Employee ID exists: ${CompanyData.empid.isNotEmpty}');
-        debugPrint('Company ID exists: ${CompanyData.companyId.isNotEmpty}');
-
         if (isAdmin) {
+          if (role == 'super_admin') {
+            if (!mounted) return;
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(
+                builder: (_) => const SuperAdminOnboardingPage(),
+              ),
+              (route) => false,
+            );
+            return;
+          }
+
           final result = await _checkCompanyProfile(
             token: token,
             adminEmail: email,
@@ -362,6 +410,9 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             (data['message'] ?? data['error'] ?? 'Login failed').toString();
         _showSnack(msg);
       }
+    } on FirebaseAuthException catch (e) {
+      debugPrint('FIREBASE LOGIN FAILED: ${e.code} - ${e.message}');
+      _showSnack(_firebaseErrorMessage(e));
     } catch (e) {
       _showSnack('Error: $e');
     } finally {

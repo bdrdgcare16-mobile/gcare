@@ -45,7 +45,7 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
         if (existing == null || existing.isEmpty) {
           html.window.localStorage['token'] = t;
         }
-        debugPrint('[Rewards] token from CompanyData (${t.length})');
+        debugPrint('[Rewards] Token found');
         return t;
       }
     } catch (_) {}
@@ -55,7 +55,7 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
     for (final k in keys) {
       final v = html.window.localStorage[k];
       if (v != null && v.isNotEmpty) {
-        debugPrint('[Rewards] token from localStorage["$k"] (${v.length})');
+        debugPrint('[Rewards] Token found');
         return v;
       }
     }
@@ -66,9 +66,7 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
         final key = html.window.localStorage.keys.elementAt(i);
         final val = html.window.localStorage[key];
         if (val != null && _looksLikeJwt(val)) {
-          debugPrint(
-            '[Rewards] token from localStorage "$key" (${val.length})',
-          );
+          debugPrint('[Rewards] Token found');
           return val;
         }
       }
@@ -88,18 +86,11 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
         if (p is Map &&
             p['empid'] != null &&
             p['empid'].toString().isNotEmpty) {
-          final v = p['empid'].toString();
-          debugPrint(
-            '[Rewards] empid from CompanyData.employeeProfile Map: $v',
-          );
-          return v;
+          return p['empid'].toString();
         }
         try {
           final v = (p as dynamic).empid?.toString();
           if (v != null && v.isNotEmpty) {
-            debugPrint(
-              '[Rewards] empid from CompanyData.employeeProfile model: $v',
-            );
             return v;
           }
         } catch (_) {}
@@ -107,7 +98,7 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
       // Some apps also stash it on CompanyData directly
       final direct = (CompanyData as dynamic)?.empid?.toString();
       if (direct != null && direct.isNotEmpty) {
-        debugPrint('[Rewards] empid from CompanyData.empid: $direct');
+        debugPrint('[Rewards] empid found');
         return direct;
       }
     } catch (_) {}
@@ -117,7 +108,7 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
     for (final k in keys) {
       final v = html.window.localStorage[k];
       if (v != null && v.isNotEmpty) {
-        debugPrint('[Rewards] empid from localStorage["$k"]: $v');
+        debugPrint('[Rewards] empid found');
         return v;
       }
     }
@@ -130,7 +121,6 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
         if (me is Map) {
           if (me['empid'] != null && me['empid'].toString().isNotEmpty) {
             final v = me['empid'].toString();
-            debugPrint('[Rewards] empid from localStorage["me"].empid: $v');
             return v;
           }
           final ep = me['employeeProfile'];
@@ -138,9 +128,6 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
               ep['empid'] != null &&
               ep['empid'].toString().isNotEmpty) {
             final v = ep['empid'].toString();
-            debugPrint(
-              '[Rewards] empid from localStorage["me"].employeeProfile.empid: $v',
-            );
             return v;
           }
         }
@@ -159,7 +146,7 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
             'Authorization': 'Bearer $token',
           },
         );
-        debugPrint('[Rewards] GET /auth/me status=${resp.statusCode}');
+        debugPrint('[Rewards] /auth/me status=${resp.statusCode}');
         if (resp.statusCode == 200 && resp.body.isNotEmpty) {
           final me = jsonDecode(resp.body);
           if (me is Map) {
@@ -168,7 +155,6 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
 
             if (me['empid'] != null && me['empid'].toString().isNotEmpty) {
               final v = me['empid'].toString();
-              debugPrint('[Rewards] empid from /auth/me.empid: $v');
               return v;
             }
             final ep = me['employeeProfile'];
@@ -176,15 +162,12 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
                 ep['empid'] != null &&
                 ep['empid'].toString().isNotEmpty) {
               final v = ep['empid'].toString();
-              debugPrint(
-                '[Rewards] empid from /auth/me.employeeProfile.empid: $v',
-              );
               return v;
             }
           }
         }
       } catch (e) {
-        debugPrint('[Rewards] /auth/me error: $e');
+        debugPrint('[Rewards] /auth/me error occurred');
       }
     }
 
@@ -196,18 +179,14 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
 
   Future<List<Map<String, dynamic>>> _fetchRewards() async {
     final empId = await _getEmpId();
-    debugPrint('[Rewards] empid value: $empId');
-    
+
     if (empId == null || empId.isEmpty) {
-      debugPrint('[Rewards] Missing empid -> returning []');
       return [];
     }
 
     final token = await _getJwt();
-    debugPrint('[Rewards] token exists: ${token != null && token.isNotEmpty}');
-    
+
     if (token == null || token.isEmpty) {
-      debugPrint('[Rewards] No token found -> setting session expired flag');
       if (mounted) {
         setState(() {
           _sessionExpired = true;
@@ -219,7 +198,6 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
     final uri = Uri.parse(
       '${ApiService.baseUrl}/rewards',
     ).replace(queryParameters: {'empid': empId});
-    debugPrint('[Rewards] request URL: $uri');
 
     try {
       final resp = await http.get(
@@ -230,8 +208,7 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
         },
       );
       debugPrint('[Rewards] status code: ${resp.statusCode}');
-      debugPrint('[Rewards] response body: ${resp.body}');
-      
+
       if (resp.statusCode == 200) {
         final decoded = jsonDecode(resp.body);
         if (decoded is List) {
@@ -242,17 +219,15 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
           debugPrint('[Rewards] items=${out.length}');
           return out;
         }
-        debugPrint('[Rewards] Unexpected body: ${resp.body}');
         return [];
       } else if (resp.statusCode == 401) {
-        debugPrint('[Rewards] Unauthorized: ${resp.body}');
         return [];
       } else {
-        debugPrint('[Rewards] Failed ${resp.statusCode}: ${resp.body}');
+        debugPrint('[Rewards] Failed ${resp.statusCode}');
         return [];
       }
     } catch (e) {
-      debugPrint('[Rewards] Network error: $e');
+      debugPrint('[Rewards] Network error occurred');
       return [];
     }
   }
@@ -265,6 +240,7 @@ class _UserRewardsPageState extends State<UserRewardsPage> {
       appBar: AppBar(
         title: const Text("My Rewards"),
         backgroundColor: const Color(0xFF8C6EAF),
+        centerTitle: false,
       ),
       body: Container(
         decoration: const BoxDecoration(

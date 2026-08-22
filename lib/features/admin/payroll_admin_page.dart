@@ -95,17 +95,12 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
     });
 
     try {
-      debugPrint('Mark paid API base: $cleanApiBase');
-      debugPrint('Mark paid URL: $endpoint');
-      debugPrint('Mark paid payload: none');
-
       final response = await ApiService.patch(
         '/payroll/$payrollId/paid',
         authRequired: true,
       );
 
-      debugPrint('Mark paid status: ${response.statusCode}');
-      debugPrint('Mark paid response: ${response.body}');
+      debugPrint('[PAYROLL] Mark paid status: ${response.statusCode}');
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
         String message = 'Unable to confirm payroll payment.';
@@ -144,8 +139,7 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
         ),
       );
     } catch (error, stackTrace) {
-      debugPrint('Mark paid error: $error');
-      debugPrintStack(stackTrace: stackTrace);
+      debugPrint('[PAYROLL] Mark paid error occurred');
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -203,22 +197,42 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
               _buildDetailRow('Employee Name', payroll['employeeName']),
               _buildDetailRow('Employee ID', payroll['employeeId']),
               _buildDetailRow('Payment Status', payroll['status']?.toString()),
-              _buildDetailRow('Basic Salary', _formatCurrency(payroll['basicSalary'])),
+              _buildDetailRow(
+                  'Basic Salary', _formatCurrency(payroll['basicSalary'])),
               _buildDetailRow('Worked Days', payroll['workedDays']?.toString()),
-              _buildDetailRow('Paid Weekly Off Days', payroll['weekOffDays']?.toString()),
-              _buildDetailRow('Paid Holiday Days', payroll['holidayDays']?.toString()),
-              _buildDetailRow('Paid Leave Days', payroll['paidLeaveDays']?.toString()),
-              _buildDetailRow('Unpaid Leave Days', payroll['unpaidLeaveDays']?.toString()),
+              _buildDetailRow(
+                  'Paid Weekly Off Days', payroll['weekOffDays']?.toString()),
+              _buildDetailRow(
+                  'Paid Holiday Days', payroll['holidayDays']?.toString()),
+              _buildDetailRow(
+                  'Paid Leave Days', payroll['paidLeaveDays']?.toString()),
+              _buildDetailRow(
+                  'Unpaid Leave Days', payroll['unpaidLeaveDays']?.toString()),
               _buildDetailRow('Total LOP Days', payroll['lopDays']?.toString()),
-              _buildDetailRow('Payable Days', payroll['payableDays']?.toString()),
-              _buildDetailRow('Salary Calculation Method', payroll['salaryCalculationMethod']?.toString() ?? 'ACTUAL_CALENDAR_DAYS'),
-              _buildDetailRow('Divisor Used', payroll['perDaySalary'] != null ? (payroll['basicSalary'] / payroll['perDaySalary']).toStringAsFixed(1) : 'N/A'),
-              _buildDetailRow('Per-Day Salary', _formatCurrency(payroll['perDaySalary'])),
-              _buildDetailRow('LOP Deduction', _formatCurrency(payroll['lopDeduction'])),
-              _buildDetailRow('Earned Basic', _formatCurrency(payroll['earnedBasic'])),
-              _buildDetailRow('Earned Allowance', _formatCurrency(payroll['earnedAllowance'])),
-              _buildDetailRow('Gross Salary', _formatCurrency(payroll['grossSalary'])),
-              _buildDetailRow('Net Salary', _formatCurrency(payroll['netSalary'])),
+              _buildDetailRow(
+                  'Payable Days', payroll['payableDays']?.toString()),
+              _buildDetailRow(
+                  'Salary Calculation Method',
+                  payroll['salaryCalculationMethod']?.toString() ??
+                      'ACTUAL_CALENDAR_DAYS'),
+              _buildDetailRow(
+                  'Divisor Used',
+                  payroll['perDaySalary'] != null
+                      ? (payroll['basicSalary'] / payroll['perDaySalary'])
+                          .toStringAsFixed(1)
+                      : 'N/A'),
+              _buildDetailRow(
+                  'Per-Day Salary', _formatCurrency(payroll['perDaySalary'])),
+              _buildDetailRow(
+                  'LOP Deduction', _formatCurrency(payroll['lopDeduction'])),
+              _buildDetailRow(
+                  'Earned Basic', _formatCurrency(payroll['earnedBasic'])),
+              _buildDetailRow('Earned Allowance',
+                  _formatCurrency(payroll['earnedAllowance'])),
+              _buildDetailRow(
+                  'Gross Salary', _formatCurrency(payroll['grossSalary'])),
+              _buildDetailRow(
+                  'Net Salary', _formatCurrency(payroll['netSalary'])),
               const SizedBox(height: 16),
               const Text(
                 'Allowances',
@@ -347,8 +361,10 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
           0,
     );
     normalized['salaryDate'] = _formatPayrollPeriod(
-      int.tryParse((updated['year'] ?? previous['year'] ?? selectedYear).toString()),
-      int.tryParse((updated['month'] ?? previous['month'] ?? selectedMonth).toString()),
+      int.tryParse(
+          (updated['year'] ?? previous['year'] ?? selectedYear).toString()),
+      int.tryParse(
+          (updated['month'] ?? previous['month'] ?? selectedMonth).toString()),
     );
 
     return normalized;
@@ -372,26 +388,23 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
       // Try CompanyData first (already loaded in memory)
       if (CompanyData.companyId.isNotEmpty) {
         currentCompanyId = CompanyData.companyId;
-        debugPrint('Payroll companyId from CompanyData: $currentCompanyId');
         return;
       }
 
       // Fallback to SharedPreferences
       final prefs = await SharedPreferences.getInstance();
       currentCompanyId = prefs.getString('companyId');
-      
+
       if (currentCompanyId == null || currentCompanyId!.trim().isEmpty) {
         throw Exception('Company ID not found for the logged-in admin');
       }
-      
-      debugPrint('Payroll companyId from SharedPreferences: $currentCompanyId');
     } catch (e) {
       if (mounted) {
         setState(() {
           errorMessage = 'Company ID not found for the logged-in admin';
         });
       }
-      debugPrint('Error loading companyId: $e');
+      debugPrint('[PAYROLL] Error loading companyId');
     }
   }
 
@@ -469,13 +482,7 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
       'salaryCalculationMethod': requestSalaryCalculationMethod,
     };
 
-    debugPrint('Payroll companyId: $requestCompanyId');
-    debugPrint('Payroll selected period: $requestYear-$requestMonth');
-    debugPrint('Payroll selected salaryCalculationMethod: $requestSalaryCalculationMethod');
-    debugPrint('Payroll request body: $requestBody');
-
     final uri = Uri.parse('${ApiService.baseUrl}/payroll/generate');
-    debugPrint('Payroll generate URL: $uri');
 
     try {
       final resp = await http
@@ -509,14 +516,16 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
 
       final mapped = filteredGenerated.map<Map<String, dynamic>>((item) {
         final id = item['id']?.toString() ?? '';
-        
+
         // Preserve backend payment status without forcing default
         final rawPaymentStatus = item['paymentStatus'] ?? item['status'];
-        final normalizedPaymentStatus = (rawPaymentStatus != null && rawPaymentStatus.toString().trim().isNotEmpty)
+        final normalizedPaymentStatus = (rawPaymentStatus != null &&
+                rawPaymentStatus.toString().trim().isNotEmpty)
             ? rawPaymentStatus.toString().trim().toLowerCase()
             : (item['isPaid'] == true ? 'paid' : 'pending');
-        final normalizedIsPaid = item['isPaid'] == true || normalizedPaymentStatus == 'paid';
-        
+        final normalizedIsPaid =
+            item['isPaid'] == true || normalizedPaymentStatus == 'paid';
+
         final mappedItem = {
           'id': id,
           'companyId': item['companyId']?.toString() ?? '',
@@ -527,8 +536,10 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
           'isPaid': normalizedIsPaid,
           'paidAt': item['paidAt'],
           'paidBy': item['paidBy'],
-          'salary': _formatCurrency(item['netSalary'] ?? item['grossSalary'] ?? 0),
-          'salaryDate': _formatPayrollPeriod(item['year'] ?? selectedYear, item['month'] ?? selectedMonth),
+          'salary':
+              _formatCurrency(item['netSalary'] ?? item['grossSalary'] ?? 0),
+          'salaryDate': _formatPayrollPeriod(
+              item['year'] ?? selectedYear, item['month'] ?? selectedMonth),
           'workedDays': item['workedDays']?.toString() ?? '0',
           'weekOffDays': item['weekOffDays']?.toString() ?? '0',
           'absentDays': item['absentDays']?.toString() ?? '0',
@@ -538,7 +549,8 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
           'earnedBasic': item['earnedBasic'] ?? 0,
           'grossSalary': item['grossSalary'] ?? 0,
           'netSalary': item['netSalary'] ?? 0,
-          'allowances': List<Map<String, dynamic>>.from(item['allowances'] as List? ?? []),
+          'allowances': List<Map<String, dynamic>>.from(
+              item['allowances'] as List? ?? []),
           'totalAllowance': item['totalAllowance'] ?? 0,
         };
 
@@ -634,14 +646,16 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
 
       final mapped = generated.map<Map<String, dynamic>>((item) {
         final id = item['id']?.toString() ?? '';
-        
+
         // Preserve backend payment status without forcing default
         final rawPaymentStatus = item['paymentStatus'] ?? item['status'];
-        final normalizedPaymentStatus = (rawPaymentStatus != null && rawPaymentStatus.toString().trim().isNotEmpty)
+        final normalizedPaymentStatus = (rawPaymentStatus != null &&
+                rawPaymentStatus.toString().trim().isNotEmpty)
             ? rawPaymentStatus.toString().trim().toLowerCase()
             : (item['isPaid'] == true ? 'paid' : 'pending');
-        final normalizedIsPaid = item['isPaid'] == true || normalizedPaymentStatus == 'paid';
-        
+        final normalizedIsPaid =
+            item['isPaid'] == true || normalizedPaymentStatus == 'paid';
+
         return {
           'id': id,
           'companyId': item['companyId']?.toString() ?? '',
@@ -652,8 +666,10 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
           'isPaid': normalizedIsPaid,
           'paidAt': item['paidAt'],
           'paidBy': item['paidBy'],
-          'salary': _formatCurrency(item['netSalary'] ?? item['grossSalary'] ?? 0),
-          'salaryDate': _formatPayrollPeriod(item['year'] ?? selectedYear, item['month'] ?? selectedMonth),
+          'salary':
+              _formatCurrency(item['netSalary'] ?? item['grossSalary'] ?? 0),
+          'salaryDate': _formatPayrollPeriod(
+              item['year'] ?? selectedYear, item['month'] ?? selectedMonth),
           'workedDays': item['workedDays']?.toString() ?? '0',
           'weekOffDays': item['weekOffDays']?.toString() ?? '0',
           'absentDays': item['absentDays']?.toString() ?? '0',
@@ -663,9 +679,12 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
           'earnedBasic': item['earnedBasic'] ?? 0,
           'grossSalary': item['grossSalary'] ?? 0,
           'netSalary': item['netSalary'] ?? 0,
-          'allowances': List<Map<String, dynamic>>.from(item['allowances'] as List? ?? []),
+          'allowances': List<Map<String, dynamic>>.from(
+              item['allowances'] as List? ?? []),
           'totalAllowance': item['totalAllowance'] ?? 0,
-          'salaryCalculationMethod': item['salaryCalculationMethod']?.toString() ?? selectedSalaryCalculationMethod,
+          'salaryCalculationMethod':
+              item['salaryCalculationMethod']?.toString() ??
+                  selectedSalaryCalculationMethod,
         };
       }).toList();
 
@@ -692,8 +711,18 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
 
   String _getMonthName(int month) {
     const months = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December'
     ];
     return months[month - 1];
   }
@@ -729,357 +758,359 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
   }
 
   Future<void> _editPayroll(Map<String, dynamic> payroll) async {
-  final workedDaysController = TextEditingController(
-    text: payroll['workedDays']?.toString() ?? '',
-  );
+    final workedDaysController = TextEditingController(
+      text: payroll['workedDays']?.toString() ?? '',
+    );
 
-  final lopDaysController = TextEditingController(
-    text: payroll['lopDays']?.toString() ?? '',
-  );
+    final lopDaysController = TextEditingController(
+      text: payroll['lopDays']?.toString() ?? '',
+    );
 
-  final allowanceAmountController = TextEditingController();
+    final allowanceAmountController = TextEditingController();
 
-  String selectedAllowance = 'Overtime Allowance';
-  String? dialogErrorMessage;
-  bool isSaving = false;
+    String selectedAllowance = 'Overtime Allowance';
+    String? dialogErrorMessage;
+    bool isSaving = false;
 
-  final List<String> allowanceTypes = [
-    'Overtime Allowance',
-    'Shift Allowance',
-    'Food Allowance',
-    'Travel Allowance',
-    'Bonus',
-  ];
+    final List<String> allowanceTypes = [
+      'Overtime Allowance',
+      'Shift Allowance',
+      'Food Allowance',
+      'Travel Allowance',
+      'Bonus',
+    ];
 
-  final List<Map<String, String>> tempAllowances =
-      List<Map<String, String>>.from(
-    (payroll['allowances'] as List? ?? []).map(
-      (item) => {
-        'type': item['type'].toString(),
-        'amount': item['amount'].toString(),
-      },
-    ),
-  );
+    final List<Map<String, String>> tempAllowances =
+        List<Map<String, String>>.from(
+      (payroll['allowances'] as List? ?? []).map(
+        (item) => {
+          'type': item['type'].toString(),
+          'amount': item['amount'].toString(),
+        },
+      ),
+    );
 
-  final Map<String, dynamic>? result = await showDialog<Map<String, dynamic>>(
-    context: context,
-    barrierDismissible: false,
-    builder: (dialogContext) {
-      return StatefulBuilder(
-        builder: (dialogContext, setDialogState) {
-          void addAllowance() {
-            final amount = allowanceAmountController.text.trim();
+    final Map<String, dynamic>? result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            void addAllowance() {
+              final amount = allowanceAmountController.text.trim();
 
-            if (amount.isEmpty) {
+              if (amount.isEmpty) {
+                setDialogState(() {
+                  dialogErrorMessage = 'Please enter allowance amount';
+                });
+                return;
+              }
+
+              final alreadyExists = tempAllowances.any(
+                (item) => item['type'] == selectedAllowance,
+              );
+
+              if (alreadyExists) {
+                setDialogState(() {
+                  dialogErrorMessage = 'This allowance is already added';
+                });
+                return;
+              }
+
               setDialogState(() {
-                dialogErrorMessage = 'Please enter allowance amount';
+                tempAllowances.add({
+                  'type': selectedAllowance,
+                  'amount': amount,
+                });
+
+                allowanceAmountController.clear();
+                dialogErrorMessage = null;
               });
-              return;
             }
 
-            final alreadyExists = tempAllowances.any(
-              (item) => item['type'] == selectedAllowance,
-            );
-
-            if (alreadyExists) {
-              setDialogState(() {
-                dialogErrorMessage = 'This allowance is already added';
-              });
-              return;
-            }
-
-            setDialogState(() {
-              tempAllowances.add({
-                'type': selectedAllowance,
-                'amount': amount,
-              });
-
-              allowanceAmountController.clear();
-              dialogErrorMessage = null;
-            });
-          }
-
-          return Dialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(28),
-            ),
-            backgroundColor: const Color(0xFFF1EAF7),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(dialogContext).size.height * 0.82,
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(28),
               ),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(22, 24, 22, 22),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Edit Payroll',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF2F2940),
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-
-                      _buildEditTextField(
-                        label: 'Worked Days',
-                        controller: workedDaysController,
-                      ),
-                      const SizedBox(height: 12),
-
-                      _buildEditTextField(
-                        label: 'LOP Days',
-                        controller: lopDaysController,
-                      ),
-                      const SizedBox(height: 12),
-
-                      _buildEditDropdownField(
-                        label: 'Allowance Type',
-                        value: selectedAllowance,
-                        items: allowanceTypes,
-                        onChanged: (value) {
-                          setDialogState(() {
-                            selectedAllowance =
-                                value ?? 'Overtime Allowance';
-                            dialogErrorMessage = null;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 12),
-
-                      _buildEditTextField(
-                        label: 'Allowance Amount',
-                        controller: allowanceAmountController,
-                      ),
-                      const SizedBox(height: 8),
-
-                      if (dialogErrorMessage != null)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Text(
-                            dialogErrorMessage!,
-                            style: const TextStyle(
-                              color: Colors.red,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-
-                      ElevatedButton(
-                        onPressed: addAllowance,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF8C6EAF),
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size(double.infinity, 48),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(22),
-                          ),
-                        ),
-                        child: const Text(
-                          'Add Allowance',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-
-                      if (tempAllowances.isNotEmpty) ...[
-                        const SizedBox(height: 16),
+              backgroundColor: const Color(0xFFF1EAF7),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(dialogContext).size.height * 0.82,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 24, 22, 22),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         const Text(
-                          'Added Allowances',
+                          'Edit Payroll',
                           style: TextStyle(
-                            fontSize: 15,
+                            fontSize: 22,
                             fontWeight: FontWeight.w600,
-                            color: Color(0xFF4B3B73),
+                            color: Color(0xFF2F2940),
                           ),
+                        ),
+                        const SizedBox(height: 18),
+                        _buildEditTextField(
+                          label: 'Worked Days',
+                          controller: workedDaysController,
+                        ),
+                        const SizedBox(height: 12),
+                        _buildEditTextField(
+                          label: 'LOP Days',
+                          controller: lopDaysController,
+                        ),
+                        const SizedBox(height: 12),
+                        _buildEditDropdownField(
+                          label: 'Allowance Type',
+                          value: selectedAllowance,
+                          items: allowanceTypes,
+                          onChanged: (value) {
+                            setDialogState(() {
+                              selectedAllowance = value ?? 'Overtime Allowance';
+                              dialogErrorMessage = null;
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        _buildEditTextField(
+                          label: 'Allowance Amount',
+                          controller: allowanceAmountController,
                         ),
                         const SizedBox(height: 8),
-                        ...tempAllowances.map((allowance) {
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: const Color(0xFF9E95A8),
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    '${allowance['type']} - ₹${allowance['amount']}',
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w500,
-                                      color: Color(0xFF2F2940),
-                                    ),
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.delete,
-                                    color: Colors.red,
-                                  ),
-                                  onPressed: () {
-                                    setDialogState(() {
-                                      tempAllowances.remove(allowance);
-                                      dialogErrorMessage = null;
-                                    });
-                                  },
-                                ),
-                              ],
-                            ),
-                          );
-                        }),
-                      ],
-
-                      const SizedBox(height: 20),
-
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          TextButton(
-                            onPressed: () {
-                              Navigator.of(dialogContext).pop(null);
-                            },
-                            child: const Text(
-                              'Cancel',
-                              style: TextStyle(
-                                color: Color(0xFF8C6EAF),
+                        if (dialogErrorMessage != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Text(
+                              dialogErrorMessage!,
+                              style: const TextStyle(
+                                color: Colors.red,
+                                fontSize: 13,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
                           ),
-                          const SizedBox(width: 12),
-                          ElevatedButton(
-                            onPressed: isSaving
-                                ? null
-                                : () async {
-                                    final workedDays = int.tryParse(
-                                      workedDaysController.text.trim(),
-                                    );
-                                    final lopDays = int.tryParse(
-                                      lopDaysController.text.trim(),
-                                    );
-                                    final allowances = <Map<String, dynamic>>[];
-
-                                    for (final allowance in tempAllowances) {
-                                      final type = allowance['type']?.trim() ?? '';
-                                      final amount = double.tryParse(
-                                        allowance['amount']?.trim() ?? '',
+                        ElevatedButton(
+                          onPressed: addAllowance,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF8C6EAF),
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(double.infinity, 48),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(22),
+                            ),
+                          ),
+                          child: const Text(
+                            'Add Allowance',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        if (tempAllowances.isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Added Allowances',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF4B3B73),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          ...tempAllowances.map((allowance) {
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: const Color(0xFF9E95A8),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      '${allowance['type']} - ₹${allowance['amount']}',
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500,
+                                        color: Color(0xFF2F2940),
+                                      ),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.delete,
+                                      color: Colors.red,
+                                    ),
+                                    onPressed: () {
+                                      setDialogState(() {
+                                        tempAllowances.remove(allowance);
+                                        dialogErrorMessage = null;
+                                      });
+                                    },
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                        ],
+                        const SizedBox(height: 20),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton(
+                              onPressed: () {
+                                Navigator.of(dialogContext).pop(null);
+                              },
+                              child: const Text(
+                                'Cancel',
+                                style: TextStyle(
+                                  color: Color(0xFF8C6EAF),
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            ElevatedButton(
+                              onPressed: isSaving
+                                  ? null
+                                  : () async {
+                                      final workedDays = int.tryParse(
+                                        workedDaysController.text.trim(),
                                       );
-                                      if (type.isEmpty || amount == null || amount < 0) {
+                                      final lopDays = int.tryParse(
+                                        lopDaysController.text.trim(),
+                                      );
+                                      final allowances =
+                                          <Map<String, dynamic>>[];
+
+                                      for (final allowance in tempAllowances) {
+                                        final type =
+                                            allowance['type']?.trim() ?? '';
+                                        final amount = double.tryParse(
+                                          allowance['amount']?.trim() ?? '',
+                                        );
+                                        if (type.isEmpty ||
+                                            amount == null ||
+                                            amount < 0) {
+                                          setDialogState(() {
+                                            dialogErrorMessage =
+                                                'Invalid allowance values';
+                                          });
+                                          return;
+                                        }
+                                        allowances.add({
+                                          'type': type,
+                                          'amount': amount,
+                                        });
+                                      }
+
+                                      if (workedDays == null ||
+                                          workedDays < 0 ||
+                                          lopDays == null ||
+                                          lopDays < 0) {
                                         setDialogState(() {
-                                          dialogErrorMessage = 'Invalid allowance values';
+                                          dialogErrorMessage =
+                                              'Worked Days and LOP Days must be valid non-negative numbers';
                                         });
                                         return;
                                       }
-                                      allowances.add({
-                                        'type': type,
-                                        'amount': amount,
-                                      });
-                                    }
 
-                                    if (workedDays == null || workedDays < 0 ||
-                                        lopDays == null || lopDays < 0) {
                                       setDialogState(() {
-                                        dialogErrorMessage = 'Worked Days and LOP Days must be valid non-negative numbers';
+                                        isSaving = true;
+                                        dialogErrorMessage = null;
                                       });
-                                      return;
-                                    }
 
-                                    setDialogState(() {
-                                      isSaving = true;
-                                      dialogErrorMessage = null;
-                                    });
-
-                                    try {
-                                      final response = await ApiService.updatePayroll(
-                                        payrollId: payroll['id']?.toString() ?? '',
-                                        workedDays: workedDays,
-                                        lopDays: lopDays,
-                                        allowances: allowances,
-                                      );
-                                      if (!mounted) return;
-                                      final updatedPayroll =
-                                          Map<String, dynamic>.from(
-                                            response['data'] as Map? ?? response,
-                                          );
-                                      Navigator.of(dialogContext).pop(
-                                        _normalizeUpdatedPayrollForDisplay(
-                                          updatedPayroll,
-                                          payroll,
-                                        ),
-                                      );
-                                    } catch (error) {
-                                      setDialogState(() {
-                                        isSaving = false;
-                                        dialogErrorMessage = error.toString().replaceFirst('Exception: ', '');
-                                      });
-                                    }
-                                  },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF655193),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 24,
-                                vertical: 12,
+                                      try {
+                                        final response =
+                                            await ApiService.updatePayroll(
+                                          payrollId:
+                                              payroll['id']?.toString() ?? '',
+                                          workedDays: workedDays,
+                                          lopDays: lopDays,
+                                          allowances: allowances,
+                                        );
+                                        if (!mounted) return;
+                                        final updatedPayroll =
+                                            Map<String, dynamic>.from(
+                                          response['data'] as Map? ?? response,
+                                        );
+                                        Navigator.of(dialogContext).pop(
+                                          _normalizeUpdatedPayrollForDisplay(
+                                            updatedPayroll,
+                                            payroll,
+                                          ),
+                                        );
+                                      } catch (error) {
+                                        setDialogState(() {
+                                          isSaving = false;
+                                          dialogErrorMessage = error
+                                              .toString()
+                                              .replaceFirst('Exception: ', '');
+                                        });
+                                      }
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF655193),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                  vertical: 12,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(24),
+                                ),
                               ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(24),
-                              ),
+                              child: const Text('Save'),
                             ),
-                            child: const Text('Save'),
-                          ),
-                        ],
-                      ),
-                    ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          );
-        },
-      );
-    },
-  );
-
-  workedDaysController.dispose();
-  lopDaysController.dispose();
-  allowanceAmountController.dispose();
-
-  if (!mounted || result == null) return;
-
-  final index = payrollList.indexWhere(
-    (item) => item['id'] == payroll['id'],
-  );
-
-  if (index != -1) {
-    setState(() {
-      payrollList[index] = {
-        ...payrollList[index],
-        ...result,
-      };
-    });
-  }
-
-  if (mounted) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Payroll updated successfully')),
+            );
+          },
+        );
+      },
     );
+
+    workedDaysController.dispose();
+    lopDaysController.dispose();
+    allowanceAmountController.dispose();
+
+    if (!mounted || result == null) return;
+
+    final index = payrollList.indexWhere(
+      (item) => item['id'] == payroll['id'],
+    );
+
+    if (index != -1) {
+      setState(() {
+        payrollList[index] = {
+          ...payrollList[index],
+          ...result,
+        };
+      });
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Payroll updated successfully')),
+      );
+    }
   }
-}
 
   Widget _buildEditTextField({
     required String label,
@@ -1372,7 +1403,11 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
                 alignment: WrapAlignment.start,
                 children: [
                   SizedBox(
-                    width: constraints.maxWidth > 400 ? 120 : constraints.maxWidth > 320 ? 100 : 80,
+                    width: constraints.maxWidth > 400
+                        ? 120
+                        : constraints.maxWidth > 320
+                            ? 100
+                            : 80,
                     child: OutlinedButton(
                       onPressed: () => _viewPayroll(payroll),
                       style: OutlinedButton.styleFrom(
@@ -1389,7 +1424,11 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
                     ),
                   ),
                   SizedBox(
-                    width: constraints.maxWidth > 400 ? 120 : constraints.maxWidth > 320 ? 100 : 80,
+                    width: constraints.maxWidth > 400
+                        ? 120
+                        : constraints.maxWidth > 320
+                            ? 100
+                            : 80,
                     child: OutlinedButton(
                       onPressed: () => _viewPayslip(payroll),
                       style: OutlinedButton.styleFrom(
@@ -1407,7 +1446,11 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
                   ),
                   if (!isPaid)
                     SizedBox(
-                      width: constraints.maxWidth > 400 ? 120 : constraints.maxWidth > 320 ? 100 : 80,
+                      width: constraints.maxWidth > 400
+                          ? 120
+                          : constraints.maxWidth > 320
+                              ? 100
+                              : 80,
                       child: ElevatedButton(
                         onPressed: () => _editPayroll(payroll),
                         style: ElevatedButton.styleFrom(
@@ -1423,9 +1466,15 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
                     ),
                   if (!isPaid)
                     SizedBox(
-                      width: constraints.maxWidth > 400 ? 120 : constraints.maxWidth > 320 ? 100 : 80,
+                      width: constraints.maxWidth > 400
+                          ? 120
+                          : constraints.maxWidth > 320
+                              ? 100
+                              : 80,
                       child: ElevatedButton(
-                        onPressed: _markingPaidPayrollId == payroll['id'] ? null : () => _confirmPaid(payroll['id']),
+                        onPressed: _markingPaidPayrollId == payroll['id']
+                            ? null
+                            : () => _confirmPaid(payroll['id']),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.green,
                           foregroundColor: Colors.white,
@@ -1439,7 +1488,8 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
                                   width: 18,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white),
                                   ),
                                 )
                               : const Text(
@@ -1491,46 +1541,36 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF7F5FB),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF8C6EAF),
-        elevation: 0,
-        title: const Text(
-          'Payroll Management',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-        ),
-        centerTitle: true,
-        iconTheme: const IconThemeData(color: Colors.white),
-        actions: [
-          if (hasGenerated && currentCompanyId != null)
-            Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    'Company: $currentCompanyId',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  Text(
-                    'Period: ${_getMonthName(selectedMonth)} $selectedYear',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
       body: Column(
         children: [
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Row(
+              children: [
+                RichText(
+                  text: TextSpan(
+                    style: TextStyle(
+                      fontSize: 25,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.5,
+                      height: 1.15,
+                    ),
+                    children: [
+                      TextSpan(
+                        text: 'Payroll',
+                        style: TextStyle(color: Color(0xFF1E1B4B)),
+                      ),
+                      TextSpan(
+                        text: ' Management',
+                        style: TextStyle(color: Color(0xFF8B5CF6)),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
           // Period Selector and Generate Button
           Container(
             padding: const EdgeInsets.all(16),
@@ -1706,7 +1746,8 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
                             width: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(Colors.white),
                             ),
                           )
                         : const Text(
@@ -1750,10 +1791,12 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
                                   decoration: BoxDecoration(
                                     color: Colors.white,
                                     borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: Colors.grey.shade300),
+                                    border:
+                                        Border.all(color: Colors.grey.shade300),
                                   ),
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       const Text(
                                         'Payroll Preview Summary',
@@ -1768,9 +1811,16 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
                                         runSpacing: 12,
                                         spacing: 12,
                                         children: [
-                                          _buildPreviewStat('Generated', previewPayrollList.length.toString()),
-                                          _buildPreviewStat('Failed', previewFailedPayrollList.length.toString()),
-                                          _buildPreviewStat('Salary method', selectedSalaryCalculationMethod),
+                                          _buildPreviewStat(
+                                              'Generated',
+                                              previewPayrollList.length
+                                                  .toString()),
+                                          _buildPreviewStat(
+                                              'Failed',
+                                              previewFailedPayrollList.length
+                                                  .toString()),
+                                          _buildPreviewStat('Salary method',
+                                              selectedSalaryCalculationMethod),
                                         ],
                                       ),
                                     ],
@@ -1784,10 +1834,12 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
                                     decoration: BoxDecoration(
                                       color: Colors.orange.shade50,
                                       borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(color: Colors.orange.shade300),
+                                      border: Border.all(
+                                          color: Colors.orange.shade300),
                                     ),
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         const Text(
                                           'Preview failures',
@@ -1798,12 +1850,16 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
                                           ),
                                         ),
                                         const SizedBox(height: 8),
-                                        ...previewFailedPayrollList.take(5).map((item) {
+                                        ...previewFailedPayrollList
+                                            .take(5)
+                                            .map((item) {
                                           return Padding(
-                                            padding: const EdgeInsets.only(bottom: 8),
+                                            padding: const EdgeInsets.only(
+                                                bottom: 8),
                                             child: Text(
                                               '${item['empid'] ?? 'Unknown'} — ${item['reason'] ?? 'Unknown reason'}',
-                                              style: const TextStyle(fontSize: 13),
+                                              style:
+                                                  const TextStyle(fontSize: 13),
                                             ),
                                           );
                                         }),
@@ -1821,7 +1877,8 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
                                     ),
                                   ),
                                   const SizedBox(height: 12),
-                                  ...previewPayrollList.take(10).map((payroll) => _buildPayrollCard(payroll)),
+                                  ...previewPayrollList.take(10).map(
+                                      (payroll) => _buildPayrollCard(payroll)),
                                 ],
                               ],
                             ),
@@ -1838,14 +1895,17 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
                                         fontSize: 14,
                                       ),
                                     ),
-                                    if (hasGenerated && failedPayrollList.isNotEmpty) ...[
+                                    if (hasGenerated &&
+                                        failedPayrollList.isNotEmpty) ...[
                                       const SizedBox(height: 16),
                                       Container(
                                         padding: const EdgeInsets.all(12),
                                         decoration: BoxDecoration(
                                           color: Colors.orange.shade50,
-                                          borderRadius: BorderRadius.circular(8),
-                                          border: Border.all(color: Colors.orange.shade300),
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                          border: Border.all(
+                                              color: Colors.orange.shade300),
                                         ),
                                         child: Column(
                                           children: [
@@ -1874,7 +1934,8 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
                             : SingleChildScrollView(
                                 padding: const EdgeInsets.all(16),
                                 child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
                                   children: [
                                     Row(
                                       children: [
@@ -1883,8 +1944,10 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
                                             padding: const EdgeInsets.all(16),
                                             decoration: BoxDecoration(
                                               color: Colors.white,
-                                              borderRadius: BorderRadius.circular(12),
-                                              border: Border.all(color: Colors.grey.shade300),
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                              border: Border.all(
+                                                  color: Colors.grey.shade300),
                                             ),
                                             child: Column(
                                               children: [
@@ -1914,8 +1977,10 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
                                             padding: const EdgeInsets.all(16),
                                             decoration: BoxDecoration(
                                               color: Colors.white,
-                                              borderRadius: BorderRadius.circular(12),
-                                              border: Border.all(color: Colors.grey.shade300),
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                              border: Border.all(
+                                                  color: Colors.grey.shade300),
                                             ),
                                             child: Column(
                                               children: [
@@ -1945,8 +2010,10 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
                                             padding: const EdgeInsets.all(16),
                                             decoration: BoxDecoration(
                                               color: Colors.white,
-                                              borderRadius: BorderRadius.circular(12),
-                                              border: Border.all(color: Colors.grey.shade300),
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                              border: Border.all(
+                                                  color: Colors.grey.shade300),
                                             ),
                                             child: Column(
                                               children: [
@@ -1973,7 +2040,8 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
                                       ],
                                     ),
                                     const SizedBox(height: 24),
-                                    ...payrollList.map((payroll) => _buildPayrollCard(payroll)),
+                                    ...payrollList.map((payroll) =>
+                                        _buildPayrollCard(payroll)),
                                   ],
                                 ),
                               ),

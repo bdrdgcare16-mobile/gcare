@@ -80,26 +80,30 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
         Uri.parse('${ApiService.baseUrl}/office/locations'),
         headers: _authHeaders(),
       );
-      
-      debugPrint('[Office] GET /office/locations -> ${res.statusCode} ${res.body}');
-      
+
+      debugPrint('[Office] GET /office/locations -> ${res.statusCode}');
+
       if (res.statusCode == 200) {
         final List data = jsonDecode(res.body) as List;
         _locations.clear();
-        
+
         for (var item in data) {
           try {
             final m = item as Map<String, dynamic>;
-            debugPrint('Processing location item: $m');
-            
+
             // Parse coordinates and radius with null checks
             final lat = (m['latitude'] as num?)?.toDouble() ?? 0.0;
             final lng = (m['longitude'] as num?)?.toDouble() ?? 0.0;
             final rad = (m['radius'] as num?)?.toDouble() ?? 100.0;
-            
+
             // Get branch name with fallback to empty string
-            final branchName = (m['branchName'] ?? m['name'] ?? m['branch'] ?? 'Unnamed Location').toString().trim();
-            
+            final branchName = (m['branchName'] ??
+                    m['name'] ??
+                    m['branch'] ??
+                    'Unnamed Location')
+                .toString()
+                .trim();
+
             _locations.add(LocationModel(
               docId: (m['docId'] ?? m['id'] ?? '').toString(),
               branchName: branchName,
@@ -107,10 +111,8 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
               radius: rad,
               latLng: LatLng(lat, lng),
             ));
-            
-            debugPrint('Added location: $branchName');
           } catch (e) {
-            debugPrint('Error parsing location item: $e');
+            debugPrint('[Office] Error parsing location item');
           }
         }
 
@@ -119,14 +121,14 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
           _mapCenter = _locations.first.latLng;
           _mapController.move(_mapCenter, 12.0);
         } else {
-          debugPrint('No locations found in the response');
+          debugPrint('[Office] No locations found');
         }
       } else {
         final error = jsonDecode(res.body)['message'] ?? 'Unknown error';
         _toast('Failed to load locations: $error');
       }
     } catch (e) {
-      debugPrint('Error in _loadLocations: $e');
+      debugPrint('[Office] Error loading locations');
       _toast('Error loading locations: ${e.toString()}');
     } finally {
       if (mounted) {
@@ -135,94 +137,90 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
     }
   }
 
-Future<bool> _postLocation({
-  required String branchName,
-  required String address,
-  required double radius,
-  required double latitude,
-  required double longitude,
-}) async {
-  try {
-    final requestBody = {
-      'branchName': branchName.trim(),
-      'name': branchName.trim(),
-      'address': address.trim(),
-      'radius': radius,
-      'latitude': latitude,
-      'longitude': longitude,
-    };
+  Future<bool> _postLocation({
+    required String branchName,
+    required String address,
+    required double radius,
+    required double latitude,
+    required double longitude,
+  }) async {
+    try {
+      final requestBody = {
+        'branchName': branchName.trim(),
+        'name': branchName.trim(),
+        'address': address.trim(),
+        'radius': radius,
+        'latitude': latitude,
+        'longitude': longitude,
+      };
 
-    debugPrint('[Office] Sending request: ${jsonEncode(requestBody)}');
+      final res = await http.post(
+        Uri.parse('${ApiService.baseUrl}/office/add'),
+        headers: _authHeaders(),
+        body: jsonEncode(requestBody),
+      );
 
-    final res = await http.post(
-      Uri.parse('${ApiService.baseUrl}/office/add'),
-      headers: _authHeaders(),
-      body: jsonEncode(requestBody),
-    );
+      debugPrint('[Office] POST /office/add -> ${res.statusCode}');
 
-    debugPrint('[Office] POST /office/add -> ${res.statusCode} ${res.body}');
-
-    if (res.statusCode == 201) {
-      _toast('Location saved successfully');
-      return true;
-    } else {
-      final body = jsonDecode(res.body);
-      final errorMsg =
-          (body['error'] ?? body['message'] ?? 'Unknown error').toString();
-      _toast('Failed to save: $errorMsg');
+      if (res.statusCode == 201) {
+        _toast('Location saved successfully');
+        return true;
+      } else {
+        final body = jsonDecode(res.body);
+        final errorMsg =
+            (body['error'] ?? body['message'] ?? 'Unknown error').toString();
+        _toast('Failed to save: $errorMsg');
+        return false;
+      }
+    } catch (e) {
+      debugPrint('[Office] Error saving location');
+      _toast('Error: ${e.toString()}');
       return false;
     }
-  } catch (e) {
-    debugPrint('Error in _postLocation: $e');
-    _toast('Error: ${e.toString()}');
-    return false;
   }
-}
 
   Future<bool> _updateLocation({
-  required String docId,
-  required String branchName,
-  required String address,
-  required double radius,
-  required double latitude,
-  required double longitude,
-}) async {
-  try {
-    final requestBody = {
-      'branchName': branchName.trim(),
-      'name': branchName.trim(),
-      'address': address.trim(),
-      'radius': radius,
-      'latitude': latitude,
-      'longitude': longitude,
-    };
+    required String docId,
+    required String branchName,
+    required String address,
+    required double radius,
+    required double latitude,
+    required double longitude,
+  }) async {
+    try {
+      final requestBody = {
+        'branchName': branchName.trim(),
+        'name': branchName.trim(),
+        'address': address.trim(),
+        'radius': radius,
+        'latitude': latitude,
+        'longitude': longitude,
+      };
 
-    debugPrint('[Office] Sending update request: ${jsonEncode(requestBody)}');
+      final res = await http.put(
+        Uri.parse('${ApiService.baseUrl}/office/update/$docId'),
+        headers: _authHeaders(),
+        body: jsonEncode(requestBody),
+      );
 
-    final res = await http.put(
-      Uri.parse('${ApiService.baseUrl}/office/update/$docId'),
-      headers: _authHeaders(),
-      body: jsonEncode(requestBody),
-    );
+      debugPrint('[Office] PUT /office/update -> ${res.statusCode}');
 
-    debugPrint('[Office] PUT /office/update/$docId -> ${res.statusCode} ${res.body}');
-
-    if (res.statusCode == 200) {
-      _toast('Location updated successfully');
-      return true;
-    } else {
-      final body = jsonDecode(res.body);
-      final errorMsg =
-          (body['error'] ?? body['message'] ?? 'Unknown error').toString();
-      _toast('Failed to update: $errorMsg');
+      if (res.statusCode == 200) {
+        _toast('Location updated successfully');
+        return true;
+      } else {
+        final body = jsonDecode(res.body);
+        final errorMsg =
+            (body['error'] ?? body['message'] ?? 'Unknown error').toString();
+        _toast('Failed to update: $errorMsg');
+        return false;
+      }
+    } catch (e) {
+      debugPrint('[Office] Error updating location');
+      _toast('Error: ${e.toString()}');
       return false;
     }
-  } catch (e) {
-    debugPrint('Error in _updateLocation: $e');
-    _toast('Error: ${e.toString()}');
-    return false;
   }
-}
 
   Future<bool> _deleteRemote(String docId) async {
     try {
@@ -230,8 +228,7 @@ Future<bool> _postLocation({
         Uri.parse('${ApiService.baseUrl}/office/delete/$docId'),
         headers: _authHeaders(),
       );
-      debugPrint(
-          '[Office] DELETE /office/delete/$docId -> ${res.statusCode} ${res.body}');
+      debugPrint('[Office] DELETE /office/delete -> ${res.statusCode}');
       if (res.statusCode == 200) return true;
       _toast('Delete failed (${res.statusCode})');
     } catch (e) {
@@ -368,21 +365,21 @@ Future<bool> _postLocation({
               }
 
               final ok = isEdit
-                    ? await _updateLocation(
-                         docId: _locations[indexToEdit].docId,
-                         branchName: branch,
-                         address: address,
-                         radius: radius,
-                         latitude: coords.latitude,
-                         longitude: coords.longitude,
-                     )
-                    : await _postLocation(
-                         branchName: branch,
-                         address: address,
-                         radius: radius,
-                         latitude: coords.latitude,
-                         longitude: coords.longitude,
-                      );
+                  ? await _updateLocation(
+                      docId: _locations[indexToEdit].docId,
+                      branchName: branch,
+                      address: address,
+                      radius: radius,
+                      latitude: coords.latitude,
+                      longitude: coords.longitude,
+                    )
+                  : await _postLocation(
+                      branchName: branch,
+                      address: address,
+                      radius: radius,
+                      latitude: coords.latitude,
+                      longitude: coords.longitude,
+                    );
               if (ok) {
                 if (mounted) Navigator.pop(context);
                 await _loadLocations();
