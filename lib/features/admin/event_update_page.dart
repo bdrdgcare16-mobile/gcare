@@ -305,7 +305,7 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
         headers['Authorization'] = 'Bearer $token';
       }
 
-      debugPrint('[Events] Fetching events from: ${ApiService.baseUrl}/events');
+      debugPrint('[Events] Fetching events from /events');
 
       final response = await http.get(
         Uri.parse('${ApiService.baseUrl}/events'),

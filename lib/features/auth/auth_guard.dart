@@ -32,14 +32,12 @@ Future<String> _readPersisted(String key) async {
   final sp = await SharedPreferences.getInstance();
 
   final spValue = sp.getString(key);
-  print("SharedPreferences [$key]: $spValue");
 
   var v = spValue ?? '';
 
   if (v.isEmpty) {
     try {
       final webValue = html.window.localStorage[key];
-      print("localStorage [$key]: $webValue");
       v = webValue ?? '';
     } catch (_) {}
   }
@@ -50,8 +48,9 @@ Future<String> _readPersisted(String key) async {
 /// Normalize admin company profile shape the same way as in login_page.dart
 Map<String, dynamic> _normalizeProfile(dynamic body) {
   final m = (body is Map) ? body : <String, dynamic>{};
-  final exists =
-      (m['exists'] == true) || (m['filled'] == true) || (m['hasProfile'] == true);
+  final exists = (m['exists'] == true) ||
+      (m['filled'] == true) ||
+      (m['hasProfile'] == true);
   final data = (m['data'] is Map)
       ? (m['data'] as Map).cast<String, dynamic>()
       : <String, dynamic>{};
@@ -63,8 +62,11 @@ Future<Map<String, dynamic>> _checkCompanyProfile({
   required String token,
   required String adminEmail,
 }) async {
-  Future<Map<String, dynamic>> treat404() async =>
-      {'exists': false, 'data': <String, dynamic>{}, 'raw': <String, dynamic>{}};
+  Future<Map<String, dynamic>> treat404() async => {
+        'exists': false,
+        'data': <String, dynamic>{},
+        'raw': <String, dynamic>{}
+      };
 
   final u1 = Uri.parse('${ApiService.baseUrl}/company/profile/check');
   try {
@@ -136,18 +138,17 @@ class _AuthGuardState extends State<AuthGuard> {
       // Try to validate on server, but DON'T auto-logout on network hiccups
       http.Response? meRes;
       try {
-        meRes = await http
-            .get(
-              Uri.parse('${ApiService.baseUrl}/auth/me'),
-              headers: {'Authorization': 'Bearer $token'},
-            )
-            .timeout(const Duration(seconds: 12));
+        meRes = await http.get(
+          Uri.parse('${ApiService.baseUrl}/auth/me'),
+          headers: {'Authorization': 'Bearer $token'},
+        ).timeout(const Duration(seconds: 12));
       } catch (_) {
         meRes = null; // network/timeout/etc.
       }
 
       // If the server explicitly says unauthorized -> go to Login
-      if (meRes != null && (meRes.statusCode == 401 || meRes.statusCode == 403)) {
+      if (meRes != null &&
+          (meRes.statusCode == 401 || meRes.statusCode == 403)) {
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const LoginPage()),
@@ -160,22 +161,18 @@ class _AuthGuardState extends State<AuthGuard> {
       String email = '';
       if (meRes != null && meRes.statusCode == 200) {
         me = jsonDecode(meRes.body) as Map<String, dynamic>;
-        email = (me['email'] ??
-                me['user']?['email'] ??
-                me['admin']?['email'] ??
-                '')
-            .toString()
-            .trim()
-            .toLowerCase();
+        email =
+            (me['email'] ?? me['user']?['email'] ?? me['admin']?['email'] ?? '')
+                .toString()
+                .trim()
+                .toLowerCase();
 
         // Authoritative values from the backend user record
-        final meRole = (me['role'] ??
-                me['user']?['role'] ??
-                me['data']?['role'] ??
-                '')
-            .toString()
-            .trim()
-            .toLowerCase();
+        final meRole =
+            (me['role'] ?? me['user']?['role'] ?? me['data']?['role'] ?? '')
+                .toString()
+                .trim()
+                .toLowerCase();
         final meStatus = (me['status'] ??
                 me['user']?['status'] ??
                 me['data']?['status'] ??
@@ -212,8 +209,9 @@ class _AuthGuardState extends State<AuthGuard> {
 
         // Display name: prefer stored 'name', else email prefix
         final storedName = await _readPersisted('name');
-        final displayName =
-            (storedName.trim().isNotEmpty) ? storedName.trim() : (email.isNotEmpty ? email.split('@').first : 'Employee');
+        final displayName = (storedName.trim().isNotEmpty)
+            ? storedName.trim()
+            : (email.isNotEmpty ? email.split('@').first : 'Employee');
 
         final docId = await _readPersisted('userDocId');
 
@@ -262,14 +260,16 @@ class _AuthGuardState extends State<AuthGuard> {
               );
             } else {
               Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (_) => const CompanyDetailsFormPage()),
+                MaterialPageRoute(
+                    builder: (_) => const CompanyDetailsFormPage()),
               );
             }
             return;
           } catch (_) {
             // If profile check fails for some reason, fall back to a minimal profile and keep admin signed in
             if (!mounted) return;
-            final fallback = CompanyProfile(name: '', adminName: '', logoUrl: null);
+            final fallback =
+                CompanyProfile(name: '', adminName: '', logoUrl: null);
             Navigator.of(context).pushReplacement(
               MaterialPageRoute(
                 builder: (_) => AdminDashboard(companyProfile: fallback),
@@ -280,7 +280,8 @@ class _AuthGuardState extends State<AuthGuard> {
         } else {
           // Offline/other server issue: still keep admin signed in with a minimal profile
           if (!mounted) return;
-          final fallback = CompanyProfile(name: '', adminName: '', logoUrl: null);
+          final fallback =
+              CompanyProfile(name: '', adminName: '', logoUrl: null);
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(
               builder: (_) => AdminDashboard(companyProfile: fallback),

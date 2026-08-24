@@ -549,6 +549,8 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
           'earnedBasic': item['earnedBasic'] ?? 0,
           'grossSalary': item['grossSalary'] ?? 0,
           'netSalary': item['netSalary'] ?? 0,
+          'lopDeduction': item['lopDeduction'] ?? 0,
+          'totalDeductions': item['totalDeductions'] ?? 0,
           'allowances': List<Map<String, dynamic>>.from(
               item['allowances'] as List? ?? []),
           'totalAllowance': item['totalAllowance'] ?? 0,
@@ -679,6 +681,8 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
           'earnedBasic': item['earnedBasic'] ?? 0,
           'grossSalary': item['grossSalary'] ?? 0,
           'netSalary': item['netSalary'] ?? 0,
+          'lopDeduction': item['lopDeduction'] ?? 0,
+          'totalDeductions': item['totalDeductions'] ?? 0,
           'allowances': List<Map<String, dynamic>>.from(
               item['allowances'] as List? ?? []),
           'totalAllowance': item['totalAllowance'] ?? 0,

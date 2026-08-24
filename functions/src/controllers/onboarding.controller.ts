@@ -4,6 +4,7 @@ import {
   createOnboarding,
   getAllOnboardings,
   getOnboardingById,
+  getOnboardingByEmpId,
   resolveDocumentStoragePath,
   updateOnboardingStatus,
   uploadFileToFirebase,
@@ -197,6 +198,74 @@ export const getEmployeeOnboardingById = async (
 // that already contain a full http(s) URL should never reach this endpoint
 // (the client opens those directly), but if one does, the underlying
 // normalization in the service layer will still handle it safely.
+export const getOnboardingByEmployeeId = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const empid = String(req.params.empid ?? '').trim();
+    if (!empid) {
+      return res.status(400).json({
+        success: false,
+        message: 'Employee ID is required',
+      });
+    }
+
+    const data = await getOnboardingByEmpId(empid);
+
+    if (!data) {
+      return res.status(404).json({
+        success: false,
+        message: 'Onboarding record not found for this employee',
+      });
+    }
+
+    // Return only the fields needed for payslip – exclude documents/signed URLs
+    const personalDetails = data.personalDetails ?? {};
+    const companyDetails = data.companyDetails ?? {};
+    const bankDetails = data.bankDetails ?? {};
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        id: data.id,
+        personalDetails: {
+          fullName: personalDetails.fullName ?? '',
+        },
+        companyDetails: {
+          companyName: companyDetails.companyName ?? '',
+          branchLocation: companyDetails.branchLocation ?? '',
+          dateOfJoining: companyDetails.dateOfJoining ?? '',
+          department: companyDetails.department ?? '',
+          designation: companyDetails.designation ?? '',
+          employeeId: companyDetails.employeeId ?? '',
+        },
+        bankDetails: {
+          bankName: bankDetails.bankName ?? '',
+          accountNumber: bankDetails.accountNumber ?? '',
+          ifscCode: bankDetails.ifscCode ?? '',
+          panNumber: bankDetails.panNumber ?? '',
+          pfNumber: bankDetails.pfNumber ?? '',
+          esiNumber: bankDetails.esiNumber ?? '',
+          basicSalary: bankDetails.basicSalary ?? 0,
+          hra: bankDetails.hra ?? 0,
+          allowances: bankDetails.allowances ?? 0,
+          grossSalary: bankDetails.grossSalary ?? 0,
+          netSalary: bankDetails.netSalary ?? 0,
+        },
+        status: data.status ?? 'pending',
+      },
+    });
+  } catch (error) {
+    console.error("Get onboarding by empid error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
 export const resolveOnboardingDocumentUrl = async (
   req: Request,
   res: Response

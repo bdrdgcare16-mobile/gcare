@@ -37,8 +37,18 @@ class _EmployeePayslipPageState extends State<EmployeePayslipPage> {
 
   // Month names
   final List<String> _monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December'
   ];
 
   @override
@@ -92,7 +102,7 @@ class _EmployeePayslipPageState extends State<EmployeePayslipPage> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isSmallScreen = constraints.maxWidth < 400;
-        
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -113,9 +123,9 @@ class _EmployeePayslipPageState extends State<EmployeePayslipPage> {
               },
             ),
             SizedBox(height: isSmallScreen ? 12 : 0),
-            
+
             if (!isSmallScreen) const SizedBox(width: 16),
-            
+
             // Year dropdown
             _buildDropdown(
               label: 'Select Year',
@@ -318,7 +328,8 @@ class _EmployeePayslipPageState extends State<EmployeePayslipPage> {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: Colors.green.shade100,
                   borderRadius: BorderRadius.circular(20),
@@ -339,18 +350,22 @@ class _EmployeePayslipPageState extends State<EmployeePayslipPage> {
           // Employee details
           _buildDetailRow('Employee Name', _payrollData!['employeeName']),
           if (_payrollData!['employeeId'] != null)
-            _buildDetailRow('Employee ID', _payrollData!['employeeId'].toString()),
+            _buildDetailRow(
+                'Employee ID', _payrollData!['employeeId'].toString()),
           _buildDetailRow('Payment Status', 'Paid'),
           if (_payrollData!['paidAt'] != null)
-            _buildDetailRow('Paid Date', formatPayrollDateFromDynamic(_payrollData!['paidAt'])),
+            _buildDetailRow('Paid Date',
+                formatPayrollDateFromDynamic(_payrollData!['paidAt'])),
           const SizedBox(height: 16),
 
           // Salary summary
           _buildSalaryRow('Basic Salary', _payrollData!['basicSalary']),
-          _buildSalaryRow('Gross Earnings', _payrollData!['grossSalary'] ?? _payrollData!['grossEarnings']),
+          _buildSalaryRow('Gross Earnings',
+              _payrollData!['grossSalary'] ?? _payrollData!['grossEarnings']),
           _buildSalaryRow('Total Deductions', _payrollData!['totalDeductions']),
           const SizedBox(height: 8),
-          _buildSalaryRow('Net Salary', _payrollData!['netSalary'], isBold: true),
+          _buildSalaryRow('Net Salary', _payrollData!['netSalary'],
+              isBold: true),
           const SizedBox(height: 24),
 
           // Action buttons
@@ -379,7 +394,8 @@ class _EmployeePayslipPageState extends State<EmployeePayslipPage> {
               const SizedBox(width: 12),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: _isDownloading ? null : () => _downloadPayslip(period),
+                  onPressed:
+                      _isDownloading ? null : () => _downloadPayslip(period),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: kAppBarColor,
                     padding: const EdgeInsets.symmetric(vertical: 12),
@@ -501,7 +517,8 @@ class _EmployeePayslipPageState extends State<EmployeePayslipPage> {
           });
         } else {
           setState(() {
-            _errorMessage = 'No confirmed payslip is available for the selected period.';
+            _errorMessage =
+                'No confirmed payslip is available for the selected period.';
           });
         }
       } else if (response.statusCode == 401) {
@@ -510,7 +527,8 @@ class _EmployeePayslipPageState extends State<EmployeePayslipPage> {
         });
       } else if (response.statusCode == 404) {
         setState(() {
-          _errorMessage = 'No confirmed payslip is available for the selected period.';
+          _errorMessage =
+              'No confirmed payslip is available for the selected period.';
         });
       } else if (response.statusCode == 400) {
         setState(() {
@@ -558,11 +576,23 @@ class _EmployeePayslipPageState extends State<EmployeePayslipPage> {
       // Load company logo bytes
       Uint8List? logoBytes;
       try {
-        final logoData = await rootBundle.load('assets/images/myth_reality_tech_logo.jpeg');
+        final logoData =
+            await rootBundle.load('assets/images/myth_reality_tech_logo.jpeg');
         logoBytes = logoData.buffer.asUint8List();
       } catch (e) {
         // If logo fails to load, continue without it (PDF will use placeholder)
       }
+
+      // Fetch onboarding data for employee master info
+      Map<String, dynamic>? onboardingData;
+      try {
+        final empid = _payrollData!['employeeId']?.toString() ??
+            _payrollData!['empid']?.toString() ??
+            _payrollData!['employee_id']?.toString();
+        if (empid != null && empid.isNotEmpty && empid != 'N/A') {
+          onboardingData = await ApiService.fetchOnboardingByEmpId(empid);
+        }
+      } catch (_) {}
 
       // Generate PDF using the shared PDF builder
       final pdfBytes = await PayslipPdfBuilder.generatePayslipPdf(
@@ -571,6 +601,7 @@ class _EmployeePayslipPageState extends State<EmployeePayslipPage> {
         companyLogoBytes: logoBytes,
         fallbackMonth: _selectedMonth,
         fallbackYear: _selectedYear,
+        onboardingData: onboardingData,
       );
 
       // Generate filename

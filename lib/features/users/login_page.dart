@@ -156,7 +156,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         'Authorization': 'Bearer $token',
         'Accept': 'application/json'
       }).timeout(const Duration(seconds: 15));
-      debugPrint('[GET] $u1 -> ${r1.statusCode}');
+      debugPrint('[GET] /company/profile/check -> ${r1.statusCode}');
       if (r1.statusCode == 200) return norm(jsonDecode(r1.body));
       if (r1.statusCode == 404) return treat404();
     } catch (e) {
@@ -170,7 +170,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       'Accept': 'application/json'
     }).timeout(const Duration(seconds: 15));
 
-    debugPrint('[GET] $u2 -> ${r2.statusCode}');
+    debugPrint('[GET] /company/profile -> ${r2.statusCode}');
     if (r2.statusCode == 200) return norm(jsonDecode(r2.body));
     if (r2.statusCode == 404) return treat404();
 
@@ -370,8 +370,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             final jwtEmpId =
                 (decoded['empId'] ?? decoded['empid'] ?? '').toString().trim();
 
-            final jwtCompanyId =
-                (decoded['companyId'] ?? '').toString().trim();
+            final jwtCompanyId = (decoded['companyId'] ?? '').toString().trim();
 
             if (CompanyData.empid.isEmpty && jwtEmpId.isNotEmpty) {
               CompanyData.empid = jwtEmpId;
@@ -475,8 +474,8 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                 position: _slideAnim,
                 child: SingleChildScrollView(
                   physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 28, vertical: 16),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
                   child: Form(
                     key: _formKey,
                     child: Column(
@@ -518,134 +517,132 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
                         Column(
                           children: [
-                              // Email field
-                              _StyledField(
-                                controller: idController,
-                                label: 'Email address',
-                                icon: Icons.mail_outline_rounded,
-                                keyboardType: TextInputType.emailAddress,
-                                validator: (val) {
-                                  if (val == null || val.trim().isEmpty) {
-                                    return 'Email required';
-                                  }
-                                  final emailRegex = RegExp(
-                                    r"^[\w._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$",
-                                    caseSensitive: false,
-                                  );
-                                  if (!emailRegex.hasMatch(val.trim())) {
-                                    return 'Enter valid email';
-                                  }
-                                  return null;
-                                },
+                            // Email field
+                            _StyledField(
+                              controller: idController,
+                              label: 'Email address',
+                              icon: Icons.mail_outline_rounded,
+                              keyboardType: TextInputType.emailAddress,
+                              validator: (val) {
+                                if (val == null || val.trim().isEmpty) {
+                                  return 'Email required';
+                                }
+                                final emailRegex = RegExp(
+                                  r"^[\w._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$",
+                                  caseSensitive: false,
+                                );
+                                if (!emailRegex.hasMatch(val.trim())) {
+                                  return 'Enter valid email';
+                                }
+                                return null;
+                              },
+                            ),
+
+                            const SizedBox(height: 16),
+
+                            // Password field
+                            _StyledField(
+                              controller: passwordController,
+                              label: 'Password',
+                              icon: Icons.lock_outline_rounded,
+                              obscureText: !isPasswordVisible,
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  isPasswordVisible
+                                      ? Icons.visibility_rounded
+                                      : Icons.visibility_off_rounded,
+                                  color: kPrimary,
+                                  size: 20,
+                                ),
+                                onPressed: () => setState(
+                                  () => isPasswordVisible = !isPasswordVisible,
+                                ),
                               ),
+                              validator: (val) => (val == null || val.isEmpty)
+                                  ? 'Password required'
+                                  : null,
+                            ),
 
-                              const SizedBox(height: 16),
-
-                              // Password field
-                              _StyledField(
-                                controller: passwordController,
-                                label: 'Password',
-                                icon: Icons.lock_outline_rounded,
-                                obscureText: !isPasswordVisible,
-                                suffixIcon: IconButton(
-                                  icon: Icon(
-                                    isPasswordVisible
-                                        ? Icons.visibility_rounded
-                                        : Icons.visibility_off_rounded,
+                            // Forgot password
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton(
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          const ForgotPasswordPage(),
+                                    ),
+                                  );
+                                },
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 4, horizontal: 0),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                child: const Text(
+                                  'Forgot password?',
+                                  style: TextStyle(
                                     color: kPrimary,
-                                    size: 20,
-                                  ),
-                                  onPressed: () => setState(
-                                    () => isPasswordVisible =
-                                        !isPasswordVisible,
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                                validator: (val) =>
-                                    (val == null || val.isEmpty)
-                                        ? 'Password required'
-                                        : null,
                               ),
+                            ),
 
-                              // Forgot password
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: TextButton(
-                                  onPressed: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) =>
-                                            const ForgotPasswordPage(),
-                                      ),
-                                    );
-                                  },
-                                  style: TextButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 4, horizontal: 0),
-                                    minimumSize: Size.zero,
-                                    tapTargetSize:
-                                        MaterialTapTargetSize.shrinkWrap,
-                                  ),
-                                  child: const Text(
-                                    'Forgot password?',
+                            const SizedBox(height: 20),
+
+                            // Sign in as Employee
+                            _GradientButton(
+                              label: 'Sign in as Employee',
+                              icon: Icons.person_rounded,
+                              isLoading: _isEmpLoading,
+                              disabled: _isAnyLoginLoading,
+                              onTap: () => _login(isAdmin: false),
+                            ),
+
+                            const SizedBox(height: 12),
+
+                            // Divider
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Divider(
+                                      color: kPrimaryLight, thickness: 1),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10),
+                                  child: Text(
+                                    'or',
                                     style: TextStyle(
-                                      color: kPrimary,
-                                      fontSize: 12.5,
+                                      color: kPrimary.withOpacity(0.5),
+                                      fontSize: 12,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                 ),
-                              ),
+                                Expanded(
+                                  child: Divider(
+                                      color: kPrimaryLight, thickness: 1),
+                                ),
+                              ],
+                            ),
 
-                              const SizedBox(height: 20),
+                            const SizedBox(height: 12),
 
-                              // Sign in as Employee
-                              _GradientButton(
-                                label: 'Sign in as Employee',
-                                icon: Icons.person_rounded,
-                                isLoading: _isEmpLoading,
-                                disabled: _isAnyLoginLoading,
-                                onTap: () => _login(isAdmin: false),
-                              ),
-
-                              const SizedBox(height: 12),
-
-                              // Divider
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Divider(
-                                        color: kPrimaryLight, thickness: 1),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 10),
-                                    child: Text(
-                                      'or',
-                                      style: TextStyle(
-                                        color: kPrimary.withOpacity(0.5),
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: Divider(
-                                        color: kPrimaryLight, thickness: 1),
-                                  ),
-                                ],
-                              ),
-
-                              const SizedBox(height: 12),
-
-                              // Sign in as Admin
-                              _OutlineButton(
-                                label: 'Sign in as Admin',
-                                icon: Icons.admin_panel_settings_rounded,
-                                isLoading: _isAdminLoading,
-                                disabled: _isAnyLoginLoading,
-                                onTap: () => _login(isAdmin: true),
-                              ),
+                            // Sign in as Admin
+                            _OutlineButton(
+                              label: 'Sign in as Admin',
+                              icon: Icons.admin_panel_settings_rounded,
+                              isLoading: _isAdminLoading,
+                              disabled: _isAnyLoginLoading,
+                              onTap: () => _login(isAdmin: true),
+                            ),
                           ],
                         ),
 
@@ -670,8 +667,7 @@ class _Blob extends StatelessWidget {
   final double width;
   final double height;
   final Color color;
-  const _Blob(
-      {required this.width, required this.height, required this.color});
+  const _Blob({required this.width, required this.height, required this.color});
 
   @override
   Widget build(BuildContext context) {

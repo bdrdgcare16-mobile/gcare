@@ -1,0 +1,1303 @@
+import { Request, Response } from 'express';
+
+import { db } from '../config/firebase';
+
+import { trackUsage } from '../services/usageService';
+
+import { createAndSend, resolveUserIdByEmpid } from '../services/notification.service';
+
+import { COLLECTIONS } from '../constants/collections';
+
+import { uploadTaskProofToFirebase, getTaskProofSignedUrl } from '../services/taskProofUpload.service';
+
+
+
+// Re-export the user type for consistency with auth middleware
+
+export type AuthUser = {
+
+  userId: string;
+
+  email: string;
+
+  role: string;
+
+  empid?: string | null;
+
+  uid?: string; // backward compatibility
+
+  companyId?: string | null; // ✅ added for multi-company isolation
+
+};
+
+
+
+type Audience = 'all' | 'employee';
+
+
+
+interface TaskDoc {
+
+  id: string;
+
+  companyId: string;
+
+  title: string;
+
+  description: string;
+
+  audience: Audience;
+
+  assignedTo: string | null; // empid when audience='employee'
+
+  dueDate: string | null;    // yyyy-MM-dd or ISO string
+
+  kind: string;              // "Task" | "DailyUpdate" | etc.
+
+  file: null;                // always null now
+
+  status: 'assigned' | 'completed';
+
+  createdBy: string;
+
+  createdAt: string; // ISO
+
+  updatedAt: string; // ISO
+
+  // Completion fields (only present once status === 'completed')
+
+  completedAt?: string | null;
+
+  completedBy?: string | null; // userId of the employee who completed it
+
+  completionNote?: string | null;
+
+  proofFileUrl?: string | null;
+
+}
+
+
+
+function toIsoOrNull(v?: string | null): string | null {
+
+  if (!v) return null;
+
+  const s = String(v).trim();
+
+  if (!s) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  const d = new Date(s);
+
+  return isNaN(d.getTime()) ? null : d.toISOString();
+
+}
+
+
+
+function makeTaskDoc({
+
+  id,
+
+  title,
+
+  description,
+
+  dueDate,
+
+  kind,
+
+  user,
+
+  audience,
+
+  assignedTo,
+
+  companyId,
+
+}: {
+
+  id: string;
+
+  title?: string;
+
+  description?: string;
+
+  dueDate?: string | null;
+
+  kind?: string;
+
+  user?: AuthUser;
+
+  audience: Audience;
+
+  assignedTo?: string | null;
+
+  companyId: string;
+
+}): TaskDoc {
+
+  const nowIso = new Date().toISOString();
+
+  return {
+
+    id,
+
+    companyId,
+
+    title: (title ?? 'Task').trim() || 'Task',
+
+    description: (description ?? '').trim(),
+
+    audience,
+
+    assignedTo: audience === 'employee' ? (assignedTo || '').trim() : null,
+
+    dueDate: toIsoOrNull(dueDate),
+
+    kind: (kind ?? 'Task').trim() || 'Task',
+
+    file: null,
+
+    status: 'assigned',
+
+    createdBy: user?.userId || user?.uid || 'admin',
+
+    createdAt: nowIso,
+
+    updatedAt: nowIso,
+
+  };
+
+}
+
+
+
+function getReqCompanyId(req: Request): string | null {
+
+  const companyId = ((req.user as AuthUser | undefined)?.companyId || '').trim();
+
+  return companyId || null;
+
+}
+
+
+
+/* ============================== Usage Tracking Helper ============================== */
+
+
+
+/**
+ * Sends a TASK_ASSIGNED push notification to the employee(s) a task was just
+ * assigned to. Never throws — a failure here must not fail task creation.
+ *
+ * Case 1: audience='employee' -> notify only the assigned employee
+ * Case 2: audience='all' -> notify all employees in the same company
+ */
+async function notifyTaskAssigned(req: Request, task: TaskDoc) {
+  try {
+    console.log("========== TASK NOTIFICATION START ==========");
+    console.log("TASK ID:", task.id);
+    console.log("TASK TITLE:", task.title);
+    console.log("AUDIENCE:", task.audience);
+    console.log("COMPANY ID:", task.companyId);
+
+    const actorUserId = (req.user as AuthUser | undefined)?.userId || null;
+
+    // Case 1: audience='employee' -> notify only the assigned employee
+    if (task.audience === 'employee' && task.assignedTo) {
+      const recipientUserId = await resolveUserIdByEmpid(
+        task.companyId,
+        task.assignedTo
+      );
+
+      if (!recipientUserId) {
+        console.log(
+          'TASK NOTIFICATION: no user found for empid',
+          task.assignedTo,
+          'in company',
+          task.companyId
+        );
+        return;
+      }
+
+      await createAndSend({
+        companyId: task.companyId,
+        recipientUserId,
+        actorUserId,
+        type: 'TASK_ASSIGNED',
+        title: 'New Task Assigned',
+        body: `A new task "${task.title}" has been assigned to you.`,
+        entityType: 'task',
+        entityId: task.id,
+      });
+      return;
+    }
+
+    // Case 2: audience='all' -> notify all employees in the same company
+    if (task.audience === 'all') {
+      console.log('[ALL EMPLOYEE NOTIFY] Started');
+
+      const employeesSnapshot = await db
+        .collection('users')
+        .where('companyId', '==', task.companyId)
+        .get();
+
+      console.log('[ALL EMPLOYEE NOTIFY] Users found:', employeesSnapshot.size);
+
+      employeesSnapshot.forEach(doc => {
+        console.log('USER:', doc.id, doc.data());
+      });
+
+      // Fetch all active employees/users in the same company with role='employee'
+      const employeeSnap = await db
+        .collection(COLLECTIONS.USERS)
+        .where('companyId', '==', task.companyId)
+        .where('role', '==', 'employee')
+        .get();
+
+      console.log('[TASK ASSIGNED ALL DEBUG] employees fetched count:', employeeSnap.size);
+
+      if (employeeSnap.empty) {
+        console.log('[TASK ASSIGNED ALL DEBUG] no employees found in company');
+        console.log('[TASK ASSIGNED ALL DEBUG] ========== END ==========');
+        return;
+      }
+
+      // Log employee document details
+      console.log('[TASK ASSIGNED ALL DEBUG] employee documents:');
+      employeeSnap.docs.forEach((doc, index) => {
+        const data = doc.data();
+        console.log(`[TASK ASSIGNED ALL DEBUG]   ${index + 1}. id: ${doc.id}, companyId: ${data.companyId}, role: ${data.role}, empid: ${data.empid || 'N/A'}`);
+      });
+
+      const userIds = employeeSnap.docs.map(doc => doc.id);
+      console.log('[TASK ASSIGNED ALL DEBUG] user IDs:', userIds);
+
+      let totalSent = 0;
+      let totalFailed = 0;
+      let totalDevices = 0;
+
+      // Send notification to each employee
+      await Promise.all(
+        userIds.map(async (userId) => {
+          try {
+            // Check device registrations for this user
+            const deviceSnap = await db
+              .collection(COLLECTIONS.DEVICE_REGISTRATIONS)
+              .where('companyId', '==', task.companyId)
+              .where('userId', '==', userId)
+              .where('isActive', '==', true)
+              .get();
+
+            console.log(`[TASK ASSIGNED ALL DEBUG] user ${userId} device count: ${deviceSnap.size}`);
+            totalDevices += deviceSnap.size;
+
+            const deviceTokens = deviceSnap.docs.map(doc => doc.data().fcmToken);
+            console.log('[FCM TOKEN]', userId, deviceTokens);
+
+            const result = await createAndSend({
+              companyId: task.companyId,
+              recipientUserId: userId,
+              actorUserId,
+              type: 'TASK_ASSIGNED',
+              title: 'New Task Assigned',
+              body: `"${task.title}" has been assigned to you`,
+              entityType: 'task',
+              entityId: task.id,
+            });
+            totalSent += result.sent;
+            totalFailed += result.failed;
+            console.log(`[TASK ASSIGNED ALL DEBUG] user ${userId} FCM result - sent: ${result.sent}, failed: ${result.failed}`);
+          } catch (e: any) {
+            totalFailed += 1;
+            console.error(
+              '[TASK ASSIGNED ALL DEBUG] failed to notify user:',
+              userId,
+              e?.message || String(e)
+            );
+          }
+        })
+      );
+
+      console.log('[TASK ASSIGNED ALL DEBUG] total devices found:', totalDevices);
+      console.log('[TASK ASSIGNED ALL DEBUG] FCM send result - sent:', totalSent, 'failed:', totalFailed);
+      console.log('[TASK ASSIGNED ALL DEBUG] ========== END ==========');
+    }
+  } catch (e: any) {
+    console.error('[notifyTaskAssigned] failed:', e?.message || String(e));
+  }
+}
+
+/**
+ * Notifies every admin in the same company that an employee completed an
+ * assigned task and uploaded proof. Never throws — a failure here must not
+ * fail the task completion response.
+ */
+async function notifyTaskCompleted(
+  req: Request,
+  task: TaskDoc,
+  empid: string
+) {
+  try {
+    const companyId = task.companyId;
+    const actorUserId = (req.user as AuthUser | undefined)?.userId || null;
+
+    // Query for both admin and super_admin roles in the same company
+    const adminSnap = await db
+      .collection(COLLECTIONS.USERS)
+      .where('companyId', '==', companyId)
+      .where('role', 'in', ['admin', 'super_admin'])
+      .get();
+
+    console.log('[TASK-NOTIFY] companyId:', companyId);
+    console.log('[TASK-NOTIFY] empid:', empid);
+    console.log('[TASK-NOTIFY] admins found:', adminSnap.size);
+
+    if (adminSnap.empty) {
+      return;
+    }
+
+    console.log('[TASK-NOTIFY] sending task completion notification');
+
+    const title = 'Task Completed';
+    // Conditionally include "and uploaded proof" only when proof was actually attached
+    const body = task.title
+      ? `${empid} completed "${task.title}"${task.proofFileUrl ? ' and uploaded proof.' : '.'}`
+      : `${empid} completed the assigned task${task.proofFileUrl ? ' and uploaded proof.' : '.'}`;
+
+    let sent = 0;
+    let failed = 0;
+
+    await Promise.all(
+      adminSnap.docs.map(async (adminDoc) => {
+        try {
+          const result = await createAndSend({
+            companyId,
+            recipientUserId: adminDoc.id,
+            actorUserId,
+            type: 'TASK_COMPLETED',
+            title,
+            body,
+            entityType: 'task',
+            entityId: task.id,
+            data: {
+              taskId: task.id,
+              employeeId: actorUserId || '',
+              empid,
+            },
+          });
+          sent += result.sent;
+          failed += result.failed;
+        } catch (e: any) {
+          failed += 1;
+          console.error(
+            '[TASK-NOTIFY] failed to notify admin:',
+            e?.message || String(e)
+          );
+        }
+      })
+    );
+
+    console.log('[TASK-NOTIFY] sent:', sent);
+    console.log('[TASK-NOTIFY] failed:', failed);
+  } catch (e: any) {
+    console.error('[TASK-NOTIFY] notifyTaskCompleted error:', e?.message || String(e));
+  }
+}
+
+async function trackTaskUsage(
+
+  req: Request,
+
+  updates: Record<string, number>
+
+) {
+
+  try {
+
+    const user = (req as any).user;
+
+    await trackUsage({
+
+      companyId: user?.companyId || '',
+
+      companyName: user?.companyName || '',
+
+      plan: user?.plan || '',
+
+      updates,
+
+    });
+
+  } catch (trackingError) {
+
+    console.error('Usage tracking failed in task:', trackingError);
+
+  }
+
+}
+
+
+
+/** Admin: create a broadcast task (no file)
+
+ *  BACKWARD-COMPAT: also supports audience='employee' + assignedTo for single-employee create
+
+ */
+
+export async function createBroadcastTask(req: Request, res: Response) {
+
+  try {
+
+    const companyId = getReqCompanyId(req);
+
+    if (!companyId) {
+
+      return res.status(401).json({ error: 'Unauthorized: companyId missing in token' });
+
+    }
+
+
+
+    const {
+
+      title = '',
+
+      description = '',
+
+      dueDate = null,
+
+      kind = 'Task',
+
+      audience: rawAudience,
+
+      assignedTo: rawAssignedTo,
+
+    } = (req.body ?? {}) as {
+
+      title?: string;
+
+      description?: string;
+
+      dueDate?: string | null;
+
+      kind?: string;
+
+      audience?: string;
+
+      assignedTo?: string;
+
+    };
+
+
+
+    if (!description || !String(description).trim()) {
+
+      return res.status(400).json({ error: 'description is required' });
+
+    }
+
+
+
+    const audience = (rawAudience || 'all').toString().toLowerCase().trim() as Audience;
+
+    const assignedTo = (rawAssignedTo || '').toString().trim();
+
+
+
+    if (audience === 'employee') {
+
+      if (!assignedTo) {
+
+        return res.status(400).json({ error: 'assignedTo (empid) is required when audience="employee"' });
+
+      }
+
+
+
+      const docRef = db.collection('tasks').doc();
+
+      const data = makeTaskDoc({
+
+        id: docRef.id,
+
+        title,
+
+        description,
+
+        dueDate,
+
+        kind,
+
+        user: req.user as AuthUser | undefined,
+
+        audience: 'employee',
+
+        assignedTo,
+
+        companyId,
+
+      });
+
+
+
+      await docRef.set(data);
+
+await trackTaskUsage(req, {
+  writeCount: 1,
+  apiCalls: 1,
+  taskUploadCount: 1,
+});
+
+await notifyTaskAssigned(req, data);
+
+return res.status(201).json(data);
+
+    }
+
+
+
+    const docRef = db.collection('tasks').doc();
+
+    const data = makeTaskDoc({
+
+      id: docRef.id,
+
+      title,
+
+      description,
+
+      dueDate,
+
+      kind,
+
+      user: req.user as AuthUser | undefined,
+
+      audience: 'all',
+
+      companyId,
+
+    });
+
+
+
+    await docRef.set(data);
+
+    await trackTaskUsage(req, {
+
+      writeCount: 1,
+
+      apiCalls: 1,
+
+      taskUploadCount: 1,
+
+    });
+
+    await notifyTaskAssigned(req, data);
+
+    return res.status(201).json(data);
+
+  } catch (e: any) {
+
+    return res
+
+      .status(500)
+
+      .json({ error: 'Failed to create broadcast task', details: e?.message || String(e) });
+
+  }
+
+}
+
+
+
+/** 🎯 Admin: create a task for ONE employee (no file) */
+
+export async function createSingleTask(req: Request, res: Response) {
+
+  try {
+
+    const companyId = getReqCompanyId(req);
+
+    if (!companyId) {
+
+      return res.status(401).json({ error: 'Unauthorized: companyId missing in token' });
+
+    }
+
+
+
+    const {
+
+      assignedTo = '',
+
+      title = '',
+
+      description = '',
+
+      dueDate = null,
+
+      kind = 'Task',
+
+    } = (req.body ?? {}) as {
+
+      assignedTo?: string;
+
+      title?: string;
+
+      description?: string;
+
+      dueDate?: string | null;
+
+      kind?: string;
+
+    };
+
+
+
+    if (!assignedTo || !assignedTo.trim()) {
+
+      return res.status(400).json({ error: 'assignedTo (empid) is required' });
+
+    }
+
+
+
+    if (!description || !String(description).trim()) {
+
+      return res.status(400).json({ error: 'description is required' });
+
+    }
+
+
+
+    const docRef = db.collection('tasks').doc();
+
+
+
+    const data = makeTaskDoc({
+
+      id: docRef.id,
+
+      title,
+
+      description,
+
+      dueDate,
+
+      kind,
+
+      user: req.user as AuthUser | undefined,
+
+      audience: 'employee',
+
+      assignedTo,
+
+      companyId,
+
+    });
+
+
+
+    await docRef.set(data);
+
+    
+
+    // Track usage after successful task creation
+
+    await trackTaskUsage(req, {
+
+      writeCount: 1,
+
+      apiCalls: 1,
+
+      taskUploadCount: 1,
+
+    });
+
+    await notifyTaskAssigned(req, data);
+
+    
+
+    return res.status(201).json(data);
+
+  } catch (e: any) {
+
+    return res
+
+      .status(500)
+
+      .json({ error: 'Failed to create task', details: e?.message || String(e) });
+
+  }
+
+}
+
+
+
+/** Employee self-post: create Daily Update for the logged-in user */
+
+export async function createDailyUpdateForSelf(req: Request, res: Response) {
+
+  try {
+
+    const user = req.user as AuthUser | undefined;
+
+    const companyId = getReqCompanyId(req);
+
+
+
+    if (!companyId) {
+
+      return res.status(401).json({ error: 'Unauthorized: companyId missing in token' });
+
+    }
+
+
+
+    const empid = (user?.empid || '').trim();
+
+    if (!empid) {
+
+      return res.status(400).json({ error: 'empid missing on user token' });
+
+    }
+
+
+
+    const {
+
+      description = '',
+
+      title = 'Daily Update',
+
+      dueDate = null,
+
+    } = (req.body ?? {}) as {
+
+      description?: string;
+
+      title?: string;
+
+      dueDate?: string | null;
+
+    };
+
+
+
+    if (!description || !String(description).trim()) {
+
+      return res.status(400).json({ error: 'description is required' });
+
+    }
+
+
+
+    const docRef = db.collection('tasks').doc();
+
+
+
+    const data = makeTaskDoc({
+
+      id: docRef.id,
+
+      title,
+
+      description,
+
+      dueDate,
+
+      kind: 'DailyUpdate',
+
+      user,
+
+      audience: 'employee',
+
+      assignedTo: empid,
+
+      companyId,
+
+    });
+
+
+
+    await docRef.set(data);
+
+    
+
+    // Track usage after successful daily update creation
+
+    await trackTaskUsage(req, {
+
+      writeCount: 1,
+
+      apiCalls: 1,
+
+      taskUploadCount: 1,
+
+    });
+
+    
+
+    return res.status(201).json(data);
+
+  } catch (e: any) {
+
+    return res
+
+      .status(500)
+
+      .json({ error: 'Failed to create daily update', details: e?.message || String(e) });
+
+  }
+
+}
+
+
+
+/**
+
+ * 👤 User-merged list: broadcast + personal
+ * - If empid is provided (query or token), return only tasks assigned to that empid.
+ * - If empid is missing, still return ALL personal tasks for the same company.
+ */
+
+export async function listTasksForUser(req: Request, res: Response) {
+  try {
+    console.log('[TASKS USER] Request started');
+    console.log('[TASKS USER] req.user =', JSON.stringify(req.user, null, 2));
+    
+    // Get user info from auth middleware
+    const user = req.user as any;
+    const companyId = user?.companyId;
+    const empid = user?.empid;
+    const role = user?.role;
+    
+    // Get status filter from query parameter (default: 'assigned')
+    const statusFilter = (req.query.status as string) || 'assigned';
+
+    console.log('[TASKS USER] role =', role);
+    console.log('[TASKS USER] empid =', empid);
+    console.log('[TASKS USER] companyId =', companyId);
+    console.log('[TASKS USER] statusFilter =', statusFilter);
+
+    if (!companyId) {
+      console.log('[TASKS USER] Missing companyId, returning 401');
+      return res.status(401).json({ error: 'Unauthorized: companyId missing in token' });
+    }
+
+    console.log('[TASKS USER] Fetching all tasks for companyId:', companyId);
+    
+    // Fetch all tasks for the company first
+    const companyTasksSnapshot = await db
+      .collection('tasks')
+      .where('companyId', '==', companyId)
+      .get();
+
+    console.log('[TASKS USER] Found', companyTasksSnapshot.docs.length, 'total tasks for company');
+
+    // Filter tasks in JavaScript (safer than complex Firestore queries)
+    const filteredTasks = companyTasksSnapshot.docs
+      .map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          companyId: data?.companyId || '',
+          title: data?.title || '',
+          description: data?.description || '',
+          audience: data?.audience || 'all',
+          assignedTo: data?.assignedTo || null,
+          dueDate: data?.dueDate || null,
+          kind: data?.kind || 'Task',
+          status: data?.status || 'assigned',
+          createdBy: data?.createdBy || '',
+          createdAt: data?.createdAt || '',
+          updatedAt: data?.updatedAt || '',
+          file: data?.file || null, // Handle null file safely
+        };
+      })
+      .filter(task => {
+        // Filter by status if specified
+        if (statusFilter !== 'all') {
+          if (task.status !== statusFilter) {
+            return false;
+          }
+        }
+
+        // Employee can see tasks if:
+        // 1. audience is "all" (broadcast to all employees)
+        // 2. audience is "employee" and assignedTo matches their empid
+        // 3. audience is missing (treat as "all")
+        const audience = (task.audience || 'all').toLowerCase();
+        
+        if (audience === 'all') {
+          return true; // Anyone in company can see
+        }
+        
+        if (audience === 'employee' && empid && task.assignedTo === empid) {
+          return true; // Assigned specifically to this employee
+        }
+        
+        return false; // Not visible to this employee
+      });
+
+    // Sort by createdAt (newest first)
+    filteredTasks.sort((a, b) => {
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bTime - aTime;
+    });
+
+    console.log('[TASKS USER] Filtered to', filteredTasks.length, 'tasks for employee');
+    console.log('[TASKS USER] Task statuses:', filteredTasks.map(t => ({ id: t.id, status: t.status })));
+    console.log('[TASKS USER] Returning tasks:', JSON.stringify(filteredTasks, null, 2));
+
+    // Return 200 with filtered tasks (empty array if none)
+    return res.status(200).json(filteredTasks);
+
+  } catch (error: any) {
+    console.error('[TASKS USER ERROR]', error);
+    console.error('[TASKS USER ERROR MESSAGE:', error.message);
+    console.error('[TASKS USER ERROR STACK:', error.stack);
+    return res.status(500).json({
+      error: 'Failed to fetch tasks for user',
+      details: error?.message || String(error),
+    });
+  }
+}
+
+/**
+ * Admin-only list: Returns ALL tasks for the admin's company.
+ * - No status filtering (admin needs to see complete task history)
+ * - No empid filtering (admin sees all company tasks)
+ * - Company isolation enforced via companyId from JWT
+ */
+export async function listEmployeeTasks(req: Request, res: Response) {
+  try {
+    const companyId = getReqCompanyId(req);
+    const user = req.user as any;
+    
+    console.log('[ADMIN TASKS] Admin user ID:', user?.userId);
+    console.log('[ADMIN TASKS] Admin role:', user?.role);
+    console.log('[ADMIN TASKS] Admin companyId:', companyId);
+
+    if (!companyId) {
+      return res.status(401).json({
+        error: 'Unauthorized: companyId missing in token',
+      });
+    }
+
+    const snap = await db
+      .collection('tasks')
+      .where('companyId', '==', companyId)
+      .get();
+
+    console.log('[ADMIN TASKS] Total tasks fetched for company:', snap.docs.length);
+
+    let items = snap.docs.map((d) => {
+      const data = d.data();
+
+      return {
+        id: d.id,
+        companyId: data.companyId || '',
+        title: data.title || '',
+        description: data.description || '',
+        audience: data.audience || 'all',
+        assignedTo: data.assignedTo || null,
+        dueDate: data.dueDate || null,
+        kind: data.kind || 'Task',
+        status: data.status || 'assigned',
+        createdBy: data.createdBy || '',
+        createdAt: data.createdAt || '',
+        updatedAt: data.updatedAt || '',
+        completedAt: data.completedAt || null,
+        completionNote: data.completionNote || null,
+        proofFileUrl: data.proofFileUrl || null,
+        file: data.file || null,
+      };
+    });
+
+    // NO status filtering - admin sees all tasks (assigned + completed)
+    // Return all matching records including Task and DailyUpdate
+    
+    items.sort((a: any, b: any) => {
+      const ad = Date.parse(a?.createdAt || '') || 0;
+      const bd = Date.parse(b?.createdAt || '') || 0;
+      return bd - ad;
+    });
+
+    console.log('[ADMIN TASKS] Returning tasks:', items.length);
+    console.log('[ADMIN TASKS] Task statuses:', items.map(t => ({ id: t.id, status: t.status })));
+
+    return res.status(200).json(items);
+  } catch (e: any) {
+    console.error('[ADMIN TASKS ERROR]', e);
+    return res.status(500).json({
+      error: 'Failed to fetch employee tasks',
+      details: e?.message || String(e),
+    });
+  }
+}
+
+
+/** 🔎 Get a single task by id */
+
+export async function getTask(req: Request, res: Response): Promise<Response> {
+
+  try {
+
+    const companyId = getReqCompanyId(req);
+
+    if (!companyId) {
+
+      return res.status(401).json({ error: 'Unauthorized: companyId missing in token' });
+
+    }
+
+
+
+    const id = (req.params.id || '').trim();
+
+    if (!id) {
+
+      return res.status(400).json({ error: 'id is required' });
+
+    }
+
+
+
+    const snap = await db.collection('tasks').doc(id).get();
+
+    if (!snap.exists) {
+
+      return res.status(404).json({ error: 'Not found' });
+
+    }
+
+
+
+    const data = snap.data();
+
+    if (!data || data.companyId !== companyId) {
+
+      return res.status(403).json({ error: 'Access denied' });
+
+    }
+
+    // Entity-based authorization: the notification payload/entityId is NEVER
+    // treated as authorization on its own — re-verify here that the caller
+    // is allowed to see this specific task.
+    const currentUser = req.user as AuthUser | undefined;
+    const isAuthorizedAdmin =
+      currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
+    const audience = (data.audience || 'all').toString().toLowerCase();
+    const isAssignedEmployee =
+      audience === 'employee' &&
+      !!currentUser?.empid &&
+      data.assignedTo === currentUser.empid;
+    const isBroadcastToCompany = audience !== 'employee';
+
+    if (!isAuthorizedAdmin && !isAssignedEmployee && !isBroadcastToCompany) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    return res.json(data);
+
+  } catch (e: any) {
+
+    return res.status(500).json({
+
+      error: 'Failed to fetch task',
+
+      details: e?.message ?? String(e),
+
+    });
+
+  }
+}
+
+/**
+ * 🔗 Admin: Get signed URL for task proof file
+ * Generates a short-lived signed URL for viewing uploaded proof files
+ */
+export async function getTaskProofUrl(req: Request, res: Response): Promise<Response> {
+  try {
+    const companyId = getReqCompanyId(req);
+
+    if (!companyId) {
+      return res.status(401).json({ error: 'Unauthorized: companyId missing in token' });
+    }
+
+    const taskId = (req.params.id || '').trim();
+    if (!taskId) {
+      return res.status(400).json({ error: 'Task ID is required' });
+    }
+
+    console.log('[TASK PROOF URL] Request for task:', taskId);
+    console.log('[TASK PROOF URL] Admin companyId:', companyId);
+
+    // Fetch task to verify access
+    const snap = await db.collection('tasks').doc(taskId).get();
+    if (!snap.exists) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const data = snap.data();
+    if (!data || data.companyId !== companyId) {
+      console.log('[TASK PROOF URL] Access denied: company mismatch');
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const proofFileUrl = data.proofFileUrl;
+    if (!proofFileUrl) {
+      return res.status(404).json({ error: 'No proof file attached' });
+    }
+
+    console.log('[TASK PROOF URL] Generating signed URL for:', proofFileUrl);
+
+    // Generate signed URL using existing service
+    const signedUrl = await getTaskProofSignedUrl(proofFileUrl);
+
+    console.log('[TASK PROOF URL] Signed URL generated successfully');
+
+    return res.status(200).json({
+      success: true,
+      url: signedUrl,
+    });
+  } catch (e: any) {
+    console.error('[TASK PROOF URL ERROR]', e);
+    return res.status(500).json({
+      error: 'Failed to generate proof URL',
+      details: e?.message ?? String(e),
+    });
+  }
+}
+
+/**
+ * ✅ Employee: mark an assigned task as completed, optionally attaching a
+ * proof file. On success (and only on the actual not-completed -> completed
+ * transition), notifies same-company admins. Notification failures never
+ * fail this endpoint's response.
+ */
+export async function completeTask(req: Request, res: Response): Promise<Response> {
+  try {
+    console.log('[COMPLETE-TASK] Content-Type:', req.headers['content-type']);
+    console.log('[COMPLETE-TASK] Request body:', JSON.stringify(req.body));
+    console.log('[COMPLETE-TASK] Request file:', req.file ? 'File present' : 'No file');
+    if (req.file) {
+      console.log('[COMPLETE-TASK] File details:', {
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size,
+      });
+    }
+
+    const user = req.user as AuthUser | undefined;
+    const companyId = getReqCompanyId(req);
+
+    if (!companyId) {
+      return res.status(401).json({ error: 'Unauthorized: companyId missing in token' });
+    }
+
+    const empid = (user?.empid || '').trim();
+    if (!empid) {
+      return res.status(400).json({ error: 'empid missing on user token' });
+    }
+
+    const id = (req.params.id || '').trim();
+    if (!id) {
+      return res.status(400).json({ error: 'id is required' });
+    }
+
+    const docRef = db.collection('tasks').doc(id);
+    const snap = await docRef.get();
+
+    if (!snap.exists) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    const task = { id, ...(snap.data() as Omit<TaskDoc, 'id'>) };
+
+    if (task.companyId !== companyId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Authorization: employee can complete task if:
+    // 1. audience='employee' and assignedTo matches their empid (individual task)
+    // 2. audience='all' and companyId matches their company (broadcast task)
+    // never trust a companyId/employeeId sent from the client; both the
+    // task's assignedTo and the requester's empid come from server-side
+    // data (the stored task doc and the verified JWT respectively).
+    const isIndividualTask =
+      task.audience === 'employee' &&
+      task.assignedTo === empid;
+
+    const isBroadcastTask =
+      task.audience === 'all' &&
+      task.companyId === companyId;
+
+    if (!isIndividualTask && !isBroadcastTask) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Idempotent: if already completed, don't re-save or re-notify.
+    if (task.status === 'completed') {
+      return res.status(200).json(task);
+    }
+
+    // Handle both JSON and multipart requests
+    const { description = '' } = (req.body ?? {}) as { description?: string };
+
+    let proofFileUrl: string | null = null;
+    if (req.file) {
+      console.log('[COMPLETE-TASK] Starting task proof upload');
+      console.log('[COMPLETE-TASK] File details:', {
+        fieldname: req.file.fieldname,
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size,
+      });
+      try {
+        proofFileUrl = await uploadTaskProofToFirebase(req.file, id);
+        console.log('[COMPLETE-TASK] Task proof upload successful:', proofFileUrl);
+      } catch (uploadError: any) {
+        console.error('[COMPLETE-TASK] Task proof upload error:', uploadError?.message || String(uploadError));
+        throw uploadError;
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    const updates: Partial<TaskDoc> = {
+      status: 'completed',
+      completedAt: nowIso,
+      completedBy: user?.userId || null,
+      completionNote: (description || '').toString().trim(),
+      proofFileUrl,
+      updatedAt: nowIso,
+    };
+
+    // 1) Save completion (+ proof metadata) — this must succeed first.
+    await docRef.update(updates);
+
+    const updatedTask: TaskDoc = { ...task, ...updates } as TaskDoc;
+
+    console.log('[TASK-NOTIFY] completion save success');
+
+    // 2) Only after the save succeeds, notify admins. This never fails the
+    // employee's completion response.
+    try {
+      await notifyTaskCompleted(req, updatedTask, empid);
+    } catch (e: any) {
+      console.error('[TASK-NOTIFY] unexpected error:', e?.message || String(e));
+    }
+
+    return res.status(200).json(updatedTask);
+  } catch (e: any) {
+    return res.status(500).json({
+      error: 'Failed to complete task',
+      details: e?.message || String(e),
+    });
+  }
+}

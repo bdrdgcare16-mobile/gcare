@@ -448,6 +448,7 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
     final fallback = _fallbackData;
 
     if (_empid == null || _empid!.isEmpty) {
+      if (!mounted) return;
       setState(() {
         _present = fallback.presentCount;
         _absent = fallback.absentCount;
@@ -483,7 +484,7 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
       final endTime = DateTime.now();
       PerformanceLogger.logApiCall(
         screen: 'MyAttendancePage',
-        endpoint: '/attendance/monthly/$_empid/$y/$m',
+        endpoint: '/attendance/monthly',
         startTime: startTime,
         endTime: endTime,
         statusCode: resp.statusCode,
@@ -650,6 +651,7 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
 
         debugPrint('[MyAttendance] Monthly counts loaded');
 
+        if (!mounted) return;
         setState(() {
           _dayStatusByDate = ds;
 
@@ -664,6 +666,7 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
           _permission = permission;
         });
       } else {
+        if (!mounted) return;
         setState(() {
           _present = fallback.presentCount;
           _absent = fallback.absentCount;
@@ -677,7 +680,7 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
       final endTime = DateTime.now();
       PerformanceLogger.logApiCall(
         screen: 'MyAttendancePage',
-        endpoint: '/attendance/monthly/$_empid/$y/$m',
+        endpoint: '/attendance/monthly',
         startTime: startTime,
         endTime: endTime,
         statusCode: 0,
@@ -685,6 +688,7 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
       );
       debugPrint('[MyAttendance] Load month error occurred');
 
+      if (!mounted) return;
       setState(() {
         _present = fallback.presentCount;
         _absent = fallback.absentCount;
@@ -767,6 +771,7 @@ class _MyAttendancePageState extends State<MyAttendancePage> {
       ),
     );
 
+    if (!mounted) return;
     _loadMonth(_focusedDay);
   }
 

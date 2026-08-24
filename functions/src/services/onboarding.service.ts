@@ -191,6 +191,32 @@ export const resolveDocumentStoragePath = async (
   return getSignedUrl(normalizedPath);
 };
 
+export const getOnboardingByEmpId = async (empid: string) => {
+  const normalizedEmpId = String(empid ?? '').trim().toLowerCase();
+  if (!normalizedEmpId) return null;
+
+  // Query by top-level empid, top-level employeeId, and nested companyDetails.employeeId
+  const [empidSnap, employeeIdSnap, nestedSnap] = await Promise.all([
+    collection.where('empid', '==', empid).limit(1).get(),
+    collection.where('employeeId', '==', empid).limit(1).get(),
+    collection.where('companyDetails.employeeId', '==', empid).limit(1).get(),
+  ]);
+
+  const doc =
+    empidSnap.docs[0] ??
+    employeeIdSnap.docs[0] ??
+    nestedSnap.docs[0];
+
+  if (!doc) return null;
+
+  const data = {
+    id: doc.id,
+    ...doc.data(),
+  } as any;
+
+  return data;
+};
+
 export const getOnboardingById = async (id: string) => {
   const doc = await collection.doc(id).get();
 

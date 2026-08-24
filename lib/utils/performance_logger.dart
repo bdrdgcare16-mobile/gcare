@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 /// Performance logging helper for API calls and screen performance
 class PerformanceLogger {
   static const bool _enabled = kDebugMode;
-  
+
   static void logApiCall({
     required String screen,
     required String endpoint,
@@ -16,13 +16,15 @@ class PerformanceLogger {
     String? error,
   }) {
     if (!_enabled) return;
-    
+
     final duration = endTime.difference(startTime).inMilliseconds;
     final hasToken = error == null; // Assume token exists if no error
-    
+
+    final sanitizedEndpoint = _sanitizeEndpoint(endpoint);
+
     final logEntry = {
       'screen': screen,
-      'endpoint': endpoint,
+      'endpoint': sanitizedEndpoint,
       'startTime': startTime.toIso8601String(),
       'endTime': endTime.toIso8601String(),
       'durationMs': duration,
@@ -31,7 +33,7 @@ class PerformanceLogger {
       'hasToken': hasToken,
       if (error != null) 'error': error,
     };
-    
+
     developer.log(
       'PERF: API Call',
       name: 'Performance',
@@ -40,18 +42,18 @@ class PerformanceLogger {
       zone: Zone.current,
       error: logEntry,
     );
-    
+
     // Also print for immediate visibility in debug console
     print('=== API PERFORMANCE ===');
     print('Screen: $screen');
-    print('Endpoint: $endpoint');
+    print('Endpoint: $sanitizedEndpoint');
     print('Duration: ${duration}ms');
     print('Status: $statusCode');
     print('Items: ${itemCount ?? 0}');
     if (error != null) print('Error: $error');
     print('========================');
   }
-  
+
   static void logScreenLoad({
     required String screen,
     required DateTime startTime,
@@ -59,9 +61,9 @@ class PerformanceLogger {
     Map<String, dynamic>? metadata,
   }) {
     if (!_enabled) return;
-    
+
     final duration = endTime.difference(startTime).inMilliseconds;
-    
+
     final logEntry = {
       'screen': screen,
       'startTime': startTime.toIso8601String(),
@@ -69,7 +71,7 @@ class PerformanceLogger {
       'durationMs': duration,
       if (metadata != null) ...metadata,
     };
-    
+
     developer.log(
       'PERF: Screen Load',
       name: 'Performance',
@@ -78,7 +80,7 @@ class PerformanceLogger {
       zone: Zone.current,
       error: logEntry,
     );
-    
+
     print('=== SCREEN PERFORMANCE ===');
     print('Screen: $screen');
     print('Load time: ${duration}ms');
@@ -87,7 +89,7 @@ class PerformanceLogger {
     }
     print('==========================');
   }
-  
+
   static void logOperation({
     required String operation,
     required String screen,
@@ -96,9 +98,9 @@ class PerformanceLogger {
     Map<String, dynamic>? metadata,
   }) {
     if (!_enabled) return;
-    
+
     final duration = endTime.difference(startTime).inMilliseconds;
-    
+
     final logEntry = {
       'operation': operation,
       'screen': screen,
@@ -107,7 +109,7 @@ class PerformanceLogger {
       'durationMs': duration,
       if (metadata != null) ...metadata,
     };
-    
+
     developer.log(
       'PERF: Operation',
       name: 'Performance',
@@ -116,7 +118,7 @@ class PerformanceLogger {
       zone: Zone.current,
       error: logEntry,
     );
-    
+
     print('=== OPERATION PERFORMANCE ===');
     print('Operation: $operation');
     print('Screen: $screen');
@@ -126,16 +128,21 @@ class PerformanceLogger {
     }
     print('============================');
   }
+
+  static String _sanitizeEndpoint(String endpoint) {
+    return endpoint.replaceAll(
+        RegExp(r'/[A-Za-z]+\d[A-Za-z0-9]*(?=/|$)'), '/[ID]');
+  }
 }
 
 /// Mixin to easily add performance logging to any class
 mixin PerformanceTracker {
   DateTime? _operationStart;
-  
+
   void startOperation() {
     _operationStart = DateTime.now();
   }
-  
+
   void endOperation({
     required String operation,
     required String screen,

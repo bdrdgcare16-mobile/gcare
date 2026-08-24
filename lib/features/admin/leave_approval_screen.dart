@@ -232,7 +232,8 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
 
     try {
       if (_isOtherLocationTab(tab)) {
-        final pageResult = await ApiService.fetchOtherLocationApprovalsPaginated(
+        final pageResult =
+            await ApiService.fetchOtherLocationApprovalsPaginated(
           status: status,
           page: page,
           limit: limit,
@@ -299,7 +300,8 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     }
   }
 
-  Future<void> _loadAll({bool adjustForType = false, bool append = false}) async {
+  Future<void> _loadAll(
+      {bool adjustForType = false, bool append = false}) async {
     if (_isFetching && append) {
       if (kDebugMode) {
         _log('Approval fetch already running. Duplicate load-more skipped.');
@@ -357,7 +359,10 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
 
       final mergedItems = <Map<String, dynamic>>[];
       final seenKeys = <String>{};
-      for (final item in [...(append ? _rows : <Map<String, dynamic>>[]), ...newItems]) {
+      for (final item in [
+        ...(append ? _rows : <Map<String, dynamic>>[]),
+        ...newItems
+      ]) {
         final key = _stableKey(item);
         if (seenKeys.add(key)) mergedItems.add(item);
       }
@@ -369,11 +374,10 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
         _loading = false;
 
         if (totals.isNotEmpty) {
-          debugPrint('[LEAVE_APPROVAL] API totals received: $totals');
           _cPending = totals['Pending'] ?? _cPending;
           _cApproved = totals['Approved'] ?? _cApproved;
           _cRejected = totals['Rejected'] ?? _cRejected;
-          debugPrint('[LEAVE_APPROVAL] Updated counts - Pending: $_cPending, Approved: $_cApproved, Rejected: $_cRejected');
+          debugPrint('[LEAVE_APPROVAL] Approval counts loaded');
         } else {
           final total = (pagination['total'] as num?)?.toInt() ?? _rows.length;
           if (selectedStatusFilter == 'Pending') _cPending = total;
@@ -445,8 +449,11 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     final source = (item['source'] ?? '').toString();
     final id = _pickAnyId(item);
     if (id.isNotEmpty) return '${source}_$id';
-    final empid = (item['empid'] ?? item['empId'] ?? item['employeeId'] ?? '').toString();
-    final date = (item['requestDate'] ?? item['date'] ?? item['startDate'] ?? '').toString();
+    final empid =
+        (item['empid'] ?? item['empId'] ?? item['employeeId'] ?? '').toString();
+    final date =
+        (item['requestDate'] ?? item['date'] ?? item['startDate'] ?? '')
+            .toString();
     final type = (item['type'] ?? item['category'] ?? '').toString();
     return '${source}_${empid}_${date}_$type';
   }
@@ -461,7 +468,8 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
     for (int i = 0; i < displayList.length; i++) {
       final disp = displayList[i];
       final hit = q.isEmpty ||
-          disp.values.any((v) => (v ?? '').toString().toLowerCase().contains(q));
+          disp.values
+              .any((v) => (v ?? '').toString().toLowerCase().contains(q));
       if (hit) {
         indices.add(i);
         filtered.add(disp);
@@ -635,7 +643,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
         }
       }
     } catch (e) {
-      debugPrint('fetchRequestDetails failed: $e');
+      debugPrint('[LEAVE_APPROVAL] fetchRequestDetails failed');
     }
 
     final merged = {...backendItem, ...viewItem, ...details};
@@ -661,7 +669,8 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
           return;
         }
 
-        debugPrint('[LEAVE_APPROVAL] Before ${normalized.toLowerCase()} - Pending: $_cPending, Approved: $_cApproved, Rejected: $_cRejected');
+        debugPrint(
+            '[LEAVE_APPROVAL] Before ${normalized.toLowerCase()} - Pending: $_cPending, Approved: $_cApproved, Rejected: $_cRejected');
 
         if (src == 'other_location') {
           final id = _pickAnyId(backendItem);
@@ -686,7 +695,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
           // Remove the approved/rejected item from the list by ID
           final itemId = _pickAnyId(backendItem);
           _rows.removeWhere((item) => _pickAnyId(item) == itemId);
-          
+
           // Update counters locally
           if (normalized == 'Approved') {
             if (_cPending > 0) _cPending--;
@@ -697,17 +706,11 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
           }
         });
 
-        debugPrint('[LEAVE_APPROVAL] Removed item id: ${_pickAnyId(backendItem)}');
-        debugPrint('[LEAVE_APPROVAL] Current rows count: ${_rows.length}');
-
         _snack('Updated: $normalized');
 
         // If list count is less than page limit, fetch next record silently in background
         if (_rows.length < _pageSize && _hasMore) {
-          debugPrint('[LEAVE_APPROVAL] Background fetch triggered - current count: ${_rows.length}, page limit: $_pageSize');
           _loadMore();
-        } else if (_rows.length == 0 && _cPending == 0) {
-          debugPrint('[LEAVE_APPROVAL] No more pending approvals available');
         }
       } catch (e) {
         _snack('Update failed: $e');
@@ -801,7 +804,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                       const SizedBox(width: 12),
                       InkWell(
                         onTap: () {
-                          debugPrint('[LEAVE_APPROVAL] Refresh clicked');
+                          // Refresh tapped
                           _loadAll(adjustForType: false);
                         },
                         borderRadius: BorderRadius.circular(20),
@@ -853,7 +856,7 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                     LayoutBuilder(
                       builder: (context, constraints) {
                         final isMobile = constraints.maxWidth < 600;
-                        
+
                         if (isMobile) {
                           return SingleChildScrollView(
                             scrollDirection: Axis.horizontal,
@@ -862,64 +865,65 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                               children: [
                                 Container(
                                   height: 42,
-                                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12),
                                   margin: const EdgeInsets.only(right: 8),
                                   decoration: BoxDecoration(
-                                  color: const Color(0xFFF7F3FC),
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(color: kBorder),
-                                ),
-                                child: DropdownButtonHideUnderline(
-                                  child: DropdownButton<String>(
-                                    value: selectedTab,
-                                    onChanged: (val) async {
-                                      setState(() {
-                                        selectedTab = val!;
-                                        _currentPage = 1;
-                                        _hasMore = true;
-                                      });
-                                      await _loadAll(adjustForType: true);
-                                    },
-                                    icon: const Icon(
-                                      Icons.keyboard_arrow_down_rounded,
-                                      color: kTextPrimary,
-                                    ),
-                                    style: const TextStyle(
-                                      color: kTextPrimary,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                    dropdownColor: Colors.white,
+                                    color: const Color(0xFFF7F3FC),
                                     borderRadius: BorderRadius.circular(14),
-                                    items: const [
-                                      'All',
-                                      'Late check in',
-                                      'Early check out',
-                                      'Leave Type',
-                                      'Permission',
-                                      'Over Time',
-                                      'Half Day Leave',
-                                      'Comp Off',
-                                      'Other Location',
-                                    ]
-                                        .map(
-                                          (t) => DropdownMenuItem(
-                                            value: t,
-                                            child: Text(t),
-                                          ),
-                                        )
-                                        .toList(),
+                                    border: Border.all(color: kBorder),
+                                  ),
+                                  child: DropdownButtonHideUnderline(
+                                    child: DropdownButton<String>(
+                                      value: selectedTab,
+                                      onChanged: (val) async {
+                                        setState(() {
+                                          selectedTab = val!;
+                                          _currentPage = 1;
+                                          _hasMore = true;
+                                        });
+                                        await _loadAll(adjustForType: true);
+                                      },
+                                      icon: const Icon(
+                                        Icons.keyboard_arrow_down_rounded,
+                                        color: kTextPrimary,
+                                      ),
+                                      style: const TextStyle(
+                                        color: kTextPrimary,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                      dropdownColor: Colors.white,
+                                      borderRadius: BorderRadius.circular(14),
+                                      items: const [
+                                        'All',
+                                        'Late check in',
+                                        'Early check out',
+                                        'Leave Type',
+                                        'Permission',
+                                        'Over Time',
+                                        'Half Day Leave',
+                                        'Comp Off',
+                                        'Other Location',
+                                      ]
+                                          .map(
+                                            (t) => DropdownMenuItem(
+                                              value: t,
+                                              child: Text(t),
+                                            ),
+                                          )
+                                          .toList(),
+                                    ),
                                   ),
                                 ),
-                              ),
-                              _buildStatusButton("Pending", _cPending),
-                              const SizedBox(width: 8),
-                              _buildStatusButton("Approved", _cApproved),
-                              const SizedBox(width: 8),
-                              _buildStatusButton("Rejected", _cRejected),
-                            ],
-                          ),
-                        );
+                                _buildStatusButton("Pending", _cPending),
+                                const SizedBox(width: 8),
+                                _buildStatusButton("Approved", _cApproved),
+                                const SizedBox(width: 8),
+                                _buildStatusButton("Rejected", _cRejected),
+                              ],
+                            ),
+                          );
                         } else {
                           return SingleChildScrollView(
                             scrollDirection: Axis.horizontal,
@@ -927,7 +931,8 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                               children: [
                                 Container(
                                   height: 42,
-                                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12),
                                   margin: const EdgeInsets.only(right: 8),
                                   decoration: BoxDecoration(
                                     color: const Color(0xFFF7F3FC),
@@ -1057,17 +1062,20 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(
-                                  selectedStatusFilter == 'Pending' && _cPending == 0
+                                  selectedStatusFilter == 'Pending' &&
+                                          _cPending == 0
                                       ? Icons.check_circle_outline
                                       : Icons.inbox_outlined,
                                   size: 42,
-                                  color: selectedStatusFilter == 'Pending' && _cPending == 0
+                                  color: selectedStatusFilter == 'Pending' &&
+                                          _cPending == 0
                                       ? const Color(0xFF4CAF50)
                                       : kTextSecondary,
                                 ),
                                 SizedBox(height: 10),
                                 Text(
-                                  selectedStatusFilter == 'Pending' && _cPending == 0
+                                  selectedStatusFilter == 'Pending' &&
+                                          _cPending == 0
                                       ? 'No pending approvals available'
                                       : 'No requests found',
                                   style: TextStyle(
@@ -1078,7 +1086,8 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                                 ),
                                 SizedBox(height: 4),
                                 Text(
-                                  selectedStatusFilter == 'Pending' && _cPending == 0
+                                  selectedStatusFilter == 'Pending' &&
+                                          _cPending == 0
                                       ? 'Tap the refresh button to check for new requests'
                                       : 'Try changing the filter or search text.',
                                   style: TextStyle(
@@ -1153,11 +1162,13 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                                         if (status == 'approved_paid') {
                                           leavePayType = 'paid';
                                           normalizedStatus = 'Approved';
-                                        } else if (status == 'approved_unpaid') {
+                                        } else if (status ==
+                                            'approved_unpaid') {
                                           leavePayType = 'unpaid';
                                           normalizedStatus = 'Approved';
                                         } else {
-                                          normalizedStatus = _normalizeDecision(status);
+                                          normalizedStatus =
+                                              _normalizeDecision(status);
                                         }
 
                                         setState(() {
@@ -1190,7 +1201,8 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                                             final payloadItem =
                                                 Map<String, dynamic>.from(
                                                     backendItem)
-                                                  ..['status'] = normalizedStatus;
+                                                  ..['status'] =
+                                                      normalizedStatus;
 
                                             await ApiService.decideApproval(
                                               item: payloadItem,
@@ -1202,8 +1214,6 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
 
                                           if (!mounted) return;
 
-                                          debugPrint('[LEAVE_APPROVAL] Before ${normalizedStatus.toLowerCase()} - Pending: $_cPending, Approved: $_cApproved, Rejected: $_cRejected');
-
                                           setState(() {
                                             final oldStatus =
                                                 (backendItem['status'] ??
@@ -1213,7 +1223,8 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                                                     .toString()
                                                     .trim();
 
-                                            backendItem['status'] = normalizedStatus;
+                                            backendItem['status'] =
+                                                normalizedStatus;
                                             backendItem['approvalStatus'] =
                                                 normalizedStatus;
                                             viewItem['status'] =
@@ -1232,7 +1243,8 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                                               _cRejected--;
                                             }
 
-                                            if (normalizedStatus == 'Approved') {
+                                            if (normalizedStatus ==
+                                                'Approved') {
                                               _cApproved++;
                                             } else if (normalizedStatus ==
                                                 'Rejected') {
@@ -1247,18 +1259,13 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
                                             }
                                           });
 
-                                          debugPrint('[LEAVE_APPROVAL] Removed item id: ${_pickAnyId(backendItem)}');
-                                          debugPrint('[LEAVE_APPROVAL] Current rows count: ${_rows.length}');
-
                                           _applySearch();
                                           _snack('Updated: $normalizedStatus');
 
                                           // If list count is less than page limit, fetch next record silently in background
-                                          if (_rows.length < _pageSize && _hasMore) {
-                                            debugPrint('[LEAVE_APPROVAL] Background fetch triggered - current count: ${_rows.length}, page limit: $_pageSize');
+                                          if (_rows.length < _pageSize &&
+                                              _hasMore) {
                                             _loadMore();
-                                          } else if (_rows.length == 0 && _cPending == 0) {
-                                            debugPrint('[LEAVE_APPROVAL] No more pending approvals available');
                                           }
                                         } catch (e) {
                                           _snack('Update failed: $e');

@@ -5,6 +5,7 @@ import {
   createEmployeeOnboarding,
   getEmployeeOnboardingById,
   getEmployeeOnboardings,
+  getOnboardingByEmployeeId,
   resolveOnboardingDocumentUrl,
 } from "../controllers/onboarding.controller";
 import { type Request, type Response } from "express";
@@ -81,6 +82,12 @@ router.get(
   authMiddleware,
   roleMiddleware(['super_admin']),
   resolveOnboardingDocumentUrl,
+);
+
+router.get(
+  "/by-empid/:empid",
+  authMiddleware,
+  getOnboardingByEmployeeId,
 );
 
 router.get(

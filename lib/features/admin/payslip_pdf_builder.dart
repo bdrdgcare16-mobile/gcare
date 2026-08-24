@@ -3,15 +3,46 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:serv_app/utils/payroll_period_resolver.dart';
-import 'package:serv_app/utils/date_formatter.dart';
 
 class PayslipPdfBuilder {
+  // Black-and-white professional palette
+  static final PdfColor _black = PdfColors.black;
+  static final PdfColor _grey100 = PdfColor.fromInt(0xFFF5F5F5);
+  static final PdfColor _grey700 = PdfColor.fromInt(0xFF616161);
+  static final PdfColor _textDark = _black;
+  static final PdfColor _textMedium = _grey700;
+  static final PdfColor _textLight = _grey700;
+  static final PdfColor _borderColor = _black;
+
+  // Times-family fonts
+  static final pw.Font _fontTimes = pw.Font.times();
+  static final pw.Font _fontTimesBold = pw.Font.timesBold();
+  static final pw.Font _fontTimesItalic = pw.Font.timesItalic();
+  static final pw.Font _fontTimesBoldItalic = pw.Font.timesBoldItalic();
+
+  // Convenience text-style helpers
+  static pw.TextStyle _ts(double size,
+      {bool bold = false,
+      bool italic = false,
+      PdfColor? color,
+      double letterSpacing = 0}) {
+    return pw.TextStyle(
+      font: bold
+          ? (italic ? _fontTimesBoldItalic : _fontTimesBold)
+          : (italic ? _fontTimesItalic : _fontTimes),
+      fontSize: size,
+      color: color ?? _black,
+      letterSpacing: letterSpacing,
+    );
+  }
+
   static Future<Uint8List> generatePayslipPdf({
     required Map<String, dynamic> payroll,
     required String companyId,
     Uint8List? companyLogoBytes,
     int? fallbackMonth,
     int? fallbackYear,
+    Map<String, dynamic>? onboardingData,
   }) async {
     final pdf = pw.Document();
 
@@ -25,17 +56,17 @@ class PayslipPdfBuilder {
     pdf.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(32),
+        margin: const pw.EdgeInsets.all(36),
         build: (pw.Context context) => [
           _buildHeader(payroll, companyLogoBytes, period),
-          pw.SizedBox(height: 24),
-          _buildEmployeePayInfo(payroll, period),
-          pw.SizedBox(height: 24),
-          _buildEntitlementsTable(payroll),
-          pw.SizedBox(height: 24),
-          _buildDeductionsTable(payroll),
-          pw.SizedBox(height: 24),
+          pw.SizedBox(height: 16),
+          _buildEmployeePayInfo(payroll, period, onboardingData),
+          pw.SizedBox(height: 16),
+          _buildEarningsDeductionsTables(payroll),
+          pw.SizedBox(height: 16),
           _buildNetPaySection(payroll, period),
+          pw.SizedBox(height: 20),
+          _buildFooter(),
         ],
       ),
     );
@@ -48,71 +79,81 @@ class PayslipPdfBuilder {
     Uint8List? companyLogoBytes,
     PayrollPeriod period,
   ) {
-    return pw.Row(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
+    return pw.Column(
       children: [
-        // Company logo
-        pw.SizedBox(
-          width: 80,
-          height: 80,
-          child: companyLogoBytes != null
-              ? pw.Image(
-                  pw.MemoryImage(companyLogoBytes),
-                  fit: pw.BoxFit.contain,
-                )
-              : pw.Container(
-                  width: 80,
-                  height: 80,
-                  decoration: pw.BoxDecoration(
-                    color: PdfColor.fromInt(0xFFF0F4F8),
-                    border: pw.Border.all(color: PdfColor.fromInt(0xFFD0D0D0)),
-                  ),
-                  child: pw.Center(
-                    child: pw.Text(
-                      'COMPANY\nLOGO',
-                      style: pw.TextStyle(
-                        fontSize: 8,
-                        color: PdfColor.fromInt(0xFF808080),
-                        fontWeight: pw.FontWeight.bold,
+        // Company name + logo row
+        pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.center,
+          children: [
+            // Company logo – unchanged position/size
+            pw.SizedBox(
+              width: 70,
+              height: 70,
+              child: companyLogoBytes != null
+                  ? pw.Image(
+                      pw.MemoryImage(companyLogoBytes),
+                      fit: pw.BoxFit.contain,
+                    )
+                  : pw.Container(
+                      width: 70,
+                      height: 70,
+                      decoration: pw.BoxDecoration(
+                        border: pw.Border.all(color: _borderColor),
                       ),
-                      textAlign: pw.TextAlign.center,
+                      child: pw.Center(
+                        child: pw.Text(
+                          'LOGO',
+                          style: _ts(8, bold: true, color: _textLight),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      ),
                     ),
+            ),
+            pw.SizedBox(width: 16),
+            // Company information
+            pw.Expanded(
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.center,
+                children: [
+                  pw.Text(
+                    'MYTH REALITY TECHNOLOGIES PRIVATE LIMITED',
+                    style: _ts(14, bold: true, color: _black),
                   ),
-                ),
+                  pw.SizedBox(height: 3),
+                  pw.Text(
+                    'No: 33, RL Tower,',
+                    style: _ts(8, color: _textLight),
+                  ),
+                  pw.SizedBox(height: 1),
+                  pw.Text(
+                    'Gandhipuram (GH Opposite),',
+                    style: _ts(8, color: _textLight),
+                  ),
+                  pw.SizedBox(height: 1),
+                  pw.Text(
+                    'Thiruvallur - 602 001',
+                    style: _ts(8, color: _textLight),
+                  ),
+                ],
+              ),
+            ),
+            // Spacer to balance the logo on the left
+            pw.SizedBox(width: 70),
+          ],
         ),
-        pw.SizedBox(width: 16),
-        // Company information
-        pw.Expanded(
-          child: pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.center,
-            children: [
-              pw.Text(
-                'PAYSLIP',
-                style: pw.TextStyle(
-                  fontSize: 24,
-                  fontWeight: pw.FontWeight.bold,
-                  color: PdfColors.black,
-                ),
-              ),
-              pw.SizedBox(height: 8),
-              pw.Text(
-                'Myth Reality Technologies Pvt. Ltd.',
-                style: pw.TextStyle(
-                  fontSize: 16,
-                  fontWeight: pw.FontWeight.bold,
-                  color: PdfColor.fromInt(0xFF333333),
-                ),
-              ),
-              pw.SizedBox(height: 4),
-              pw.Text(
-                period.toString(),
-                style: pw.TextStyle(
-                  fontSize: 12,
-                  color: PdfColor.fromInt(0xFF666666),
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-            ],
+        pw.SizedBox(height: 12),
+        // Title bar – bordered, no fill
+        pw.Container(
+          width: double.infinity,
+          padding: const pw.EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: pw.BoxDecoration(
+            border: pw.Border.all(color: _black),
+          ),
+          child: pw.Center(
+            child: pw.Text(
+              'PAYSLIP FOR THE MONTH OF ${period.monthName.toUpperCase()} ${period.year}',
+              style: _ts(13, bold: true, color: _black, letterSpacing: 0.5),
+            ),
           ),
         ),
       ],
@@ -122,374 +163,326 @@ class PayslipPdfBuilder {
   static pw.Widget _buildEmployeePayInfo(
     Map<String, dynamic> payroll,
     PayrollPeriod period,
+    Map<String, dynamic>? onboardingData,
   ) {
-    // Build list of available fields
-    final fields = <pw.Widget>[];
-    
-    // Always show Employee Name
-    fields.add(_buildInfoRow('Employee Name', payroll['employeeName']));
-    
-    // Show Employee ID if available
-    final employeeId = payroll['employeeId']?.toString() ??
-                      payroll['empid']?.toString() ??
-                      payroll['employee_id']?.toString();
-    if (employeeId != null && employeeId.isNotEmpty) {
-      fields.add(_buildInfoRow('Employee ID', employeeId));
-    }
-    
-    // Show Payment Status
-    fields.add(_buildInfoRow('Payment Status', _getPaymentStatus(payroll)));
-    
-    // Show Paid Date only when status is paid
-    final paymentStatus = payroll['paymentStatus']?.toString() ??
-                          payroll['status']?.toString();
-    final isPaid = paymentStatus?.toLowerCase() == 'paid' || payroll['isPaid'] == true;
-    if (isPaid) {
-      fields.add(_buildInfoRow('Paid Date', formatPayrollDateFromDynamic(payroll['paidAt'])));
-    }
-    
-    // Show Worked Days if available and non-zero
+    final personal =
+        onboardingData?['personalDetails'] as Map<String, dynamic>?;
+    final company = onboardingData?['companyDetails'] as Map<String, dynamic>?;
+    final bank = onboardingData?['bankDetails'] as Map<String, dynamic>?;
+
+    // Left column fields
+    final leftFields = <_InfoField>[];
+
+    final fullName = personal?['fullName']?.toString();
+    final payrollName = payroll['employeeName']?.toString();
+    leftFields.add(_InfoField(
+        'Name',
+        (fullName != null && fullName.isNotEmpty)
+            ? fullName
+            : (payrollName ?? '-')));
+
+    leftFields
+        .add(_InfoField('Joining Date', _safeText(company?['dateOfJoining'])));
+    leftFields
+        .add(_InfoField('Designation', _safeText(company?['designation'])));
+    leftFields.add(_InfoField('Department', _safeText(company?['department'])));
+    leftFields
+        .add(_InfoField('Location', _safeText(company?['branchLocation'])));
+
+    // Effective Work Days from payroll
     final workedDays = payroll['workedDays']?.toString() ??
-                       payroll['presentDays']?.toString();
-    if (workedDays != null && workedDays != '0' && workedDays.isNotEmpty) {
-      fields.add(_buildInfoRow('Worked Days', workedDays));
-    }
-    
-    // Show Paid Weekly Off if available and non-zero
-    final weekOffDays = payroll['weekOffDays']?.toString() ??
-                        payroll['paidWeeklyOffDays']?.toString() ??
-                        payroll['paidWeeklyOff']?.toString();
-    if (weekOffDays != null && weekOffDays != '0' && weekOffDays.isNotEmpty) {
-      fields.add(_buildInfoRow('Paid Weekly Off', weekOffDays));
-    }
-    
-    // Show Paid Leave if available and non-zero
-    final paidLeave = payroll['paidLeaveDays']?.toString();
-    if (paidLeave != null && paidLeave != '0' && paidLeave.isNotEmpty) {
-      fields.add(_buildInfoRow('Paid Leave', paidLeave));
-    }
-    
-    // Show Unpaid Leave if available and non-zero
-    final unpaidLeave = payroll['unpaidLeaveDays']?.toString();
-    if (unpaidLeave != null && unpaidLeave != '0' && unpaidLeave.isNotEmpty) {
-      fields.add(_buildInfoRow('Unpaid Leave', unpaidLeave));
-    }
-    
-    // Show LOP Days if available and non-zero
-    final lopDays = payroll['lopDays']?.toString();
-    if (lopDays != null && lopDays != '0' && lopDays.isNotEmpty) {
-      fields.add(_buildInfoRow('LOP Days', lopDays));
-    }
-    
-    // Show Payable Days if available
-    final payableDays = payroll['payableDays']?.toString();
-    if (payableDays != null && payableDays.isNotEmpty) {
-      fields.add(_buildInfoRow('Payable Days', payableDays));
-    }
-    
-    // Show Scheduled Working Days only when calculation method is SCHEDULED_WORKING_DAYS
-    final calcMethod = payroll['salaryCalculationMethod']?.toString() ??
-                       payroll['calculationMethod']?.toString();
-    if (calcMethod == 'SCHEDULED_WORKING_DAYS') {
-      final scheduledDays = payroll['scheduledWorkingDays']?.toString();
-      if (scheduledDays != null && scheduledDays.isNotEmpty) {
-        fields.add(_buildInfoRow('Scheduled Working Days', scheduledDays));
-      }
-    }
-    
-    // Show Divisor and Per-Day Salary only when valid values are available
-    final divisor = payroll['divisor']?.toString() ??
-                    payroll['baseDays']?.toString() ??
-                    payroll['salaryDivisor']?.toString();
-    if (divisor != null && divisor != 'N/A' && divisor.isNotEmpty) {
-      fields.add(_buildInfoRow('Divisor', divisor));
-    }
-    
-    final perDaySalary = payroll['perDaySalary']?.toString() ??
-                         payroll['dailyRate']?.toString();
-    if (perDaySalary != null && perDaySalary != '0' && perDaySalary.isNotEmpty) {
-      fields.add(_buildInfoRow('Per-Day Salary', _formatCurrency(perDaySalary)));
-    }
-    
-    if (fields.isEmpty) {
+        payroll['presentDays']?.toString() ??
+        '0';
+    leftFields.add(_InfoField('Effective Work Days', workedDays));
+
+    // LOP from payroll
+    final lopDays = payroll['lopDays']?.toString() ?? '0';
+    leftFields.add(_InfoField('LOP', lopDays));
+
+    // Right column fields
+    final rightFields = <_InfoField>[];
+
+    final employeeId = company?['employeeId']?.toString() ??
+        payroll['employeeId']?.toString() ??
+        payroll['empid']?.toString() ??
+        payroll['employee_id']?.toString();
+    rightFields.add(_InfoField('Employee No', employeeId ?? '-'));
+
+    rightFields.add(_InfoField('Bank Name', _safeText(bank?['bankName'])));
+    rightFields
+        .add(_InfoField('Bank Account No', _safeText(bank?['accountNumber'])));
+    rightFields.add(_InfoField('PAN Number', _safeText(bank?['panNumber'])));
+    rightFields.add(_InfoField('PF No', _safeText(bank?['pfNumber'])));
+    rightFields.add(const _InfoField('PF UAN', '-'));
+    rightFields.add(_InfoField('ESI Number', _safeText(bank?['esiNumber'])));
+
+    final payableDays = payroll['payableDays']?.toString() ?? '0';
+    rightFields.add(_InfoField('Payable Days', payableDays));
+
+    if (leftFields.isEmpty && rightFields.isEmpty) {
       return pw.SizedBox();
     }
-    
-    return pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        pw.Container(
-          padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: pw.BoxDecoration(
-            color: PdfColor.fromInt(0xFFF0F4F8),
-          ),
-          child: pw.Text(
-            'Employee & Pay Information',
-            style: pw.TextStyle(
-              fontSize: 12,
-              fontWeight: pw.FontWeight.bold,
-              color: PdfColor.fromInt(0xFF333333),
+
+    final maxRows = leftFields.length > rightFields.length
+        ? leftFields.length
+        : rightFields.length;
+
+    final rows = <pw.Widget>[];
+    for (int i = 0; i < maxRows; i++) {
+      final left = i < leftFields.length ? leftFields[i] : null;
+      final right = i < rightFields.length ? rightFields[i] : null;
+      rows.add(_buildTwoColumnInfoRow(left, right));
+    }
+
+    return pw.Container(
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: _black),
+      ),
+      child: pw.Column(
+        children: [
+          // Section header
+          pw.Container(
+            width: double.infinity,
+            padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: pw.BoxDecoration(
+              border: pw.Border(
+                bottom: pw.BorderSide(color: _black),
+              ),
+            ),
+            child: pw.Text(
+              'Employee & Pay Information',
+              style: _ts(11, bold: true, color: _black),
             ),
           ),
-        ),
-        pw.SizedBox(height: 12),
-        ...fields,
-      ],
+          // Two-column rows
+          pw.Padding(
+            padding: const pw.EdgeInsets.all(12),
+            child: pw.Column(children: rows),
+          ),
+        ],
+      ),
     );
   }
 
-  static pw.Widget _buildInfoRow(String label, dynamic value) {
+  static pw.Widget _buildTwoColumnInfoRow(_InfoField? left, _InfoField? right) {
     return pw.Padding(
-      padding: const pw.EdgeInsets.only(bottom: 8),
+      padding: const pw.EdgeInsets.only(bottom: 6),
       child: pw.Row(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          pw.SizedBox(
-            width: 140,
-            child: pw.Text(
-              label,
-              style: pw.TextStyle(
-                fontSize: 10,
-                fontWeight: pw.FontWeight.bold,
-                color: PdfColor.fromInt(0xFF666666),
-              ),
-            ),
-          ),
+          // Left column
           pw.Expanded(
-            child: pw.Text(
-              value?.toString() ?? 'N/A',
-              style: pw.TextStyle(
-                fontSize: 10,
-                color: PdfColor.fromInt(0xFF333333),
-              ),
-            ),
+            child: left != null ? _buildInfoCell(left) : pw.SizedBox(),
+          ),
+          pw.SizedBox(width: 16),
+          // Right column
+          pw.Expanded(
+            child: right != null ? _buildInfoCell(right) : pw.SizedBox(),
           ),
         ],
       ),
     );
   }
 
-  static pw.Widget _buildEntitlementsTable(Map<String, dynamic> payroll) {
-    // Build list of available entitlement rows
-    final rows = <pw.Widget>[];
-    
-    // Basic Salary - always show
-    rows.add(_buildTableRow('Basic Salary', '-', '-', _formatCurrency(payroll['basicSalary'])));
-    
-    // HRA - show only when available
-    final hra = payroll['hra'];
-    if (hra != null && hra != 0) {
-      rows.add(_buildTableRow('HRA', '-', '-', _formatCurrency(hra)));
-    }
-    
-    // Allowances - show only when available
-    final allowances = payroll['totalAllowance'];
-    if (allowances != null && allowances != 0) {
-      rows.add(_buildTableRow('Allowances', '-', '-', _formatCurrency(allowances)));
-    }
-    
-    // Bonus - show only when available
-    final bonus = payroll['bonus'];
-    if (bonus != null && bonus != 0) {
-      rows.add(_buildTableRow('Bonus', '-', '-', _formatCurrency(bonus)));
-    }
-    
-    // Overtime - show only when available
-    final overtime = payroll['overtime'];
-    if (overtime != null && overtime != 0) {
-      rows.add(_buildTableRow('Overtime', '-', '-', _formatCurrency(overtime)));
-    }
-    
-    // Other Earnings - show only when available
-    final otherEarnings = payroll['otherEarnings'];
-    if (otherEarnings != null && otherEarnings != 0) {
-      rows.add(_buildTableRow('Other Earnings', '-', '-', _formatCurrency(otherEarnings)));
-    }
-    
-    return pw.Column(
+  static pw.Widget _buildInfoCell(_InfoField field) {
+    return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.Container(
-          padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: pw.BoxDecoration(
-            color: PdfColor.fromInt(0xFFF0F4F8),
-          ),
+        pw.SizedBox(
+          width: 110,
           child: pw.Text(
-            'Entitlements',
-            style: pw.TextStyle(
-              fontSize: 12,
-              fontWeight: pw.FontWeight.bold,
-              color: PdfColor.fromInt(0xFF333333),
-            ),
+            field.label,
+            style: _ts(9, bold: true, color: _textMedium),
           ),
         ),
-        pw.SizedBox(height: 12),
-        _buildTableHeader(['Description', 'Hours/Units', 'Rate', 'Total']),
-        ...rows,
-        _buildTableTotalRow('Gross Earnings', _formatCurrency(_getGrossSalary(payroll))),
+        pw.Expanded(
+          child: pw.Text(
+            ': ${field.value ?? 'N/A'}',
+            style: _ts(9, color: _textDark),
+          ),
+        ),
       ],
     );
   }
 
-  static pw.Widget _buildDeductionsTable(Map<String, dynamic> payroll) {
-    // Build list of available deduction rows
-    final rows = <pw.Widget>[];
-    
-    // LOP Deduction - show only when available
-    final lopDeduction = payroll['lopDeduction'];
-    if (lopDeduction != null && lopDeduction != 0) {
-      rows.add(_buildDeductionTableRow('LOP Deduction', _formatCurrency(lopDeduction)));
-    }
-    
-    // PF - show only when available
-    final pf = payroll['pf'];
-    if (pf != null && pf != 0) {
-      rows.add(_buildDeductionTableRow('PF', _formatCurrency(pf)));
-    }
-    
-    // ESI - show only when available
-    final esi = payroll['esi'];
-    if (esi != null && esi != 0) {
-      rows.add(_buildDeductionTableRow('ESI', _formatCurrency(esi)));
-    }
-    
-    // Professional Tax - show only when available
-    final profTax = payroll['professionalTax'];
-    if (profTax != null && profTax != 0) {
-      rows.add(_buildDeductionTableRow('Professional Tax', _formatCurrency(profTax)));
-    }
-    
-    // TDS - show only when available
-    final tds = payroll['tds'];
-    if (tds != null && tds != 0) {
-      rows.add(_buildDeductionTableRow('TDS', _formatCurrency(tds)));
-    }
-    
-    // Other Deductions - show only when available
-    final otherDeductions = payroll['otherDeductions'];
-    if (otherDeductions != null && otherDeductions != 0) {
-      rows.add(_buildDeductionTableRow('Other Deductions', _formatCurrency(otherDeductions)));
-    }
-    
-    return pw.Column(
+  static pw.Widget _buildEarningsDeductionsTables(
+      Map<String, dynamic> payroll) {
+    // Build earnings rows – always show all supported rows even when zero
+    final earnings = <_TableRow>[];
+    earnings.add(
+        _TableRow('Basic Salary', _formatCurrency(payroll['basicSalary'])));
+    earnings.add(_TableRow('HRA', _formatCurrency(payroll['hra'])));
+    earnings.add(
+        _TableRow('Allowances', _formatCurrency(payroll['totalAllowance'])));
+    earnings.add(_TableRow('Bonus', _formatCurrency(payroll['bonus'])));
+    earnings.add(_TableRow('Overtime', _formatCurrency(payroll['overtime'])));
+    earnings.add(
+        _TableRow('Other Earnings', _formatCurrency(payroll['otherEarnings'])));
+
+    // Build deductions rows – always show all supported rows even when zero
+    final deductions = <_TableRow>[];
+    deductions.add(
+        _TableRow('LOP Deduction', _formatCurrency(payroll['lopDeduction'])));
+    deductions.add(_TableRow('PF', _formatCurrency(payroll['pf'])));
+    deductions.add(_TableRow('ESI', _formatCurrency(payroll['esi'])));
+    deductions.add(_TableRow(
+        'Professional Tax', _formatCurrency(payroll['professionalTax'])));
+    deductions.add(_TableRow('TDS', _formatCurrency(payroll['tds'])));
+    deductions.add(_TableRow(
+        'Other Deductions', _formatCurrency(payroll['otherDeductions'])));
+
+    final grossStr = _formatCurrency(_getGrossSalary(payroll));
+    final dedStr = _formatCurrency(payroll['totalDeductions']);
+
+    return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.Container(
-          padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: pw.BoxDecoration(
-            color: PdfColor.fromInt(0xFFF0F4F8),
+        // Earnings table
+        pw.Expanded(
+          child: _buildBorderedTable(
+            'Earnings',
+            ['Description', 'Amount'],
+            earnings,
+            'Gross Earnings',
+            grossStr,
           ),
-          child: pw.Text(
+        ),
+        pw.SizedBox(width: 12),
+        // Deductions table
+        pw.Expanded(
+          child: _buildBorderedTable(
             'Deductions',
-            style: pw.TextStyle(
-              fontSize: 12,
-              fontWeight: pw.FontWeight.bold,
-              color: PdfColor.fromInt(0xFF333333),
-            ),
+            ['Description', 'Amount'],
+            deductions,
+            'Total Deductions',
+            dedStr,
           ),
         ),
-        pw.SizedBox(height: 12),
-        _buildTableHeader(['Description', 'Hours/Units', 'Total']),
-        ...rows,
-        _buildTableTotalRow('Total Deductions', _formatCurrency(payroll['totalDeductions'])),
       ],
     );
   }
 
-  static pw.Widget _buildTableHeader(List<String> headers) {
-    return pw.Container(
-      padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: pw.BoxDecoration(
-        color: PdfColor.fromInt(0xFFF0F4F8),
-        border: pw.Border.all(color: PdfColor.fromInt(0xFFD0D0D0)),
-      ),
-      child: pw.Row(
-        children: headers.map((header) {
-          final flex = headers.length == 4 ? [3, 2, 2, 2] : [3, 2, 2];
-          final index = headers.indexOf(header);
-          return pw.Expanded(
-            flex: flex[index],
-            child: pw.Text(
-              header,
-              style: pw.TextStyle(
-                fontSize: 10,
-                fontWeight: pw.FontWeight.bold,
-                color: PdfColor.fromInt(0xFF333333),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
+  static pw.Widget _buildBorderedTable(
+    String title,
+    List<String> headers,
+    List<_TableRow> rows,
+    String totalLabel,
+    String totalValue,
+  ) {
+    final children = <pw.Widget>[];
 
-  static pw.Widget _buildTableRow(String description, String hoursUnits, String rate, String total) {
-    return pw.Container(
-      padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: pw.BoxDecoration(
-        border: pw.Border.all(color: PdfColor.fromInt(0xFFE0E0E0)),
-      ),
-      child: pw.Row(
-        children: [
-          pw.Expanded(flex: 3, child: pw.Text(description, style: pw.TextStyle(fontSize: 10, color: PdfColor.fromInt(0xFF333333)))),
-          pw.Expanded(flex: 2, child: pw.Text(hoursUnits, style: pw.TextStyle(fontSize: 10, color: PdfColor.fromInt(0xFF333333)))),
-          pw.Expanded(flex: 2, child: pw.Text(rate, style: pw.TextStyle(fontSize: 10, color: PdfColor.fromInt(0xFF333333)))),
-          pw.Expanded(flex: 2, child: pw.Text(total, style: pw.TextStyle(fontSize: 10, color: PdfColor.fromInt(0xFF333333)))),
-        ],
-      ),
-    );
-  }
-
-  static pw.Widget _buildDeductionTableRow(String description, String total) {
-    return pw.Container(
-      padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: pw.BoxDecoration(
-        border: pw.Border.all(color: PdfColor.fromInt(0xFFE0E0E0)),
-      ),
-      child: pw.Row(
-        children: [
-          pw.Expanded(flex: 3, child: pw.Text(description, style: pw.TextStyle(fontSize: 10, color: PdfColor.fromInt(0xFF333333)))),
-          pw.Expanded(flex: 2, child: pw.Text('-', style: pw.TextStyle(fontSize: 10, color: PdfColor.fromInt(0xFF333333)))),
-          pw.Expanded(flex: 2, child: pw.Text(total, style: pw.TextStyle(fontSize: 10, color: PdfColor.fromInt(0xFF333333)))),
-        ],
-      ),
-    );
-  }
-
-  static pw.Widget _buildTableTotalRow(String label, String value) {
-    return pw.Container(
-      padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: pw.BoxDecoration(
-        color: PdfColor.fromInt(0xFFF0F4F8),
-        border: pw.Border.all(color: PdfColor.fromInt(0xFFD0D0D0)),
-      ),
-      child: pw.Row(
-        children: [
-          pw.Expanded(
-            flex: 3,
-            child: pw.Text(
-              label,
-              style: pw.TextStyle(
-                fontSize: 10,
-                fontWeight: pw.FontWeight.bold,
-                color: PdfColor.fromInt(0xFF333333),
-              ),
-            ),
+    // Section title
+    children.add(
+      pw.Container(
+        width: double.infinity,
+        padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: pw.BoxDecoration(
+          border: pw.Border(
+            bottom: pw.BorderSide(color: _black),
           ),
-          pw.Expanded(
-            flex: 2,
-            child: pw.Text(
-              value,
-              style: pw.TextStyle(
-                fontSize: 10,
-                fontWeight: pw.FontWeight.bold,
-                color: PdfColor.fromInt(0xFF333333),
-              ),
-              textAlign: pw.TextAlign.right,
-            ),
-          ),
-        ],
+        ),
+        child: pw.Text(
+          title,
+          style: _ts(10, bold: true, color: _black),
+        ),
       ),
+    );
+
+    // Column header row – thin line below, light grey background
+    children.add(
+      pw.Container(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: pw.BoxDecoration(
+          color: _grey100,
+          border: pw.Border(
+            bottom: pw.BorderSide(color: _black, width: 0.5),
+          ),
+        ),
+        child: pw.Row(
+          children: [
+            pw.Expanded(
+              flex: 3,
+              child: pw.Text(
+                headers[0],
+                style: _ts(8, bold: true, color: _black),
+              ),
+            ),
+            pw.Expanded(
+              flex: 2,
+              child: pw.Text(
+                headers[1],
+                style: _ts(8, bold: true, color: _black),
+                textAlign: pw.TextAlign.right,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    // Data rows – no individual cell boxes, no alternating fill
+    for (final row in rows) {
+      children.add(
+        pw.Padding(
+          padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          child: pw.Row(
+            children: [
+              pw.Expanded(
+                flex: 3,
+                child: pw.Text(
+                  row.description,
+                  style: _ts(9, color: _textDark),
+                ),
+              ),
+              pw.Expanded(
+                flex: 2,
+                child: pw.Text(
+                  row.amount,
+                  style: _ts(9, color: _textDark),
+                  textAlign: pw.TextAlign.right,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Total row – thin line above and below, no side borders
+    children.add(
+      pw.Container(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: pw.BoxDecoration(
+          border: pw.Border(
+            top: pw.BorderSide(color: _black, width: 0.5),
+            bottom: pw.BorderSide(color: _black, width: 0.5),
+          ),
+        ),
+        child: pw.Row(
+          children: [
+            pw.Expanded(
+              flex: 3,
+              child: pw.Text(
+                totalLabel,
+                style: _ts(9, bold: true, color: _black),
+              ),
+            ),
+            pw.Expanded(
+              flex: 2,
+              child: pw.Text(
+                totalValue,
+                style: _ts(9, bold: true, color: _black),
+                textAlign: pw.TextAlign.right,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: children,
     );
   }
 
@@ -497,57 +490,75 @@ class PayslipPdfBuilder {
     Map<String, dynamic> payroll,
     PayrollPeriod period,
   ) {
+    final netPayStr = _formatCurrency(_getNetSalary(payroll));
+    final netPayAmount = double.tryParse(_getNetSalary(payroll)) ?? 0;
+    final amountInWords = _amountToWords(netPayAmount);
+
+    return pw.Container(
+      width: double.infinity,
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: _black),
+      ),
+      child: pw.Column(
+        children: [
+          pw.Padding(
+            padding:
+                const pw.EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text(
+                  'NET PAY FOR THE MONTH',
+                  style: _ts(12, bold: true, color: _black, letterSpacing: 0.5),
+                ),
+                pw.Text(
+                  netPayStr,
+                  style: _ts(18, bold: true, color: _black),
+                ),
+              ],
+            ),
+          ),
+          pw.Container(
+            width: double.infinity,
+            padding: const pw.EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            decoration: pw.BoxDecoration(
+              border: pw.Border(
+                top: pw.BorderSide(color: _black),
+              ),
+            ),
+            child: pw.Center(
+              child: pw.Text(
+                '($amountInWords)',
+                style: _ts(9, italic: true, color: _textLight),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static pw.Widget _buildFooter() {
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.Container(
-          padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: pw.BoxDecoration(
-            color: PdfColor.fromInt(0xFFF0F4F8),
-          ),
-          child: pw.Text(
-            'Net Pay',
-            style: pw.TextStyle(
-              fontSize: 12,
-              fontWeight: pw.FontWeight.bold,
-              color: PdfColor.fromInt(0xFF333333),
-            ),
-          ),
-        ),
-        pw.SizedBox(height: 16),
-        pw.Container(
-          padding: const pw.EdgeInsets.all(16),
-          decoration: pw.BoxDecoration(
-            color: PdfColor.fromInt(0xFFF0F4F8),
-            border: pw.Border.all(color: PdfColor.fromInt(0xFFB0B0B0)),
-          ),
-          child: pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: [
-              pw.Text(
-                'Total Net Pay',
-                style: pw.TextStyle(
-                  fontSize: 14,
-                  fontWeight: pw.FontWeight.bold,
-                  color: PdfColor.fromInt(0xFF333333),
-                ),
-              ),
-              pw.Text(
-                _formatCurrency(_getNetSalary(payroll)),
-                style: pw.TextStyle(
-                  fontSize: 18,
-                  fontWeight: pw.FontWeight.bold,
-                  color: PdfColor.fromInt(0xFF333333),
-                ),
-              ),
-            ],
-          ),
+        pw.Divider(color: _black, thickness: 0.5),
+        pw.SizedBox(height: 8),
+        pw.Text(
+          'This is a system generated payslip and does not require signature.',
+          style: _ts(8, italic: true, color: _textLight),
         ),
       ],
     );
   }
 
   // Helper methods
+  static String _safeText(dynamic value) {
+    final str = value?.toString().trim();
+    if (str == null || str.isEmpty) return '-';
+    return str;
+  }
+
   static String _formatCurrency(dynamic value) {
     final amount = double.tryParse(value?.toString() ?? '0') ?? 0;
     return 'Rs. ${NumberFormat("#,##0.00", "en_IN").format(amount)}';
@@ -555,26 +566,126 @@ class PayslipPdfBuilder {
 
   static String _getGrossSalary(Map<String, dynamic> payroll) {
     return payroll['grossSalary']?.toString() ??
-           payroll['grossEarnings']?.toString() ??
-           payroll['monthlySalary']?.toString() ??
-           '0';
+        payroll['grossEarnings']?.toString() ??
+        payroll['monthlySalary']?.toString() ??
+        '0';
   }
 
   static String _getNetSalary(Map<String, dynamic> payroll) {
     return payroll['netSalary']?.toString() ??
-           payroll['salary']?.toString() ??
-           payroll['finalSalary']?.toString() ??
-           '0';
+        payroll['salary']?.toString() ??
+        payroll['finalSalary']?.toString() ??
+        '0';
   }
 
-  static String _getPaymentStatus(Map<String, dynamic> payroll) {
-    final status = payroll['paymentStatus']?.toString() ??
-                   payroll['status']?.toString() ??
-                   (payroll['isPaid'] == true ? 'paid' : 'pending');
-    
-    // Normalize to title case
-    if (status.toLowerCase() == 'paid') return 'Paid';
-    if (status.toLowerCase() == 'pending') return 'Pending';
-    return status;
+  static String _amountToWords(double amount) {
+    final rupees = amount.truncate();
+    final paise = ((amount - rupees) * 100).round();
+
+    final rupeesStr = _convertNumberToWords(rupees);
+    final paiseStr = paise > 0 ? _convertNumberToWords(paise) : '';
+
+    String result = 'Rupees $rupeesStr';
+    if (paise > 0) {
+      result += ' and $paiseStr Paise';
+    }
+    result += ' Only';
+    return result;
   }
+
+  static String _convertNumberToWords(int n) {
+    if (n == 0) return 'Zero';
+
+    final ones = [
+      '',
+      'One',
+      'Two',
+      'Three',
+      'Four',
+      'Five',
+      'Six',
+      'Seven',
+      'Eight',
+      'Nine',
+      'Ten',
+      'Eleven',
+      'Twelve',
+      'Thirteen',
+      'Fourteen',
+      'Fifteen',
+      'Sixteen',
+      'Seventeen',
+      'Eighteen',
+      'Nineteen'
+    ];
+    final tens = [
+      '',
+      '',
+      'Twenty',
+      'Thirty',
+      'Forty',
+      'Fifty',
+      'Sixty',
+      'Seventy',
+      'Eighty',
+      'Ninety'
+    ];
+
+    String twoDigits(int num) {
+      if (num < 20) return ones[num];
+      return '${tens[num ~/ 10]} ${ones[num % 10]}'.trim();
+    }
+
+    String threeDigits(int num) {
+      final h = num ~/ 100;
+      final r = num % 100;
+      String result = '';
+      if (h > 0) result += '${ones[h]} Hundred';
+      if (r > 0) {
+        result += result.isNotEmpty ? ' ${twoDigits(r)}' : twoDigits(r);
+      }
+      return result;
+    }
+
+    String result = '';
+    final crore = n ~/ 10000000;
+    n %= 10000000;
+    final lakh = n ~/ 100000;
+    n %= 100000;
+    final thousand = n ~/ 1000;
+    n %= 1000;
+    final hundred = n;
+
+    if (crore > 0) {
+      result += '${threeDigits(crore)} Crore';
+    }
+    if (lakh > 0) {
+      result += result.isNotEmpty
+          ? ' ${threeDigits(lakh)} Lakh'
+          : '${threeDigits(lakh)} Lakh';
+    }
+    if (thousand > 0) {
+      result += result.isNotEmpty
+          ? ' ${threeDigits(thousand)} Thousand'
+          : '${threeDigits(thousand)} Thousand';
+    }
+    if (hundred > 0) {
+      result +=
+          result.isNotEmpty ? ' ${threeDigits(hundred)}' : threeDigits(hundred);
+    }
+
+    return result.trim();
+  }
+}
+
+class _InfoField {
+  final String label;
+  final String? value;
+  const _InfoField(this.label, this.value);
+}
+
+class _TableRow {
+  final String description;
+  final String amount;
+  const _TableRow(this.description, this.amount);
 }

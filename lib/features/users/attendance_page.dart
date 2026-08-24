@@ -197,7 +197,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final cachedCheckInTime = await _getCachedCheckInTime();
 
     if (cachedCheckInTime != null && _isCachedTimeForToday(cachedCheckInTime)) {
-      debugPrint('[Cache] Using cached check-in time: $cachedCheckInTime');
+      debugPrint('[Cache] Using cached check-in time');
 
       // Set check-in time from cache and start timer immediately
       _checkInTime = cachedCheckInTime;
@@ -356,8 +356,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final cacheKey = _getCheckInCacheKey();
     final checkInString = checkInTime.toIso8601String();
 
-    debugPrint(
-        '[Cache] Storing check-in time - Key: $cacheKey, Time: $checkInString');
+    debugPrint('[Cache] Storing check-in time');
     await prefs.setString(cacheKey, checkInString);
   }
 
@@ -370,8 +369,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (cachedString != null && cachedString.isNotEmpty) {
       try {
         final cachedTime = DateTime.parse(cachedString);
-        debugPrint(
-            '[Cache] Found cached check-in time - Key: $cacheKey, Time: $cachedTime');
+        debugPrint('[Cache] Found cached check-in time');
         return cachedTime;
       } catch (e) {
         debugPrint('[Cache] Error parsing cached time: $e');
@@ -379,7 +377,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         await prefs.remove(cacheKey);
       }
     } else {
-      debugPrint('[Cache] No cached check-in time found - Key: $cacheKey');
+      debugPrint('[Cache] No cached check-in time found');
     }
     return null;
   }
@@ -389,7 +387,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final prefs = await _prefs();
     final cacheKey = _getCheckInCacheKey();
 
-    debugPrint('[Cache] Clearing check-in time cache - Key: $cacheKey');
+    debugPrint('[Cache] Clearing check-in time cache');
     await prefs.remove(cacheKey);
   }
 
@@ -399,8 +397,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final isToday = cachedTime.year == today.year &&
         cachedTime.month == today.month &&
         cachedTime.day == today.day;
-    debugPrint(
-        '[Cache] Checking if cached time is for today: $cachedTime -> IsToday: $isToday');
+    debugPrint('[Cache] Checking if cached time is for today: $isToday');
     return isToday;
   }
 
@@ -647,7 +644,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         // User is checked in - apply check-in data and start timer
         _applyCheckedInFromServer(checkIn);
         await _saveCheckInToPrefs();
-        print("WORKING TIMER STARTED");
+        debugPrint('[Timer] Timer started');
         return;
       }
 
@@ -689,8 +686,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       final checkInDateTime = DateTime(now.year, now.month, now.day, parts[0],
           parts[1], parts.length > 2 ? parts[2] : 0);
 
-      debugPrint('[Attendance] API check-in time: $checkInDateTime');
-      debugPrint('[Attendance] Current time: $now');
+      debugPrint('[Attendance] Server check-in time received');
 
       // Check if server time is different from current check-in time
       final timeChanged = _checkInTime == null ||
@@ -2443,9 +2439,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final elapsedSeconds = now.difference(_checkInTime!).inSeconds;
     final startSeconds = elapsedSeconds > 0 ? elapsedSeconds : 0;
 
-    debugPrint('[Timer] Starting timer - Check-in time: $_checkInTime');
-    debugPrint('[Timer] Current time: $now');
-    debugPrint('[Timer] Elapsed seconds: $startSeconds');
+    debugPrint('[Timer] Timer started');
 
     setState(() {
       isTimerRunning = true;

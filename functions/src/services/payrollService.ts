@@ -87,13 +87,15 @@ export async function upsertPayrollPreservingPaymentState(
     if (existing?.calculationSource === 'manual') {
       const manualTotalAllowance = Number(existing.totalAllowance ?? 0);
       const manualGrossSalary = (calculatedPayroll.earnedBasic ?? calculatedPayroll.basicSalary ?? 0) + manualTotalAllowance;
-      const manualNetSalary = manualGrossSalary - (calculatedPayroll.lopDeduction ?? 0) - (calculatedPayroll.totalDeductions ?? 0);
+      const manualTotalDeductions = calculatedPayroll.totalDeductions ?? 0;
+      const manualNetSalary = manualGrossSalary - manualTotalDeductions;
       manualOverride.allowances = existing.allowances;
       manualOverride.totalAllowance = manualTotalAllowance;
       manualOverride.hra = Number(existing.hra ?? 0);
       manualOverride.otherAllowances = Number(existing.otherAllowances ?? 0);
       manualOverride.earnedAllowance = manualTotalAllowance;
       manualOverride.grossSalary = manualGrossSalary;
+      manualOverride.totalDeductions = manualTotalDeductions;
       manualOverride.netSalary = manualNetSalary;
       manualOverride.calculationSource = 'manual';
     }
@@ -1074,8 +1076,8 @@ export const calculateEmployeePayroll = async (params: {
   const earnedAllowance = totalAllowance;
 
   const grossSalary = earnedBasic + earnedAllowance;
-  const totalDeductions = 0; // preserve existing deductions handling (none available here)
-  const netSalary = grossSalary - lopDeduction - totalDeductions;
+  const totalDeductions = lopDeduction; // LOP is a deduction from gross earnings
+  const netSalary = grossSalary - totalDeductions;
 
   const calculationDurationMs = Date.now() - calculationStartedAt;
   if (requestTiming) requestTiming.calculationMs += calculationDurationMs;
@@ -1223,7 +1225,8 @@ export const updatePayroll = async (params: {
   const lopDeduction = perDaySalary * params.lopDays;
   const earnedBasic = Number(existing.earnedBasic ?? existing.basicSalary);
   const grossSalary = earnedBasic + totalAllowance;
-  const netSalary = grossSalary - lopDeduction - Number(existing.totalDeductions ?? 0);
+  const totalDeductions = lopDeduction;
+  const netSalary = grossSalary - totalDeductions;
 
   const updated: PayrollData = {
     ...existing,
@@ -1236,6 +1239,7 @@ export const updatePayroll = async (params: {
     earnedAllowance: totalAllowance,
     perDaySalary,
     lopDeduction,
+    totalDeductions,
     grossSalary,
     netSalary,
     calculationSource: 'manual',
@@ -1251,6 +1255,7 @@ export const updatePayroll = async (params: {
     earnedAllowance: updated.earnedAllowance,
     perDaySalary: updated.perDaySalary,
     lopDeduction: updated.lopDeduction,
+    totalDeductions: updated.totalDeductions,
     grossSalary: updated.grossSalary,
     netSalary: updated.netSalary,
     calculationSource: 'manual',

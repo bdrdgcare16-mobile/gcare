@@ -827,6 +827,27 @@ class ApiService {
         : <String, dynamic>{'success': true, 'data': body};
   }
 
+  static Future<Map<String, dynamic>?> fetchOnboardingByEmpId(
+    String empid,
+  ) async {
+    final res = await get('/onboarding/by-empid/$empid');
+
+    if (res.statusCode == 404) return null;
+
+    if (!_ok(res)) {
+      throw Exception(
+        'Failed to fetch onboarding (${res.statusCode})',
+      );
+    }
+
+    final body = jsonDecode(res.body);
+    if (body is Map && body['success'] == true && body['data'] is Map) {
+      return Map<String, dynamic>.from(body['data'] as Map);
+    }
+
+    return null;
+  }
+
   // legacy payroll helper removed; use `decideApproval` and `leavePayType`.
 }
 
