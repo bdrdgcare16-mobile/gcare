@@ -983,7 +983,7 @@ class _LiveAttendancePageState extends State<LiveAttendancePage>
           crossAxisCount: 2,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
-          childAspectRatio: 1.28,
+          childAspectRatio: 1.1,
         ),
         itemBuilder: (_, i) => _aCard(items[i]),
       ),

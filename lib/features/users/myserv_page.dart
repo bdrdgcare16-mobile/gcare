@@ -7,6 +7,7 @@ import 'package:serv_app/features/users/events_page.dart';
 import 'package:serv_app/features/users/my_rewards_page.dart';
 import 'package:serv_app/features/users/types_of_request_page.dart';
 import 'package:serv_app/features/users/employee_payslip_page.dart';
+import 'package:serv_app/features/users/my_disciplinary_actions_page.dart';
 
 // Theme colors (unchanged)
 const Color kPrimaryBackgroundTop    = Color(0xFFFFFFFF);
@@ -97,6 +98,15 @@ class MyServPage extends StatelessWidget {
         onTap: () {
           if (!context.mounted) return;
           Navigator.push(context, MaterialPageRoute(builder: (_) => const EmployeePayslipPage()));
+        },
+      ),
+      _ServItemData(
+        imagePath: 'assets/images/myrequest.png',
+        label: 'Disciplinary Actions',
+        iconBg: const Color(0xFFE6DEF0),
+        onTap: () {
+          if (!context.mounted) return;
+          Navigator.push(context, MaterialPageRoute(builder: (_) => const MyDisciplinaryActionsPage()));
         },
       ),
     ];

@@ -4,6 +4,7 @@ import 'package:serv_app/services/super_admin_onboarding_service_new.dart';
 import 'package:serv_app/utils/logout.dart';
 
 import 'super_admin_onboarding_detail_page.dart';
+import 'super_admin_disciplinary_actions_page.dart';
 
 class SuperAdminOnboardingPage extends StatefulWidget {
   const SuperAdminOnboardingPage({super.key});
@@ -685,6 +686,18 @@ class _SuperAdminOnboardingPageState
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
+          IconButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const SuperAdminDisciplinaryActionsPage(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.assignment_late),
+            tooltip: 'Disciplinary Actions',
+          ),
           IconButton(
             onPressed: () {
               logout(context);

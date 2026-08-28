@@ -11,7 +11,10 @@ export type NotificationType =
   | 'HALF_DAY_REQUEST'
   | 'COMP_OFF_REQUEST'
   | 'REQUEST_APPROVED'
-  | 'REQUEST_REJECTED';
+  | 'REQUEST_REJECTED'
+  | 'DISCIPLINARY_ACTION_SUBMITTED'
+  | 'DISCIPLINARY_ACTION_APPROVED'
+  | 'DISCIPLINARY_ACTION_REJECTED';
 
 interface CreateAndSendParams {
   companyId: string;
@@ -239,6 +242,32 @@ export async function getCompanyAdmins(
  * Send notification to all company admins when an employee submits a request.
  * Never throws - notification failures should not block request creation.
  */
+/**
+ * Fetch all super_admin users across companies.
+ * Used to notify super admins of new company-scoped review items.
+ */
+export async function getSuperAdmins(): Promise<
+  Array<{ userId: string; empid: string | null }>
+> {
+  try {
+    const superSnap = await db
+      .collection(COLLECTIONS.USERS)
+      .where('role', '==', 'super_admin')
+      .get();
+
+    return superSnap.docs.map((doc) => ({
+      userId: doc.id,
+      empid: doc.data().empid || null,
+    }));
+  } catch (err: any) {
+    console.error(
+      '[NotificationService] getSuperAdmins error:',
+      err?.message || String(err)
+    );
+    return [];
+  }
+}
+
 export async function notifyCompanyAdminsOfRequest(params: {
   companyId: string;
   requestType: string;

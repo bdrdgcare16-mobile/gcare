@@ -28,10 +28,28 @@ return isSignedIn()
 && request.auth.token.role == 'admin';
 }
 
+function isSuperAdmin() {
+return isSignedIn()
+&& request.auth != null
+&& request.auth.token.role == 'super_admin';
+}
+
 function isEmployee() {
 return isSignedIn()
 && request.auth != null
 && request.auth.token.role == 'employee';
+}
+
+function isAdminOrSuperAdmin() {
+return isSignedIn()
+&& request.auth != null
+&& (request.auth.token.role == 'admin' || request.auth.token.role == 'super_admin');
+}
+
+function sameDisciplinaryEmployee(resourceData) {
+return isEmployee()
+&& resourceData.employeeUid == request.auth.uid
+&& sameCompany(resourceData);
 }
 
 function sameEmployee(resourceData) {
@@ -78,6 +96,44 @@ match /otherLocation/{docId} {
 allow read: if sameCompany(resource.data);
 allow create: if sameCompanyOnCreate();
 allow update, delete: if sameCompany(resource.data);
+}
+
+match /disciplinaryActions/{docId} {
+// Employee can only read their own approved record.
+allow read: if isEmployee()
+&& sameDisciplinaryEmployee(resource.data)
+&& resource.data.status == 'approved';
+
+// Admin can read records for their own company.
+allow read: if isAdmin() && sameCompany(resource.data);
+
+// Super Admin can read all records for review.
+allow read: if isSuperAdmin();
+
+// Admin can create a new record for their own company.
+// Employee ownership and employee existence are validated by the backend.
+allow create: if isAdmin()
+&& sameCompanyOnCreate()
+&& request.resource.data.employeeUid is string
+&& request.resource.data.employeeUid != '';
+
+// Admin can update records in their company that are not yet approved,
+// and they cannot set the status to approved or rejected.
+allow update: if isAdmin()
+&& sameCompany(resource.data)
+&& resource.data.status != 'approved'
+&& request.resource.data.status != 'approved'
+&& request.resource.data.status != 'rejected';
+
+// Super Admin can only update to approve or reject a pending record.
+allow update: if isSuperAdmin()
+&& resource.data.status == 'pending'
+&& (request.resource.data.status == 'approved'
+|| request.resource.data.status == 'rejected');
+
+// No hard deletion by anyone except super_admin in emergencies.
+// Keep audit trail; soft-close is preferred.
+allow delete: if false;
 }
 
 match /{document=**} {

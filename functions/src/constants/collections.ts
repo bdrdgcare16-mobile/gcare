@@ -7,4 +7,5 @@ export const COLLECTIONS = {
   EVENTS: "events",
   DEVICE_REGISTRATIONS: "deviceRegistrations",
   NOTIFICATIONS: "notifications",
+  DISCIPLINARY_ACTIONS: "disciplinaryActions",
 } as const;

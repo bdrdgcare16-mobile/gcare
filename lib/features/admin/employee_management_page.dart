@@ -32,6 +32,7 @@ class Employee {
   final String location;
   final String dept;
   final String designation;
+  final String? reportingManager;
   final String status;
   final String shiftGroup;
   final String? docId;
@@ -47,6 +48,7 @@ class Employee {
     required this.location,
     required this.dept,
     required this.designation,
+    this.reportingManager,
     required this.status,
     required this.shiftGroup,
     this.docId,
@@ -65,6 +67,7 @@ class Employee {
       location: (j['location'] ?? '').toString(),
       dept: (j['dept'] ?? '').toString(),
       designation: (j['designation'] ?? '').toString(),
+      reportingManager: (j['reportingManager'] ?? j['reporting_manager'])?.toString(),
       shiftGroup: (j['shiftGroup'] ?? '').toString(),
       status: ((j['status'] ?? 'active').toString().toLowerCase() == 'active')
           ? 'Active'
