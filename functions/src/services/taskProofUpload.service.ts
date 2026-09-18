@@ -1,4 +1,4 @@
-import { bucket } from '../config/firebase';
+import { getBucket } from '../config/firebase';
 
 /**
  * Uploads a task proof file to Firebase Storage.
@@ -13,7 +13,7 @@ export const uploadTaskProofToFirebase = async (
   taskId: string
 ): Promise<string> => {
   const filePath = `task-proofs/${taskId}/${Date.now()}-${file.originalname}`;
-  const fileRef = bucket.file(filePath);
+  const fileRef = getBucket().file(filePath);
 
   console.log('[TaskProofUpload] Uploading file to Firebase Storage:', {
     filePath,
@@ -42,7 +42,7 @@ export const uploadTaskProofToFirebase = async (
  * @returns A signed URL valid for 15 minutes
  */
 export const getTaskProofSignedUrl = async (filePath: string): Promise<string> => {
-  const [signedUrl] = await bucket
+  const [signedUrl] = await getBucket()
     .file(filePath)
     .getSignedUrl({
       action: 'read',

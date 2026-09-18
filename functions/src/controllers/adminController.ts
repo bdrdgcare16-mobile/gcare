@@ -1,7 +1,7 @@
 // functions/src/controllers/adminController.ts
 import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
-import { db } from '../config/firebase';
+import { getDb } from '../config/firebase';
 import { trackUsage } from '../services/usageService';
 const USERS = "users"; // ← change if your collection name is different
 
@@ -34,7 +34,7 @@ export async function createAdmin(req: Request, res: Response) {
     }
 
     // check duplicate
-    const snap = await db.collection(USERS).where("email", "==", email.toLowerCase()).limit(1).get();
+    const snap = await getDb().collection(USERS).where("email", "==", email.toLowerCase()).limit(1).get();
     if (!snap.empty) {
       return res.status(409).json({ error: "user already exists" });
     }
@@ -48,7 +48,7 @@ export async function createAdmin(req: Request, res: Response) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    const ref = await db.collection(USERS).add(doc);
+    const ref = await getDb().collection(USERS).add(doc);
 
     // Track usage after successful admin creation
     await trackAdminUsage(req, {
@@ -69,7 +69,7 @@ export async function promoteToAdmin(req: Request, res: Response) {
     const { email } = req.body || {};
     if (!email) return res.status(400).json({ error: "email is required" });
 
-    const q = await db.collection(USERS).where("email", "==", email.toLowerCase()).limit(1).get();
+    const q = await getDb().collection(USERS).where("email", "==", email.toLowerCase()).limit(1).get();
     if (q.empty) return res.status(404).json({ error: "user not found" });
 
     const docRef = q.docs[0].ref;

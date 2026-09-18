@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { db } from '../config/firebase';
+import { getDb } from '../config/firebase';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { trackUsage } from '../services/usageService';
 import { notifyCompanyAdminsOfRequest } from '../services/notification.service';
@@ -289,7 +289,7 @@ export const createLeaveRequest = async (req: Request, res: Response): Promise<R
 
     let empName = '';
 
-    const empSnap = await db
+    const empSnap = await getDb()
       .collection('employees')
       .where('companyId', '==', companyId)
       .where('empid', '==', currentUser.empid)
@@ -302,7 +302,7 @@ export const createLeaveRequest = async (req: Request, res: Response): Promise<R
     }
 
     if (!empName) {
-      const usr = await db.collection('users').doc(currentUser.userId).get();
+      const usr = await getDb().collection('users').doc(currentUser.userId).get();
       if (usr.exists) {
         const u = usr.data() as any;
         if (u?.companyId === companyId) {
@@ -319,7 +319,7 @@ export const createLeaveRequest = async (req: Request, res: Response): Promise<R
     const payload = norm.data!;
 
     if (payload.leaveType !== 'Overtime' && payload.leaveType !== 'Permission Time') {
-      const existing = await db.collection('leaves')
+      const existing = await getDb().collection('leaves')
         .where('companyId', '==', companyId)
         .where('userId', '==', currentUser.userId)
         .where('status', 'in', ['Pending', 'Approved'])
@@ -342,7 +342,7 @@ export const createLeaveRequest = async (req: Request, res: Response): Promise<R
       }
     }
 
-    const ref = await db.collection('leaves').add(payload);
+    const ref = await getDb().collection('leaves').add(payload);
     const snap = await ref.get();
 
     // Track usage after successful leave creation
@@ -402,7 +402,7 @@ export const getAllLeaveRequests = async (req: Request, res: Response): Promise<
       return res.status(403).json({ error: 'Unauthorized to view these leave requests' });
     }
 
-    let q: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = db
+    let q: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = getDb()
       .collection('leaves')
       .where('companyId', '==', companyId);
 
@@ -469,7 +469,7 @@ export const getPendingLeaves = async (req: Request, res: Response): Promise<Res
 
     const t = req.query.type ? String(req.query.type) : undefined;
 
-    let q: FirebaseFirestore.Query = db
+    let q: FirebaseFirestore.Query = getDb()
       .collection('leaves')
       .where('companyId', '==', companyId)
       .where('status', '==', 'Pending');
@@ -514,7 +514,7 @@ export const getLeaveBalance = async (req: Request, res: Response): Promise<Resp
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const empSnap = await db
+    const empSnap = await getDb()
       .collection('employees')
       .where('companyId', '==', companyId)
       .where('empid', '==', currentUser.empid)
@@ -548,7 +548,7 @@ export const getLeaveBalance = async (req: Request, res: Response): Promise<Resp
 };
 
 export function getLeaveRequestById(id: string) {
-  return db.collection('leaves').doc(id).get();
+  return getDb().collection('leaves').doc(id).get();
 }
 
 export const updateLeaveStatus = async (req: Request, res: Response): Promise<Response> => {
@@ -570,7 +570,7 @@ export const updateLeaveStatus = async (req: Request, res: Response): Promise<Re
       return res.status(400).json({ error: 'Invalid status' });
     }
 
-    const leaveRef = db.collection('leaves').doc(id);
+    const leaveRef = getDb().collection('leaves').doc(id);
     const leaveDoc = await leaveRef.get();
 
     if (!leaveDoc.exists) {
@@ -654,7 +654,7 @@ export const cancelLeaveRequest = async (req: Request, res: Response): Promise<R
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const leaveRef = db.collection('leaves').doc(id);
+    const leaveRef = getDb().collection('leaves').doc(id);
     const leaveDoc = await leaveRef.get();
 
     if (!leaveDoc.exists) {
@@ -712,7 +712,7 @@ export const deleteLeave = async (req: Request, res: Response): Promise<Response
       return res.status(403).json({ error: 'Only admin can delete leave requests' });
     }
 
-    const leaveRef = db.collection('leaves').doc(id);
+    const leaveRef = getDb().collection('leaves').doc(id);
     const leaveDoc = await leaveRef.get();
 
     if (!leaveDoc.exists) {

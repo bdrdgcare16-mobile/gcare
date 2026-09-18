@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { db } from '../config/firebase';
+import { getDb } from '../config/firebase';
 import { FieldValue } from 'firebase-admin/firestore';
 
 export type AuthUser = {
@@ -101,7 +101,7 @@ export async function trackingCheckIn(req: Request, res: Response) {
     const id = docId(empid, dateIso);
     const now = new Date().toISOString();
 
-    const ref = db.collection(COL).doc(id);
+    const ref = getDb().collection(COL).doc(id);
 
     const data: TrackDayDoc = {
       id,
@@ -136,10 +136,10 @@ export async function trackingAppendPos(req: Request, res: Response) {
     let rejectReasonForResponse = '';
 
 
-    const ref = db.collection(COL).doc(id);
+    const ref = getDb().collection(COL).doc(id);
 
     let accepted = false;
-    await db.runTransaction(async (tx) => {
+    await getDb().runTransaction(async (tx) => {
       const snap = await tx.get(ref);
 
 
@@ -231,7 +231,7 @@ export async function trackingCheckOut(req: Request, res: Response) {
     const empid = pickEmpId(req);
     const dateIso = dateFromReq(req);
     const id = docId(empid, dateIso);
-    const ref = db.collection(COL).doc(id);
+    const ref = getDb().collection(COL).doc(id);
 
 
     const now = new Date().toISOString();
@@ -270,7 +270,7 @@ export async function trackingGetDay(req: Request, res: Response) {
     const id = docId(empid, dateIso);
 
 
-    const snap = await db.collection(COL).doc(id).get();
+    const snap = await getDb().collection(COL).doc(id).get();
     
     if (!snap.exists) {
       console.log('[TrackingController] getDay - Document not found, returning empty data');
@@ -325,7 +325,7 @@ export async function trackingAddEvent(req: Request, res: Response) {
     };
 
 
-    const ref = db.collection(COL).doc(id);
+    const ref = getDb().collection(COL).doc(id);
     
     // First ensure the document exists
     const snap = await ref.get();

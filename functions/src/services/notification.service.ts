@@ -1,5 +1,5 @@
 import { FieldValue } from 'firebase-admin/firestore';
-import { db, messaging } from '../config/firebase';
+import { getDb, getAdminMessaging } from '../config/firebase';
 import { COLLECTIONS } from '../constants/collections';
 
 export type NotificationType =
@@ -44,7 +44,7 @@ export async function resolveUserIdByEmpid(
 ): Promise<string | null> {
   if (!companyId || !empid) return null;
 
-  const snap = await db
+  const snap = await getDb()
     .collection(COLLECTIONS.USERS)
     .where('companyId', '==', companyId)
     .where('empid', '==', empid)
@@ -76,7 +76,7 @@ export async function createAndSend(
     data,
   } = params;
 
-  const notifRef = db.collection(COLLECTIONS.NOTIFICATIONS).doc();
+  const notifRef = getDb().collection(COLLECTIONS.NOTIFICATIONS).doc();
   const notificationId = notifRef.id;
 
   await notifRef.set({
@@ -96,7 +96,7 @@ export async function createAndSend(
 
   try {
     // Multi-company isolation: only devices for this company + this user.
-    const deviceSnap = await db
+    const deviceSnap = await getDb()
       .collection(COLLECTIONS.DEVICE_REGISTRATIONS)
       .where('companyId', '==', companyId)
       .where('userId', '==', recipientUserId)
@@ -124,7 +124,7 @@ export async function createAndSend(
       return { notificationId, sent: 0, failed: 0 };
     }
 
-    const response = await messaging.sendEachForMulticast({
+    const response = await getAdminMessaging().sendEachForMulticast({
       notification: { title, body },
       data: {
         type,
@@ -211,7 +211,7 @@ export async function getCompanyAdmins(
   if (!companyId) return [];
 
   try {
-    const adminSnap = await db
+    const adminSnap = await getDb()
       .collection(COLLECTIONS.USERS)
       .where('companyId', '==', companyId)
       .where('role', 'in', ['admin', 'super_admin'])

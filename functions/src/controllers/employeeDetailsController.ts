@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { db } from '../config/firebase';
+import { getDb } from '../config/firebase';
 
 
 /* ------------------------- small utils ------------------------- */
@@ -34,16 +34,16 @@ const haversine = (a: { lat: number; lng: number }, b: { lat: number; lng: numbe
 
 /* --------------------- fetch helpers (Firestore) --------------------- */
 async function getAttendanceById(id: string) {
-  const snap = await db.collection('attendance').doc(id).get();
+  const snap = await getDb().collection('attendance').doc(id).get();
   return snap.exists ? { id: snap.id, ...snap.data() } : null;
 }
 async function getOtherLocById(id: string) {
-  const snap = await db.collection('otherLocation').doc(id).get();
+  const snap = await getDb().collection('otherLocation').doc(id).get();
   return snap.exists ? { id: snap.id, ...snap.data() } : null;
 }
 
 async function getAttendanceByEmpDate(empid: string, date: string) {
-  const q = await db
+  const q = await getDb()
     .collection('attendance')
     .where('empid', '==', empid)
     .where('date', '==', date)
@@ -55,7 +55,7 @@ async function getAttendanceByEmpDate(empid: string, date: string) {
 }
 
 async function getOtherLocByEmpDate(empid: string, date: string) {
-  const q = await db
+  const q = await getDb()
     .collection('otherLocation')
     .where('empid', '==', empid)
     .where('date', '==', date)

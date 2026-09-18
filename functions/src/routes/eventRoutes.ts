@@ -7,14 +7,15 @@ import {
   deleteEvent
 } from '../controllers/eventController';
 import { authMiddleware } from '../middlewares/authMiddleware';
+import { getDb } from '../config/firebase';
 // import { roleMiddleware } from '../middlewares/roleMiddleware'; // optional if you already have this
 
-export default function eventRoutes(db: FirebaseFirestore.Firestore) {
+export default function eventRoutes() {
   const router = Router();
 
   // Make Firestore available on req.app.locals.db
   router.use((req: Request, _res: Response, next: NextFunction) => {
-    (req.app.locals as any).db = db;
+    (req.app.locals as any).db = getDb();
     next();
   });
 

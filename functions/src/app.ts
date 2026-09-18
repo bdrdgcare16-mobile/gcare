@@ -176,12 +176,16 @@ import onboardingRoutes from "./routes/onboarding.routes";
 import notificationRoutes from "./routes/notificationRoutes";
 
 import * as authController from "./controllers/authController";
-import { db } from "./config/firebase";
 
 const app = express();
 
-// Trust proxy for proper IP detection behind Firebase/Cloud Run
-app.set("trust proxy", 1);
+// Trust one proxy in production (Firebase/Cloud Run); use the direct
+// connection IP in the Functions emulator so req.socket.remoteAddress
+// is available and X-Forwarded-For is not blindly trusted.
+app.set(
+  "trust proxy",
+  process.env.FUNCTIONS_EMULATOR === "true" ? false : 1
+);
 
 // ---------------- CORS Middleware ----------------
 // This allows:
@@ -276,8 +280,8 @@ app.use("/api/office", generalRateLimit, officeLocationRoutes);
 app.use("/api/uploads", uploadRateLimit, uploadRoutes);
 app.use("/api/reports", generalRateLimit, reportRoutes);
 app.use("/api/rewards", generalRateLimit, rewardRoutes);
-app.use("/api/events", generalRateLimit, eventRoutes(db));
-app.use("/api/feedback", generalRateLimit, feedbackRoutes(db));
+app.use("/api/events", generalRateLimit, eventRoutes());
+app.use("/api/feedback", generalRateLimit, feedbackRoutes());
 app.use("/api/shifts", generalRateLimit, shiftRoutes);
 app.use("/api/tasks", generalRateLimit, taskRoutes);
 app.use("/api/tracking", trackingRateLimit, trackingRoutes);

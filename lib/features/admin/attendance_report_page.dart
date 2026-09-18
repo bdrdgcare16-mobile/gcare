@@ -118,7 +118,7 @@ class _AttendanceReportScreenState extends State<AttendanceReportScreen> {
       _allRecords = rows.map<AttendanceRecord>((r) {
         final m = r as Map<String, dynamic>;
         return AttendanceRecord(
-          employeeId: (m['employeeId'] ?? '').toString(),
+          employeeId: (m['employeeId'] ?? m['empid'] ?? m['empId'] ?? '').toString(),
           employeeName: (m['employeeName'] ?? '').toString(),
           shift: (m['shift'] ?? '').toString(),
           date: (m['date'] ?? '').toString(),
@@ -226,12 +226,12 @@ class _AttendanceReportScreenState extends State<AttendanceReportScreen> {
       if (query.isEmpty) {
         _filteredRecords = base;
       } else {
-        final q = query.toLowerCase();
+        final q = query.trim().toLowerCase();
         _filteredRecords = base
             .where((r) =>
-                r.employeeName.toLowerCase().contains(q) ||
-                r.employeeId.toLowerCase().contains(q) ||
-                r.department.toLowerCase().contains(q))
+                r.employeeName.trim().toLowerCase().contains(q) ||
+                r.employeeId.trim().toLowerCase().contains(q) ||
+                r.department.trim().toLowerCase().contains(q))
             .toList();
       }
     });

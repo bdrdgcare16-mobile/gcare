@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { createFeedback, getAllFeedback } from '../controllers/feedbackController';
-import type { Firestore } from 'firebase-admin/firestore';
+import { getDb } from '../config/firebase';
 import { authMiddleware } from '../middlewares/authMiddleware';
 
 /**
@@ -32,11 +32,11 @@ import { authMiddleware } from '../middlewares/authMiddleware';
  *           format: date-time
  */
 
-export default function feedbackRoutes(db: Firestore) {
+export default function feedbackRoutes() {
   const router = Router();
 
   router.use((req: Request, _res: Response, next: NextFunction) => {
-    req.app.locals.db = db;
+    req.app.locals.db = getDb();
     next();
   });
 

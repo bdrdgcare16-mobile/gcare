@@ -13,7 +13,9 @@ build/
 **/flutter_export_environment.sh
 **/Flutter/ephemeral/
 **/Generated.xcconfig
-
+functions/.env
+functions/.env.*
+functions/.secret*
 # =========================
 # Android
 # =========================
@@ -60,8 +62,14 @@ ui-debug.log
 .env.*
 functions/.env
 functions/.env.*
+functions/.secret*
 serviceAccountKey.json
 functions/serviceAccountKey.json
+**/serviceAccountKey.json
+*-service-account.json
+**/*-service-account.json
+*-firebase-adminsdk*.json
+**/*-firebase-adminsdk*.json
 *.jks
 *.keystore
 *.pem

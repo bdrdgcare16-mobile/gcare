@@ -1,5 +1,5 @@
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
-import { db } from "../config/firebase";
+import { getDb } from "../config/firebase";
 import { FieldValue } from "firebase-admin/firestore";
 
 /**
@@ -26,7 +26,7 @@ export const attendanceTrackingTrigger = onDocumentWritten(
     const hadCheckOut = !!(before?.checkOut === true || (typeof before?.checkOut === "string" && before.checkOut));
     const hasCheckOut = !!(after.checkOut === true || (typeof after.checkOut === "string" && after.checkOut));
 
-    const dayRef = db.collection("tracking").doc(`${empId}_${dateIso}`);
+    const dayRef = getDb().collection("tracking").doc(`${empId}_${dateIso}`);
 
     // 1) When check-in first appears -> start tracking (do NOT clear pathMap)
     if (!hadCheckIn && hasCheckIn) {

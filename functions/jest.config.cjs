@@ -7,4 +7,5 @@ module.exports = {
   },
   testMatch: ['**/?(*.)+(spec|test).[jt]s?(x)'],
   collectCoverage: false,
+  testTimeout: 30000,
 };

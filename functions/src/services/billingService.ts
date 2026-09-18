@@ -1,7 +1,7 @@
-import { db } from '../config/firebase';
+import { getDb } from '../config/firebase';
 
 export async function generateMonthlyBilling(month: string) {
-  const usageSnap = await db.collection('usage').where('month', '==', month).get();
+  const usageSnap = await getDb().collection('usage').where('month', '==', month).get();
 
   for (const doc of usageSnap.docs) {
     const data = doc.data();
@@ -17,7 +17,7 @@ export async function generateMonthlyBilling(month: string) {
 
     const totalAmount = baseAmount + extraAmount;
 
-    await db.collection('billing').doc(`${data.companyId}_${month}`).set({
+    await getDb().collection('billing').doc(`${data.companyId}_${month}`).set({
       companyId: data.companyId,
       companyName: data.companyName,
       month,

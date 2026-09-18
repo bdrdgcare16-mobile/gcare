@@ -1,0 +1,38 @@
+# .firebaseignore – controls what is uploaded during firebase deploy
+# Reference: https://firebase.google.com/docs/cli#ignore
+
+# Service account keys – NEVER deploy private keys
+serviceAccountKey.json
+**/serviceAccountKey.json
+*-service-account.json
+**/*-service-account.json
+*-firebase-adminsdk*.json
+**/*-firebase-adminsdk*.json
+
+# Environment files – contain secrets, never deploy via source upload
+functions/.env
+functions/.env.*
+functions/.secret*
+
+# Flutter / app source (not needed by Cloud Functions)
+lib/
+android/
+ios/
+web/
+test/
+assets/
+pubspec.yaml
+pubspec.lock
+
+# Git / IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Misc
+*.md
+README*
+firebase.json
+firestore.rules
+firestore.indexes.json

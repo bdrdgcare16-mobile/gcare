@@ -1,6 +1,6 @@
 // controllers/reportController.ts
 import { Request, Response } from 'express';
-import { db } from '../config/firebase';
+import { getDb } from '../config/firebase';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { trackUsage } from '../services/usageService';
 
@@ -47,7 +47,7 @@ export const createSchedule = async (req: Request, res: Response): Promise<Respo
       return res.status(400).json({ message: 'All fields are required.' });
     }
 
-    const docRef = await db.collection(REPORTS).add({
+    const docRef = await getDb().collection(REPORTS).add({
       name,
       reportType,
       templateId,
@@ -72,7 +72,7 @@ export const createSchedule = async (req: Request, res: Response): Promise<Respo
 /** List all schedules */
 export const listSchedules = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const snap = await db.collection(REPORTS).orderBy('createdAt', 'desc').get();
+    const snap = await getDb().collection(REPORTS).orderBy('createdAt', 'desc').get();
 
     const data = snap.docs.map((d) => {
       const raw = d.data() as any;
@@ -101,7 +101,7 @@ export const listSchedules = async (req: Request, res: Response): Promise<Respon
 export const deleteSchedule = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { id } = req.params;
-    await db.collection(REPORTS).doc(id).delete();
+    await getDb().collection(REPORTS).doc(id).delete();
 
     // Track usage after successful schedule deletion
     await trackReportUsage(req, {
@@ -120,7 +120,7 @@ export const deleteSchedule = async (req: Request, res: Response): Promise<Respo
 export const runNow = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { id } = req.params;
-    const doc = await db.collection(REPORTS).doc(id).get();
+    const doc = await getDb().collection(REPORTS).doc(id).get();
     if (!doc.exists) return res.status(404).json({ message: 'Not found.' });
 
     // TODO: integrate with your report service if/when needed.

@@ -351,6 +351,9 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
           'Approvals loaded: type=$selectedTab, status=$selectedStatusFilter, '
           'page=$_currentPage, limit=$_pageSize, items=${newItems.length}, '
           'total=${pagination['total']}, hasMore=${pagination['hasMore']}, '
+          'pendingCount=${totals['Pending'] ?? '-'}, '
+          'approvedCount=${totals['Approved'] ?? '-'}, '
+          'rejectedCount=${totals['Rejected'] ?? '-'}, '
           'backendMs=$backendMs, frontendMs=${DateTime.now().difference(startTime).inMilliseconds}',
         );
       }
@@ -377,12 +380,20 @@ class _LeaveApprovalsScreenState extends State<LeaveApprovalsScreen> {
           _cPending = totals['Pending'] ?? _cPending;
           _cApproved = totals['Approved'] ?? _cApproved;
           _cRejected = totals['Rejected'] ?? _cRejected;
-          debugPrint('[LEAVE_APPROVAL] Approval counts loaded');
+          debugPrint(
+            '[LEAVE_APPROVAL] Counts from totals - '
+            'Pending: $_cPending, Approved: $_cApproved, Rejected: $_cRejected',
+          );
         } else {
           final total = (pagination['total'] as num?)?.toInt() ?? _rows.length;
           if (selectedStatusFilter == 'Pending') _cPending = total;
           if (selectedStatusFilter == 'Approved') _cApproved = total;
           if (selectedStatusFilter == 'Rejected') _cRejected = total;
+          debugPrint(
+            '[LEAVE_APPROVAL] Counts from pagination total - '
+            'Pending: $_cPending, Approved: $_cApproved, Rejected: $_cRejected '
+            '(selectedStatus=$selectedStatusFilter, total=$total)',
+          );
         }
       });
 

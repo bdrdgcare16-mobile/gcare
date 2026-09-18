@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { db } from '../config/firebase';
+import { getDb } from '../config/firebase';
 import { distanceMeters } from '../utils/geo';
 
 type AttDoc = {
@@ -42,14 +42,14 @@ export async function liveEmployeeDetails(req: Request, res: Response) {
 
     const dateIso = pickDate(req);
 
-    const attendanceSnap = await db
+    const attendanceSnap = await getDb()
       .collection('attendance')
       .where('empid', '==', empid)
       .where('date', '==', dateIso)
       .limit(1)
       .get();
 
-    const employeeSnap = await db
+    const employeeSnap = await getDb()
       .collection('employees')
       .where('empid', '==', empid)
       .limit(1)

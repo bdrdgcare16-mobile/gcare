@@ -1,4 +1,3 @@
-// lib/Pagesusers/my_tasks_page.dart
 import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -13,7 +12,6 @@ void _log(Object msg) {
   }
 }
 
-final String _apiBase = ApiService.baseUrl;
 
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
 const Color kPrimaryBackgroundBottom = Color(0xFFD1C4E9);
@@ -34,6 +32,7 @@ class _TaskItem {
   final String? assignedTo; // empid when audience='employee'
   final String? dueDate; // ISO or yyyy-MM-dd
   final String? createdAt; // ISO string
+  final String? assignedAt; // ISO string (real assignment timestamp)
   final String? createdBy; // uid/userId
   final String? kind; // "Task" | "DailyUpdate" | etc.
   final String status; // "assigned" | "completed" | "in_progress"
@@ -50,12 +49,19 @@ class _TaskItem {
     this.assignedTo,
     this.dueDate,
     this.createdAt,
+    this.assignedAt,
     this.createdBy,
     this.kind,
     this.completedAt,
     this.completionNote,
     this.proofFileUrl,
   });
+
+  /// Real assignment timestamp from `taskAssignments.assignedAt`, falling back
+  /// to the task creation timestamp for legacy tasks. Never derived from
+  /// the due date.
+  String? get assignedDate =>
+      (assignedAt ?? '').trim().isNotEmpty ? assignedAt : createdAt;
 
   factory _TaskItem.fromJson(Map<String, dynamic> j) => _TaskItem(
         id: (j['id'] ?? '').toString(),
@@ -66,6 +72,7 @@ class _TaskItem {
         assignedTo: j['assignedTo']?.toString(),
         dueDate: j['dueDate']?.toString(),
         createdAt: j['createdAt']?.toString(),
+        assignedAt: j['assignedAt']?.toString(),
         createdBy: j['createdBy']?.toString(),
         kind: j['kind']?.toString(),
         completedAt: j['completedAt']?.toString(),
@@ -87,6 +94,7 @@ class _MyTasksPageState extends State<MyTasksPage>
   bool _isFetching = false;
   List<_TaskItem> _tasks = [];
   bool _posting = false;
+  final Set<String> _expandedRows = <String>{};
   late TabController _tabController;
 
   @override
@@ -122,20 +130,7 @@ class _MyTasksPageState extends State<MyTasksPage>
     final uri =
         Uri.parse('${ApiService.baseUrl}/tasks/user?status=$status&limit=50');
 
-    final token = CompanyData.token ?? '';
-
-    // Extract role and companyId from profile data
-    String? role = '';
-    String? companyId = '';
-    try {
-      if (CompanyData.employeeProfile != null) {
-        final profile = CompanyData.employeeProfile as Map<String, dynamic>?;
-        role = profile?['role']?.toString() ?? '';
-        companyId = profile?['companyId']?.toString() ?? '';
-      }
-    } catch (e) {
-      _log('[MyTasks] Error extracting profile data');
-    }
+    final token = CompanyData.token;
 
     try {
       final resp = await http.get(
@@ -154,10 +149,22 @@ class _MyTasksPageState extends State<MyTasksPage>
             .map((e) => _TaskItem.fromJson(e as Map<String, dynamic>))
             .toList();
 
+        // Hide self-posted daily updates; they are not actionable tasks.
+        out.removeWhere((t) =>
+            (t.kind ?? '').toLowerCase().replaceAll(' ', '') == 'dailyupdate');
+
+        // Completed tab sorts by completed date; assigned tab by assigned date.
         out.sort((a, b) {
-          final ad = DateTime.tryParse(a.createdAt ?? '') ??
+          if (status == 'completed') {
+            final ad = DateTime.tryParse(a.completedAt ?? '') ??
+                DateTime.fromMillisecondsSinceEpoch(0);
+            final bd = DateTime.tryParse(b.completedAt ?? '') ??
+                DateTime.fromMillisecondsSinceEpoch(0);
+            return bd.compareTo(ad);
+          }
+          final ad = DateTime.tryParse(a.assignedDate ?? '') ??
               DateTime.fromMillisecondsSinceEpoch(0);
-          final bd = DateTime.tryParse(b.createdAt ?? '') ??
+          final bd = DateTime.tryParse(b.assignedDate ?? '') ??
               DateTime.fromMillisecondsSinceEpoch(0);
           return bd.compareTo(ad);
         });
@@ -185,18 +192,11 @@ class _MyTasksPageState extends State<MyTasksPage>
     }
   }
 
-  // ---------- helpers for dialog ----------
+  /// `01 Sep 2026` in IST. Plain yyyy-MM-dd values (dueDate) are not shifted.
+  String _formatTableDate(String? iso) {
+    final v = (iso ?? '').trim();
+    if (v.isEmpty) return '-';
 
-  String _formatISTDateTime(String? iso) {
-    if (iso == null || iso.trim().isEmpty) return '-';
-    DateTime parsed;
-    try {
-      parsed = DateTime.parse(iso);
-    } catch (_) {
-      return iso;
-    }
-    final ist = parsed.toUtc().add(const Duration(hours: 5, minutes: 30));
-    String two(int n) => n.toString().padLeft(2, '0');
     const months = [
       'Jan',
       'Feb',
@@ -211,89 +211,47 @@ class _MyTasksPageState extends State<MyTasksPage>
       'Nov',
       'Dec'
     ];
-    final hour12 = ist.hour % 12 == 0 ? 12 : ist.hour % 12;
-    final ampm = ist.hour >= 12 ? 'PM' : 'AM';
-    return '${two(ist.day)} ${months[ist.month - 1]} ${ist.year}, '
-        '${two(hour12)}:${two(ist.minute)} $ampm';
+
+    final dateOnly = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(v);
+    if (dateOnly != null) {
+      final m = int.tryParse(dateOnly.group(2)!) ?? 1;
+      return '${dateOnly.group(3)} ${months[(m - 1).clamp(0, 11)]} '
+          '${dateOnly.group(1)}';
+    }
+
+    final parsed = DateTime.tryParse(v);
+    if (parsed == null) return v;
+    final ist = parsed.toUtc().add(const Duration(hours: 5, minutes: 30));
+    return '${ist.day.toString().padLeft(2, '0')} '
+        '${months[ist.month - 1]} ${ist.year}';
   }
 
-  // Label bold, value normal, consistent left alignment
-  Widget _kvRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label,
-              textAlign: TextAlign.left,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF5A4B81),
-                letterSpacing: 0.2,
-              )),
-          const SizedBox(height: 6),
-          Text(
-            value.isEmpty ? '-' : value,
-            textAlign: TextAlign.left,
-            style: const TextStyle(
-              fontSize: 15,
-              color: Colors.black87,
-              height: 1.35,
-            ),
-          ),
-        ],
-      ),
-    );
+  /// Friendly label for the existing backend status values.
+  String _statusLabel(String raw) {
+    switch (raw.trim().toLowerCase()) {
+      case 'completed':
+        return 'Completed';
+      case 'in_progress':
+      case 'inprogress':
+        return 'In Progress';
+      case 'pending':
+        return 'Pending';
+      case 'assigned':
+        return 'Assigned';
+      default:
+        return raw.isEmpty ? 'Assigned' : raw;
+    }
   }
 
-  // ---- Upload (DailyUpdate) flow ----
-
-  Future<void> _postDailyUpdate(String description) async {
-    if (_posting) return;
-    _posting = true;
-    // server derives empid from JWT; no client empid needed
-    final uri = Uri.parse('${ApiService.baseUrl}/tasks/daily-update');
-    final body = jsonEncode({
-      'title': 'Daily Update',
-      'description': description,
-      'dueDate': null,
-    });
-
-    try {
-      final resp = await http.post(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          if ((CompanyData.token ?? '').isNotEmpty)
-            'Authorization': 'Bearer ${CompanyData.token}',
-        },
-        body: body,
-      );
-
-      debugPrint('[MyTasks] Daily update status: ${resp.statusCode}');
-
-      if (!mounted) return;
-
-      if (resp.statusCode == 201) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Daily update posted')),
-        );
-        await _fetchTasks(); // Refresh assigned tasks
-        // Note: Daily updates are fetched from GET /tasks/user, so _fetchTasks() should refresh them
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Post failed (${resp.statusCode}): ${resp.body}')),
-        );
-      }
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Post error: $e')),
-      );
-    } finally {
-      _posting = false;
+  Color _statusColor(String raw) {
+    switch (raw.trim().toLowerCase()) {
+      case 'completed':
+        return const Color(0xFF2E7D32);
+      case 'in_progress':
+      case 'inprogress':
+        return const Color(0xFF1565C0);
+      default:
+        return const Color(0xFFEF6C00);
     }
   }
 
@@ -301,7 +259,7 @@ class _MyTasksPageState extends State<MyTasksPage>
 
   /// Marks [t] as completed on the backend, optionally attaching [proofFile]
   /// as proof. The backend derives empid/companyId from the JWT and decides
-  /// recipient admins server-side — this call only carries the task id,
+  /// recipient admins server-side â€” this call only carries the task id,
   /// description, and file.
   Future<void> _completeTask(
     _TaskItem t,
@@ -312,7 +270,7 @@ class _MyTasksPageState extends State<MyTasksPage>
     _posting = true;
 
     final uri = Uri.parse('${ApiService.baseUrl}/tasks/${t.id}/complete');
-    final token = (CompanyData.token ?? '').trim();
+    final token = CompanyData.token.trim();
 
     _log('[CompleteTask] Has file: ${proofFile != null}');
 
@@ -536,143 +494,6 @@ class _MyTasksPageState extends State<MyTasksPage>
     );
   }
 
-  void _openTaskDetails(_TaskItem t) {
-    final status = (t.status).toLowerCase();
-    final isCompleted = status == 'completed';
-    final isDailyUpdate = (t.kind ?? '').toLowerCase() == 'dailyupdate';
-    final canUpload = !isDailyUpdate && !isCompleted;
-
-    showDialog(
-      context: context,
-      builder: (_) => Dialog(
-        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: kLavenderBg,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: kRoyalPurple, width: 1.4),
-            boxShadow: const [
-              BoxShadow(
-                  color: Color(0x1A000000),
-                  blurRadius: 14,
-                  offset: Offset(0, 6)),
-            ],
-          ),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 680, minHeight: 220),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(22, 20, 22, 12),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          'Task Details',
-                          textAlign: TextAlign.left,
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w800,
-                            color: kRoyalPurple,
-                            letterSpacing: 0.2,
-                          ),
-                        ),
-                      ),
-                      if (isCompleted)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: Colors.green.shade100,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            'Completed',
-                            style: TextStyle(
-                              color: Colors.green.shade800,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                            ),
-                          ),
-                        )
-                      else if (canUpload)
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: kRoyalPurple,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 8),
-                            textStyle:
-                                const TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          icon: const Icon(Icons.upload),
-                          label: const Text('Upload'),
-                          onPressed: () => _showUploadBox(t),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  const Divider(
-                      height: 1, thickness: 1, color: Color(0x226B4EA2)),
-                  const SizedBox(height: 8),
-                  Flexible(
-                    child: SingleChildScrollView(
-                      padding: EdgeInsets.zero,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _kvRow('Title', t.title),
-                          _kvRow('Description',
-                              t.description.isNotEmpty ? t.description : '-'),
-                          if ((t.dueDate ?? '').isNotEmpty)
-                            _kvRow('Due Date', t.dueDate!),
-                          _kvRow('Created By', 'Admin'),
-                          _kvRow('Created At', _formatISTDateTime(t.createdAt)),
-                          _kvRow('Status',
-                              t.status.isNotEmpty ? t.status : 'Assigned'),
-                          if (isCompleted) ...[
-                            if ((t.completedAt ?? '').isNotEmpty)
-                              _kvRow('Completed At',
-                                  _formatISTDateTime(t.completedAt)),
-                            if ((t.completionNote ?? '').isNotEmpty)
-                              _kvRow('Completion Note', t.completionNote!),
-                            _kvRow(
-                                'Proof',
-                                (t.proofFileUrl ?? '').isNotEmpty
-                                    ? 'Uploaded'
-                                    : 'Not uploaded'),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text(
-                          'Close',
-                          style: TextStyle(
-                            color: kRoyalPurple,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -713,60 +534,445 @@ class _MyTasksPageState extends State<MyTasksPage>
   }
 
   Widget _buildTaskList(String status) {
-    // Last-line-of-defense: if the backend or local state ever returns a task
-    // whose status does not match the selected tab, do not render it here.
     final filtered = _tasks
         .where((t) => t.status.toLowerCase() == status.toLowerCase())
         .toList();
 
-    return _loading
-        ? const Center(child: CircularProgressIndicator())
-        : _error != null
-            ? Center(child: Text(_error!))
-            : filtered.isEmpty
-                ? Center(
-                    child: Text('No ${status.toLowerCase()} tasks available'))
-                : ListView.separated(
-                    addAutomaticKeepAlives: false,
-                    addRepaintBoundaries: true,
-                    cacheExtent: 800,
-                    padding: const EdgeInsets.all(16),
-                    itemBuilder: (_, i) {
-                      final t = filtered[i];
-                      return ListTile(
-                        leading: Icon(
-                          t.audience == 'all'
-                              ? Icons.campaign
-                              : Icons.assignment_ind,
-                          color: Colors.deepPurple,
-                        ),
-                        title: Text(
-                          t.title.isNotEmpty ? t.title : 'Task',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (t.description.isNotEmpty)
-                              Text(
-                                t.description,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            if ((t.createdAt ?? '').trim().isNotEmpty)
-                              Text(_formatISTDateTime(t.createdAt)),
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) return Center(child: Text(_error!));
+    if (filtered.isEmpty) {
+      return Center(child: Text('No ${status.toLowerCase()} tasks available'));
+    }
+
+    final completed = status.toLowerCase() == 'completed';
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 600;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+              child: Text(
+                '${status[0].toUpperCase()}${status.substring(1)} Tasks (${filtered.length})',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF333333),
+                ),
+              ),
+            ),
+            Expanded(
+              child: isMobile
+                  ? _buildMobileTaskList(filtered, completed)
+                  : _buildDesktopTaskTable(filtered, completed, constraints),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Mobile employee task sheet (cards) — no horizontal scrolling, no overflow.
+  // ---------------------------------------------------------------------------
+  Widget _buildMobileTaskList(List<_TaskItem> tasks, bool completed) {
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      itemCount: tasks.length,
+      itemBuilder: (context, i) => _buildMobileTaskCard(tasks[i], i, completed),
+    );
+  }
+
+  Widget _buildMobileTaskCard(_TaskItem t, int i, bool completed) {
+    final isOpen = _expandedRows.contains(t.id);
+    final isDailyUpdate =
+        (t.kind ?? '').toLowerCase().replaceAll(' ', '') == 'dailyupdate';
+    final canComplete = !isDailyUpdate && t.status.toLowerCase() != 'completed';
+
+    return InkWell(
+      onTap: () => setState(() {
+        if (isOpen) {
+          _expandedRows.remove(t.id);
+        } else {
+          _expandedRows.add(t.id);
+        }
+      }),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: i.isEven ? Colors.white : const Color(0xFFFCFBFF),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE8E8E8)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    t.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF333333),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _employeeStatusChip(t.status),
+                const SizedBox(width: 6),
+                if (completed)
+                  const Icon(Icons.check_circle, color: Colors.green, size: 20)
+                else if (canComplete)
+                  SizedBox(
+                    width: 68,
+                    height: 28,
+                    child: ElevatedButton(
+                      onPressed: () => _showUploadBox(t),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: kButtonColor,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        textStyle: const TextStyle(fontSize: 11),
+                      ),
+                      child: const Text(
+                        'Upload',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  )
+                else
+                  const Icon(Icons.expand_more,
+                      size: 18, color: kRoyalPurple),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (completed)
+              _taskKv('Completed', _formatTableDate(t.completedAt)),
+            _taskKv('Assigned', _formatTableDate(t.assignedDate)),
+            _taskKv('Description', t.description, maxLines: 4),
+            _taskKv('Due Date', _formatTableDate(t.dueDate)),
+            _taskKv('Status', _statusLabel(t.status)),
+            if (completed && (t.completionNote ?? '').isNotEmpty)
+              _taskKv('Completion Note', t.completionNote!),
+            if (isOpen) ...[
+              const Divider(height: 16),
+              _taskKv('Task ID', t.id),
+              _taskKv('Full Description', t.description, maxLines: 100),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _taskKv(String label, String value, {int maxLines = 3}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: kRoyalPurple,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value.trim().isEmpty ? '-' : value,
+            maxLines: maxLines,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12.5, color: Color(0xFF333333)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _employeeStatusChip(String raw) {
+    final color = _statusColor(raw);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        _statusLabel(raw),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: 11.5,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Desktop employee task table — horizontally scrollable with fixed columns.
+  // ---------------------------------------------------------------------------
+  Widget _buildDesktopTaskTable(
+    List<_TaskItem> tasks,
+    bool completed,
+    BoxConstraints constraints,
+  ) {
+    const headerBg = Color(0xFFEDE7F6);
+    const wDate = 92.0;
+    const wTitle = 130.0;
+    const wDesc = 180.0;
+    const wDue = 92.0;
+    const wStatus = 95.0;
+    const wExpand = 42.0;
+    const wAction = 95.0;
+
+    final totalWidth = completed
+        ? wDate + wTitle + wDesc + wDate + wDue + wStatus + wExpand
+        : wDate + wTitle + wDesc + wDue + wStatus + wExpand + wAction;
+
+    final viewportWidth =
+        constraints.maxWidth.isFinite ? constraints.maxWidth : totalWidth;
+    final tableWidth = totalWidth < viewportWidth ? viewportWidth : totalWidth;
+
+    Widget h(String label, double width) => SizedBox(
+          width: width,
+          child: Text(
+            label,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF4A347F),
+            ),
+          ),
+        );
+
+    Widget c(String value, double width, {FontWeight? weight}) => SizedBox(
+          width: width,
+          child: Text(
+            value.trim().isEmpty ? '-' : value,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12.5,
+              color: const Color(0xFF333333),
+              fontWeight: weight,
+            ),
+          ),
+        );
+
+    Widget statusChip(String raw) {
+      final color = _statusColor(raw);
+      return Container(
+        width: wStatus,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          _statusLabel(raw),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
+      );
+    }
+
+    Widget expandIcon(_TaskItem t, bool isOpen) {
+      return SizedBox(
+        width: wExpand,
+        height: 40,
+        child: Center(
+          child: GestureDetector(
+            onTap: () => setState(() {
+              if (isOpen) {
+                _expandedRows.remove(t.id);
+              } else {
+                _expandedRows.add(t.id);
+              }
+            }),
+            child: Icon(
+              isOpen ? Icons.expand_less : Icons.expand_more,
+              size: 18,
+              color: kRoyalPurple,
+            ),
+          ),
+        ),
+      );
+    }
+
+    Widget actionCell(_TaskItem t) {
+      final isDailyUpdate =
+          (t.kind ?? '').toLowerCase().replaceAll(' ', '') == 'dailyupdate';
+      final canComplete =
+          !isDailyUpdate && t.status.toLowerCase() != 'completed';
+      return SizedBox(
+        width: wAction,
+        height: 34,
+        child: canComplete
+            ? ElevatedButton(
+                onPressed: () => _showUploadBox(t),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: kButtonColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  textStyle: const TextStyle(fontSize: 10.5),
+                ),
+                child: const Text(
+                  'Upload',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              )
+            : const Center(
+                child: Text(
+                  '-',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    color: Color(0xFF777777),
+                  ),
+                ),
+              ),
+      );
+    }
+
+    return Scrollbar(
+      thumbVisibility: true,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SizedBox(
+          width: tableWidth,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.vertical,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                  color: headerBg,
+                  child: Row(
+                    children: completed
+                        ? [
+                            h('Completed', wDate),
+                            h('Task', wTitle),
+                            h('Description', wDesc),
+                            h('Assigned', wDate),
+                            h('Due Date', wDue),
+                            h('Status', wStatus),
+                            h('', wExpand),
+                          ]
+                        : [
+                            h('Assigned', wDate),
+                            h('Task', wTitle),
+                            h('Description', wDesc),
+                            h('Due Date', wDue),
+                            h('Status', wStatus),
+                            h('', wExpand),
+                            h('Action', wAction),
                           ],
+                  ),
+                ),
+                ...tasks.asMap().entries.map((e) {
+                  final i = e.key;
+                  final t = e.value;
+                  final isOpen = _expandedRows.contains(t.id);
+
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 10),
+                    color: i.isEven ? Colors.white : const Color(0xFFFCFBFF),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: completed
+                              ? [
+                                  c(_formatTableDate(t.completedAt), wDate,
+                                      weight: FontWeight.w600),
+                                  c(t.title, wTitle,
+                                      weight: FontWeight.w600),
+                                  c(t.description, wDesc),
+                                  c(_formatTableDate(t.assignedDate), wDate),
+                                  c(_formatTableDate(t.dueDate), wDue),
+                                  statusChip(t.status),
+                                  expandIcon(t, isOpen),
+                                ]
+                              : [
+                                  c(_formatTableDate(t.assignedDate), wDate,
+                                      weight: FontWeight.w600),
+                                  c(t.title, wTitle,
+                                      weight: FontWeight.w600),
+                                  c(t.description, wDesc),
+                                  c(_formatTableDate(t.dueDate), wDue),
+                                  statusChip(t.status),
+                                  expandIcon(t, isOpen),
+                                  actionCell(t),
+                                ],
                         ),
-                        onTap: () => _openTaskDetails(t),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        tileColor: Colors.white,
-                      );
-                    },
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemCount: _tasks.length,
+                        if (isOpen)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Divider(height: 1),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Task ID: ${t.id}',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Color(0xFF555555),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Full Description: ${t.description.isNotEmpty ? t.description : '-'}',
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                                if (completed &&
+                                    (t.completionNote ?? '').isNotEmpty)
+                                  Text(
+                                    'Completion Note: ${t.completionNote}',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
                   );
+                }),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

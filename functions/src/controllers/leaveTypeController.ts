@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { db } from '../config/firebase';
+import { getDb } from '../config/firebase';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { trackUsage } from '../services/usageService';
 
@@ -92,7 +92,7 @@ export const createLeaveType = async (req: Request, res: Response): Promise<Resp
 
     console.log('[createLeaveType] payload =', payload);
 
-    await db.collection(COLL).doc(id).set(payload);
+    await getDb().collection(COLL).doc(id).set(payload);
 
     // Track usage after successful leave type creation
     await trackLeaveTypeUsage(req, {
@@ -129,7 +129,7 @@ export const listLeaveTypes = async (req: Request, res: Response): Promise<Respo
       return res.status(403).json({ message: 'Company ID missing in token' });
     }
 
-    const snaps = await db
+    const snaps = await getDb()
       .collection(COLL)
       .where('companyId', '==', companyId)
       .where('active', '==', true)
@@ -178,7 +178,7 @@ export const deleteLeaveType = async (req: Request, res: Response): Promise<Resp
       return res.status(400).json({ message: 'Leave type ID is required' });
     }
 
-    const ref = db.collection(COLL).doc(id);
+    const ref = getDb().collection(COLL).doc(id);
     const doc = await ref.get();
 
     if (!doc.exists) {

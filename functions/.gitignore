@@ -35,7 +35,7 @@ coverage
 # Grunt intermediate storage (http://gruntjs.com/creating-plugins#storing-task-files)
 .grunt
 
-# Bower dependency directory (https://bower.io/)
+# Bower component directory (https://bower.io/)
 bower_components
 
 # node-waf configuration
@@ -64,6 +64,15 @@ node_modules/
 
 # dotenv environment variables file
 .env
+.env.*
+
+# Firebase local secrets
+.secret*
+
+# Service account keys – NEVER commit or deploy these
+serviceAccountKey.json
+*-service-account.json
+*-firebase-adminsdk*.json
 
 # dataconnect generated files
 .dataconnect

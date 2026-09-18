@@ -112,9 +112,18 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         return 'This account has been disabled. Contact admin.';
       case 'network-request-failed':
         return 'Network error. Please check your connection.';
+      case 'too-many-requests':
+        return 'Too many attempts. Please try again later.';
       default:
-        return 'Login failed. Please try again.';
+        return 'Login failed (${e.code}). Please try again.';
     }
+  }
+
+  /// Masks an email for safe debug logging: j**@example.com
+  String _maskEmail(String email) {
+    final at = email.indexOf('@');
+    if (at <= 1) return email;
+    return '${email[0]}***${email.substring(at)}';
   }
 
   Future<void> _persist(String key, String value) async {
@@ -196,16 +205,37 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       final email = idController.text.trim().toLowerCase();
       final pwd = passwordController.text;
 
+      // Log the Firebase project being used (safe – project ID is not secret)
       debugPrint('FIREBASE LOGIN START');
+      debugPrint(
+        '[FIREBASE] project=${FirebaseAuth.instance.app.options.projectId}, '
+        'email=${_maskEmail(email)}',
+      );
+
+      // Sign out any stale cached user before attempting a fresh login.
+      // On Flutter Web, Firebase Auth persists the user in indexedDB; a
+      // stale session can interfere with a new login attempt.
+      try {
+        await FirebaseAuth.instance.signOut();
+      } catch (_) {
+        // ignore – best-effort cleanup
+      }
 
       final userCredential = await FirebaseAuth.instance
           .signInWithEmailAndPassword(email: email, password: pwd);
+
+      debugPrint('[FIREBASE] signIn succeeded, user=${userCredential.user?.uid ?? "null"}');
+
       final idToken = await userCredential.user!.getIdToken(true);
 
       if (idToken == null || idToken.isEmpty) {
         throw Exception('Failed to obtain Firebase token');
       }
 
+      debugPrint(
+        '[FIREBASE] ID token obtained: length=${idToken.length}, '
+        'prefix=${idToken.substring(0, 20)}...',
+      );
       debugPrint('FIREBASE LOGIN SUCCESS');
 
       final response = await http
@@ -221,6 +251,13 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           .timeout(const Duration(seconds: 15));
 
       debugPrint('LOGIN STATUS: ${response.statusCode}');
+
+      if (response.statusCode != 200) {
+        debugPrint(
+          '[LOGIN] backend rejected token: status=${response.statusCode}, '
+          'body=${response.body.length > 200 ? response.body.substring(0, 200) : response.body}',
+        );
+      }
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
 
@@ -410,9 +447,23 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         _showSnack(msg);
       }
     } on FirebaseAuthException catch (e) {
-      debugPrint('FIREBASE LOGIN FAILED: ${e.code} - ${e.message}');
+      debugPrint(
+        '[FIREBASE LOGIN FAILED] code=${e.code}, '
+        'project=${FirebaseAuth.instance.app.options.projectId}, '
+        'email=${_maskEmail(idController.text.trim().toLowerCase())}',
+      );
+      // Firebase Auth failed – do NOT call the backend.
+      // Sign out any partial/stale state to prevent cached-user interference.
+      try {
+        await FirebaseAuth.instance.signOut();
+      } catch (_) {}
       _showSnack(_firebaseErrorMessage(e));
     } catch (e) {
+      debugPrint('[LOGIN ERROR] $e');
+      // Clean up any partial Firebase state on unexpected errors too.
+      try {
+        await FirebaseAuth.instance.signOut();
+      } catch (_) {}
       _showSnack('Error: $e');
     } finally {
       if (mounted) {

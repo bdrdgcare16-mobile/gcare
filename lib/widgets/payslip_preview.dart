@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:serv_app/features/admin/payslip_pdf_builder.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/utils/date_formatter.dart';
 import 'package:serv_app/utils/payroll_period_resolver.dart';
 import 'package:serv_app/utils/payslip_pdf_downloader.dart';
 
@@ -264,6 +265,8 @@ class _PayslipPreviewState extends State<PayslipPreview> {
                     _buildNetPaySection(),
                     const SizedBox(height: 20),
                     _buildFooter(),
+                    const SizedBox(height: 12),
+                    _buildWatermark(),
                   ],
                 ),
               ),
@@ -823,6 +826,19 @@ class _PayslipPreviewState extends State<PayslipPreview> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildWatermark() {
+    return Align(
+      alignment: Alignment.bottomLeft,
+      child: Text(
+        formatPayrollDate(DateTime.now()),
+        style: TextStyle(
+          fontSize: 8,
+          color: Colors.grey.shade400,
+        ),
+      ),
     );
   }
 

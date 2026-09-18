@@ -4,6 +4,12 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:serv_app/utils/payroll_period_resolver.dart';
 
+/// Formats the current date/time as: DD Mon YYYY, hh:mm AM/PM
+/// Example: 23 Sep 2025, 02:56 PM
+String _formatWatermarkDateTime(DateTime dateTime) {
+  return DateFormat('dd MMM yyyy, hh:mm a').format(dateTime);
+}
+
 class PayslipPdfBuilder {
   // Black-and-white professional palette
   static final PdfColor _black = PdfColors.black;
@@ -67,6 +73,8 @@ class PayslipPdfBuilder {
           _buildNetPaySection(payroll, period),
           pw.SizedBox(height: 20),
           _buildFooter(),
+          pw.SizedBox(height: 12),
+          _buildWatermark(),
         ],
       ),
     );
@@ -549,6 +557,16 @@ class PayslipPdfBuilder {
           style: _ts(8, italic: true, color: _textLight),
         ),
       ],
+    );
+  }
+
+  static pw.Widget _buildWatermark() {
+    return pw.Align(
+      alignment: pw.Alignment.bottomLeft,
+      child: pw.Text(
+        _formatWatermarkDateTime(DateTime.now()),
+        style: _ts(7, color: PdfColor.fromInt(0xFFBDBDBD)),
+      ),
     );
   }
 

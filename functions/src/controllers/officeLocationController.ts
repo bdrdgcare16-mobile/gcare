@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { db } from '../config/firebase';
+import { getDb } from '../config/firebase';
 import { trackUsage } from '../services/usageService';
 
 type OfficeLocation = {
@@ -67,7 +67,7 @@ export const addOrUpdateLocation = async (req: Request, res: Response) => {
   };
 
   try {
-    const existing = await db
+    const existing = await getDb()
       .collection('officeLocations')
       .where('companyId', '==', companyId)
       .where('address', '==', newLocation.address)
@@ -80,7 +80,7 @@ export const addOrUpdateLocation = async (req: Request, res: Response) => {
       });
     }
 
-    const docRef = await db.collection('officeLocations').add(newLocation);
+    const docRef = await getDb().collection('officeLocations').add(newLocation);
 
     // Track usage after successful location creation
     await trackOfficeLocationUsage(req, {
@@ -119,7 +119,7 @@ export const updateLocation = async (req: Request, res: Response) => {
   }
 
   try {
-    const ref = db.collection('officeLocations').doc(docId);
+    const ref = getDb().collection('officeLocations').doc(docId);
     const doc = await ref.get();
 
     if (!doc.exists) {
@@ -164,7 +164,7 @@ export const deleteLocation = async (req: Request, res: Response) => {
   const { docId } = req.params;
 
   try {
-    const ref = db.collection('officeLocations').doc(docId);
+    const ref = getDb().collection('officeLocations').doc(docId);
     const doc = await ref.get();
 
     if (!doc.exists) {
@@ -204,7 +204,7 @@ export const getAllLocations = async (req: Request, res: Response) => {
   try {
     const limit = Number(req.query.limit) || 50;
 
-    const snapshot = await db
+    const snapshot = await getDb()
       .collection('officeLocations')
       .where('companyId', '==', companyId)
       .orderBy('timestamp', 'desc')

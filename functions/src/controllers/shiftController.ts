@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { db } from '../config/firebase';
+import { getDb } from '../config/firebase';
 import { v4 as uuidv4 } from 'uuid';
 import { Timestamp } from 'firebase-admin/firestore';
 import { trackUsage } from '../services/usageService';
@@ -77,7 +77,7 @@ export const createShift = async (req: Request, res: Response): Promise<Response
         .json({ error: 'name, startTime, endTime and shiftname are required' });
     }
 
-    const existing = await db
+    const existing = await getDb()
       .collection('shifts')
       .where('companyId', '==', companyId)
       .where('name', '==', String(name))
@@ -106,7 +106,7 @@ export const createShift = async (req: Request, res: Response): Promise<Response
       updatedAt: now,
     };
 
-    await db.collection('shifts').doc(id).set(payload);
+    await getDb().collection('shifts').doc(id).set(payload);
 
     // Track usage after successful shift creation
     await trackShiftUsage(req, {
@@ -135,7 +135,7 @@ export const getAllShifts = async (req: Request, res: Response): Promise<Respons
 
     const limit = Number(req.query.limit) || 50;
 
-    const snap = await db
+    const snap = await getDb()
       .collection('shifts')
       .where('companyId', '==', companyId)
       .orderBy('createdAt', 'desc')
@@ -170,7 +170,7 @@ export const getShiftById = async (req: Request, res: Response): Promise<Respons
       return res.status(401).json({ error: 'Unauthorized: missing companyId' });
     }
 
-    const doc = await db.collection('shifts').doc(id).get();
+    const doc = await getDb().collection('shifts').doc(id).get();
     if (!doc.exists) {
       return res.status(404).json({ error: 'Shift template not found' });
     }
@@ -207,7 +207,7 @@ export const updateShift = async (req: Request, res: Response): Promise<Response
       return res.status(401).json({ error: 'Unauthorized: missing companyId' });
     }
 
-    const ref = db.collection('shifts').doc(id);
+    const ref = getDb().collection('shifts').doc(id);
     const doc = await ref.get();
 
     if (!doc.exists) {
@@ -254,7 +254,7 @@ export const deleteShift = async (req: Request, res: Response): Promise<Response
       return res.status(401).json({ error: 'Unauthorized: missing companyId' });
     }
 
-    const ref = db.collection('shifts').doc(id);
+    const ref = getDb().collection('shifts').doc(id);
     const doc = await ref.get();
 
     if (!doc.exists) {

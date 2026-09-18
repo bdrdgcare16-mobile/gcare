@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 
 import * as jwt from 'jsonwebtoken';
 
-import { db } from '../config/firebase';
+import { getDb, checkFirestoreAccess } from '../config/firebase';
 
 
 
@@ -224,13 +224,39 @@ export const authMiddleware = async (
 
 
 
-          // Fetch companyName and plan from Firestore if companyId is available
+          // Fetch companyName and plan from Firestore if companyId is available.
+          //
+          // Security note: If Firestore is inaccessible (code 7 / PERMISSION_DENIED),
+          // we must NOT silently continue with missing company data on protected
+          // endpoints.  Doing so could allow requests through without company
+          // validation, bypassing company isolation.  Instead, return a
+          // controlled 503 so the client knows the backend is temporarily
+          // unable to validate company context.
 
           if (jwtPayload.companyId) {
 
             try {
 
-              const companyDoc = await db.collection('companies').doc(jwtPayload.companyId).get();
+              // One-time Firestore connectivity check (first request only)
+              const accessible = await checkFirestoreAccess();
+              if (!accessible) {
+                console.error(
+                  '[verifyToken] Firestore inaccessible – cannot validate company context. ' +
+                    'Rejecting request to preserve company isolation.'
+                );
+                res.status(503).json({
+                  message:
+                    'Database temporarily unavailable. Please try again later.',
+                });
+                resolve();
+                return;
+
+              }
+
+              const companyIdSafe = String(jwtPayload.companyId).substring(0, 12);
+              console.log(`[FIRESTORE ACCESS] collection=companies, companyId=${companyIdSafe}...`);
+
+              const companyDoc = await getDb().collection('companies').doc(jwtPayload.companyId).get();
 
               if (companyDoc.exists) {
 
@@ -244,11 +270,32 @@ export const authMiddleware = async (
 
               }
 
-            } catch (fetchError) {
+            } catch (fetchError: any) {
 
+              const errCode = fetchError?.code || 'unknown';
+              console.error(
+                `[FIRESTORE ACCESS FAILED] code=${errCode}, ` +
+                `message=${fetchError?.message || 'N/A'}`
+              );
               console.error('[verifyToken] Error fetching company data:', fetchError);
 
-              // Continue without company data - don't block authentication
+              // PERMISSION_DENIED (code 7) means the service account cannot
+              // access Firestore.  Fail safe – do not let requests through
+              // without company validation.
+              if (errCode === 7 || String(fetchError?.message || '').includes('PERMISSION_DENIED')) {
+                res.status(503).json({
+                  message:
+                    'Database access error. Company validation could not be completed.',
+                });
+                resolve();
+                return;
+              }
+
+              // For other transient errors (network, timeout), continue
+              // without company data – the JWT still carries companyId.
+              console.warn(
+                '[verifyToken] Non-permission Firestore error – continuing with JWT companyId only.'
+              );
 
             }
 

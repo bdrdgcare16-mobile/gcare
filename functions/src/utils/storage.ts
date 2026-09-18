@@ -1,4 +1,4 @@
-import { bucket as adminBucket } from '../config/firebase';
+import { getBucket } from '../config/firebase';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface UploadedFile {
@@ -24,9 +24,8 @@ export const uploadFile = async (
   file: UploadedFile,
   folder: string = 'uploads'
 ): Promise<UploadResult> => {
-  const bucket = adminBucket;           // uses the bucket you initialized in config/firebase.ts
   const objectPath = `${folder}/${uuidv4()}-${file.originalname}`;
-  const blob = bucket.file(objectPath);
+  const blob = getBucket().file(objectPath);
 
   // Upload the bytes
   await blob.save(file.buffer, {
@@ -38,7 +37,7 @@ export const uploadFile = async (
   // Make the object public (readable by anyone with the URL)
   await blob.makePublic();
 
-  const publicUrl = `https://storage.googleapis.com/${bucket.name}/${objectPath}`;
+  const publicUrl = `https://storage.googleapis.com/${getBucket().name}/${objectPath}`;
   return {
     url: publicUrl,
     name: objectPath,
@@ -48,8 +47,7 @@ export const uploadFile = async (
 };
 
 export const deleteFile = async (objectPath: string): Promise<void> => {
-  const bucket = adminBucket;
-  await bucket.file(objectPath).delete({ ignoreNotFound: true });
+  await getBucket().file(objectPath).delete({ ignoreNotFound: true });
 };
 
 export const uploadBufferToStorage = async (
@@ -60,8 +58,7 @@ export const uploadBufferToStorage = async (
 ): Promise<{ url: string; name: string; contentType: string; size: number }> => {
   try {
     const fileName = `${folder}/${uuidv4()}-${originalname}`;
-    const bucket = adminBucket;
-    const file = bucket.file(fileName);
+    const file = getBucket().file(fileName);
 
     await file.save(buffer, {
       metadata: {
@@ -72,7 +69,7 @@ export const uploadBufferToStorage = async (
     // Make the file publicly accessible
     await file.makePublic();
 
-    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileName}`;
+    const publicUrl = `https://storage.googleapis.com/${getBucket().name}/${fileName}`;
     
     return {
       url: publicUrl,

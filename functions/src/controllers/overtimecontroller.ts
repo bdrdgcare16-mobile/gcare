@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { db } from "../config/firebase";
+import { getDb } from "../config/firebase";
 
 /**
  * GET /api/overtime?empid=EMP001&date=2025-10-28
@@ -15,7 +15,7 @@ export const getOvertimeHours = async (req: Request, res: Response): Promise<voi
       return;
     }
 
-    const snapshot = await db
+    const snapshot = await getDb()
       .collection("leaves")
       .where("empid", "==", empid)
       .where("leaveType", "==", "Overtime")

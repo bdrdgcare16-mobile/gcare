@@ -1,5 +1,5 @@
 import { FieldValue } from 'firebase-admin/firestore';
-import { db } from '../config/firebase';
+import { getDb } from '../config/firebase';
 
 function getCurrentMonth(): string {
   const now = new Date();
@@ -18,7 +18,7 @@ export async function trackUsage(params: {
 
   const month = getCurrentMonth();
   const docId = `${companyId}_${month}`;
-  const docRef = db.collection('usage').doc(docId);
+  const docRef = getDb().collection('usage').doc(docId);
 
   const payload: Record<string, any> = {
     companyId,
@@ -46,13 +46,13 @@ export async function trackUsage(params: {
   // Calculate fresh employee counts each time
   try {
     // Count total employees for this company
-    const totalEmployeesSnap = await db
+    const totalEmployeesSnap = await getDb()
       .collection('employees')
       .where('companyId', '==', companyId)
       .get();
     
     // Count active employees (status = "active", case-insensitive)
-    const activeEmployeesSnap = await db
+    const activeEmployeesSnap = await getDb()
       .collection('employees')
       .where('companyId', '==', companyId)
       .where('status', '==', 'active')

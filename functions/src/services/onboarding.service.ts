@@ -1,7 +1,7 @@
-import { db, bucket } from "../config/firebase";
+import { getDb, getBucket } from "../config/firebase";
 import { EmployeeOnboarding } from "../models/onboarding.model";
 
-const collection = db.collection("employee_onboarding_dev");
+const getCollection = () => getDb().collection("employee_onboarding_dev");
 
 export const uploadFileToFirebase = async (
   file: Express.Multer.File,
@@ -9,7 +9,7 @@ export const uploadFileToFirebase = async (
   fieldName: string
 ): Promise<string> => {
   const filePath = `onboarding-dev/${employeeId}/${fieldName}-${Date.now()}-${file.originalname}`;
-  const fileRef = bucket.file(filePath);
+  const fileRef = getBucket().file(filePath);
 
   await fileRef.save(file.buffer, {
     metadata: {
@@ -25,7 +25,7 @@ export const uploadFileToFirebase = async (
 export const createOnboarding = async (
   data: EmployeeOnboarding
 ): Promise<string> => {
-  const docRef = await collection.add(data);
+  const docRef = await getCollection().add(data);
   return docRef.id;
 };
 
@@ -35,7 +35,7 @@ export const getAllOnboardings = async (filters?: {
   department?: string;
   branch?: string;
 }) => {
-  let query: any = collection;
+  let query: any = getCollection();
 
   // If status filter is provided, add where clause
   if (filters?.status) {
@@ -156,8 +156,8 @@ const normalizeFilePath = (value: string) => {
     path = path.split('storage.googleapis.com/')[1];
   }
 
-  if (path.startsWith(`${bucket.name}/`)) {
-    path = path.replace(`${bucket.name}/`, '');
+  if (path.startsWith(`${getBucket().name}/`)) {
+    path = path.replace(`${getBucket().name}/`, '');
   }
 
   return decodeURIComponent(path);
@@ -166,7 +166,7 @@ const normalizeFilePath = (value: string) => {
 const getSignedUrl = async (filePath: string): Promise<string> => {
   const normalizedPath = normalizeFilePath(filePath);
 
-  const [signedUrl] = await bucket
+  const [signedUrl] = await getBucket()
     .file(normalizedPath)
     .getSignedUrl({
       action: "read",
@@ -197,9 +197,9 @@ export const getOnboardingByEmpId = async (empid: string) => {
 
   // Query by top-level empid, top-level employeeId, and nested companyDetails.employeeId
   const [empidSnap, employeeIdSnap, nestedSnap] = await Promise.all([
-    collection.where('empid', '==', empid).limit(1).get(),
-    collection.where('employeeId', '==', empid).limit(1).get(),
-    collection.where('companyDetails.employeeId', '==', empid).limit(1).get(),
+    getCollection().where('empid', '==', empid).limit(1).get(),
+    getCollection().where('employeeId', '==', empid).limit(1).get(),
+    getCollection().where('companyDetails.employeeId', '==', empid).limit(1).get(),
   ]);
 
   const doc =
@@ -218,7 +218,7 @@ export const getOnboardingByEmpId = async (empid: string) => {
 };
 
 export const getOnboardingById = async (id: string) => {
-  const doc = await collection.doc(id).get();
+  const doc = await getCollection().doc(id).get();
 
   if (!doc.exists) {
     return null;
@@ -251,7 +251,7 @@ export const updateOnboardingStatus = async (
   id: string,
   status: "pending" | "approved" | "rejected" | "completed"
 ) => {
-  await collection.doc(id).update({
+  await getCollection().doc(id).update({
     status,
     updatedAt: new Date(),
   });

@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { db } from '../config/firebase';
+import { getDb } from '../config/firebase';
 import { Timestamp } from 'firebase-admin/firestore';
 import { trackUsage } from '../services/usageService';
 
@@ -151,7 +151,7 @@ export const createReward = async (req: Request, res: Response): Promise<Respons
 
     console.log('[createReward] reward payload =', reward);
 
-    const docRef = await db.collection(REWARDS).add(reward);
+    const docRef = await getDb().collection(REWARDS).add(reward);
     const saved = await docRef.get();
 
     // Track usage after successful reward creation
@@ -207,7 +207,7 @@ export const getAllRewards = async (req: Request, res: Response): Promise<Respon
         if (tried.has(v)) continue;
         tried.add(v);
 
-        const snap = await db
+        const snap = await getDb()
           .collection(REWARDS)
           .where('companyId', '==', companyId)
           .where('empid', '==', v)
@@ -241,7 +241,7 @@ export const getAllRewards = async (req: Request, res: Response): Promise<Respon
 
     // Admin role: can see all company rewards (no empid filter)
     if (user.role === 'admin') {
-      const snapshot = await db
+      const snapshot = await getDb()
         .collection(REWARDS)
         .where('companyId', '==', companyId)
         .orderBy('date', 'desc')
@@ -273,7 +273,7 @@ export const getRewardById = async (req: Request, res: Response): Promise<Respon
     }
 
     const id = String(req.params.id);
-    const doc = await db.collection(REWARDS).doc(id).get();
+    const doc = await getDb().collection(REWARDS).doc(id).get();
 
     if (!doc.exists) {
       return res.status(404).json({ error: 'Not found' });
@@ -306,7 +306,7 @@ export const deleteReward = async (req: Request, res: Response): Promise<Respons
     }
 
     const id = String(req.params.id);
-    const ref = db.collection(REWARDS).doc(id);
+    const ref = getDb().collection(REWARDS).doc(id);
     const doc = await ref.get();
 
     if (!doc.exists) {
@@ -347,7 +347,7 @@ export const getMyRewards = async (req: Request, res: Response): Promise<Respons
       return res.status(401).json({ error: 'Unauthorized: missing companyId' });
     }
 
-    const snap = await db
+    const snap = await getDb()
       .collection(REWARDS)
       .where('companyId', '==', companyId)
       .where('empid', '==', empid)

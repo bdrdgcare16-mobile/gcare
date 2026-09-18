@@ -1,5 +1,5 @@
 import { FieldValue } from "firebase-admin/firestore";
-import { db } from "../config/firebase";
+import { getDb } from "../config/firebase";
 
 import { PayrollDailyBreakdown, PayrollData, SalaryCalculationMethod } from "../models/payroll";
 
@@ -63,9 +63,9 @@ export async function upsertPayrollPreservingPaymentState(
   payrollId: string,
   calculatedPayroll: PayrollData,
 ): Promise<PayrollData> {
-  const ref = db.collection('payrolls').doc(payrollId);
+  const ref = getDb().collection('payrolls').doc(payrollId);
 
-  return db.runTransaction(async (transaction) => {
+  return getDb().runTransaction(async (transaction) => {
     const snapshot = await transaction.get(ref);
 
     const existing = snapshot.exists
@@ -136,7 +136,7 @@ const getWeeklyOffDays = async (
 ): Promise<number[]> => {
   const startedAt = Date.now();
   try {
-    const companyDoc = await db.collection('companyProfile').doc(companyId).get();
+    const companyDoc = await getDb().collection('companyProfile').doc(companyId).get();
     if (timing) timing.weeklyOffLookupMs += Date.now() - startedAt;
     if (companyDoc.exists) {
       const companyData = companyDoc.data() as any;
@@ -464,7 +464,7 @@ const getEmployee = async (
   companyId: string,
   empid: string,
 ): Promise<EmployeeRecord | null> => {
-  const snapshot = await db
+  const snapshot = await getDb()
     .collection("employees")
     .where("companyId", "==", companyId)
     .where("empid", "==", empid)
@@ -490,7 +490,7 @@ const getActiveEmployees = async (
   const startedAt = Date.now();
   console.log("[PAYROLL] Company ID:", companyId);
 
-  let query: FirebaseFirestore.Query = db.collection("employees");
+  let query: FirebaseFirestore.Query = getDb().collection("employees");
 
   if (companyId) {
     query = query.where("companyId", "==", companyId);
@@ -531,7 +531,7 @@ const getEmployeeAttendance = async (
   timing?: PayrollTiming,
 ): Promise<AttendanceRecord[]> => {
   const startedAt = Date.now();
-  const snapshot = await db
+  const snapshot = await getDb()
     .collection("attendance")
     .where("companyId", "==", companyId)
     .where("empid", "==", empid)
@@ -556,14 +556,14 @@ const getApprovedLeaves = async (
 ): Promise<LeaveRecord[]> => {
   const startedAt = Date.now();
   const [empidSnapshot, empIdSnapshot] = await Promise.all([
-    db
+    getDb()
       .collection("leaves")
       .where("companyId", "==", companyId)
       .where("empid", "==", empid)
       .where("approvalStatus", "==", "Approved")
       .get(),
 
-    db
+    getDb()
       .collection("leaves")
       .where("companyId", "==", companyId)
       .where("empId", "==", empid)
@@ -747,10 +747,10 @@ const preloadOnboardingCache = async (
   onboardingCache: PayrollRequestContext['onboardingCache'],
 ): Promise<void> => {
   const [topLevelSnapshot, nestedSnapshot] = await Promise.all([
-    db.collection('employee_onboarding_dev')
+    getDb().collection('employee_onboarding_dev')
       .where('companyId', '==', companyId)
       .get(),
-    db.collection('employee_onboarding_dev')
+    getDb().collection('employee_onboarding_dev')
       .where('companyDetails.companyId', '==', companyId)
       .get(),
   ]);
@@ -1162,7 +1162,7 @@ export const updatePayroll = async (params: {
   lopDays: number;
   allowances: Array<{ type: string; amount: number }>;
 }): Promise<PayrollData> => {
-  const ref = db.collection('payrolls').doc(params.payrollId);
+  const ref = getDb().collection('payrolls').doc(params.payrollId);
   const snapshot = await ref.get();
 
   if (!snapshot.exists) {
@@ -1262,7 +1262,7 @@ export const updatePayroll = async (params: {
     updatedAt: FieldValue.serverTimestamp(),
   };
 
-  await db.runTransaction(async (transaction) => {
+  await getDb().runTransaction(async (transaction) => {
     const currentSnapshot = await transaction.get(ref);
     if (!currentSnapshot.exists) throw new Error('Payroll not found');
     const current = currentSnapshot.data() as PayrollData;
@@ -1482,7 +1482,7 @@ export const savePayrollSnapshot = async (params: {
 
   const snapshotId = `${params.companyId}_${params.year}_${params.month}_${Date.now()}`;
 
-  await db.collection('payrollSnapshots').doc(snapshotId).set({
+  await getDb().collection('payrollSnapshots').doc(snapshotId).set({
     companyId: params.companyId,
     year: params.year,
     month: params.month,
@@ -1502,7 +1502,7 @@ export const getMonthlyPayrolls = async (params: {
   year: number;
   month: number;
 }): Promise<PayrollData[]> => {
-  const snapshot = await db
+  const snapshot = await getDb()
     .collection('payrolls')
     .where('companyId', '==', params.companyId)
     .where('year', '==', params.year)
@@ -1519,9 +1519,9 @@ export const markPayrollAsPaid = async (
   payrollId: string,
   paidBy: string,
 ): Promise<void> => {
-  const reference = db.collection('payrolls').doc(payrollId);
+  const reference = getDb().collection('payrolls').doc(payrollId);
 
-  await db.runTransaction(async (transaction) => {
+  await getDb().runTransaction(async (transaction) => {
     const snapshot = await transaction.get(reference);
 
     if (!snapshot.exists) {

@@ -852,25 +852,30 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
   }
 
-  // High-accuracy location fetching with continuous improvement strategy
+  // High-accuracy location fetching with retry mechanism and detailed logging
   Future<Position?> _getHighAccuracyPosition({
     bool quiet = false,
     String actionLabel = 'check-in',
     double maxAccuracyMeters = 50.0,
     Duration overallTimeout = const Duration(seconds: 25),
   }) async {
+    final totalStopwatch = Stopwatch()..start();
+    debugPrint('[LOCATION] GPS acquisition started');
+    debugPrint('[LOCATION] actionLabel=$actionLabel');
     debugPrint('[GPS] Acquisition started');
     debugPrint('[GPS] Required accuracy: ≤${maxAccuracyMeters}m');
     debugPrint('[GPS] Overall timeout: ${overallTimeout.inSeconds}s');
-    debugPrint('[GPS] Requested LocationAccuracy: bestForNavigation');
 
     // Step 1: Check location permission
     final hasPermission = await _ensurePermissionDemo(quiet: quiet);
     _log('[Permission] Final permission check result: $hasPermission');
     debugPrint(
+        '[PERMISSION] Location permission: ${hasPermission ? "granted" : "denied"}');
+    debugPrint(
         '[GPS] Location permission: ${hasPermission ? "granted" : "denied"}');
     if (!hasPermission) {
       _log('[GPS] Permission denied or unavailable, cannot continue');
+      debugPrint('[LOCATION] Final failure reason: permission denied');
       debugPrint('[GPS] Final failure reason: permission denied');
       _showSingleError(
           quiet, 'Location permission is required for attendance.');
@@ -880,9 +885,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     // Step 2: Check if GPS/location service is enabled
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     _log('[GPS] Service enabled: $serviceEnabled');
+    debugPrint('[LOCATION] Location service enabled: $serviceEnabled');
     debugPrint('[GPS] Location service enabled: $serviceEnabled');
     if (!serviceEnabled) {
       _log('[GPS] Service disabled before current location request');
+      debugPrint('[LOCATION] Final failure reason: GPS service disabled');
       debugPrint('[GPS] Final failure reason: GPS service disabled');
       _showSingleError(quiet,
           'GPS is turned off. Please enable location services and try again.');
@@ -901,164 +908,266 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       );
     }
 
+    // Retry mechanism: try up to 3 times with different accuracy settings
+    const maxAttempts = 3;
     Position? bestPosition;
-    StreamSubscription<Position>? positionStreamSubscription;
-    final startTime = DateTime.now();
-    bool acquisitionComplete = false;
+    String? failureReason;
 
-    try {
-      // Step 3: Get initial fresh position
-      debugPrint('[GPS] Getting initial fresh position...');
+    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+      final attemptStopwatch = Stopwatch()..start();
+      debugPrint('[LOCATION] acquisition attempt = $attempt of $maxAttempts');
+      debugPrint('[GPS] Attempt $attempt of $maxAttempts');
+      
+      StreamSubscription<Position>? positionStreamSubscription;
+      bool acquisitionComplete = false;
+
+      // Use progressively less strict accuracy settings for retries
+      final currentMaxAccuracy = attempt == 1 
+          ? maxAccuracyMeters 
+          : (attempt == 2 ? 100.0 : 200.0);
+      
+      final currentAccuracySetting = attempt == 1
+          ? LocationAccuracy.bestForNavigation
+          : (attempt == 2 ? LocationAccuracy.high : LocationAccuracy.medium);
+
+      debugPrint('[GPS] Attempt $attempt: target accuracy ≤${currentMaxAccuracy}m, setting=$currentAccuracySetting');
+
       try {
-        final initialPosition = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.bestForNavigation,
-          timeLimit: const Duration(seconds: 10),
-          forceAndroidLocationManager: false,
-        );
+        // Step 3: Get initial fresh position
+        debugPrint('[GPS] Getting initial fresh position...');
+        try {
+          final initialPosition = await Geolocator.getCurrentPosition(
+            desiredAccuracy: currentAccuracySetting,
+            timeLimit: const Duration(seconds: 15),
+            forceAndroidLocationManager: false,
+          );
 
-        final positionAge =
-            DateTime.now().difference(initialPosition.timestamp);
-        debugPrint(
-            '[GPS] Initial position: accuracy=${initialPosition.accuracy.toStringAsFixed(1)}m, age=${positionAge.inSeconds}s');
-
-        // Validate freshness (reject if older than 5 minutes)
-        if (positionAge.inMinutes > 5) {
+          final positionAge =
+              DateTime.now().difference(initialPosition.timestamp);
           debugPrint(
-              '[GPS] Initial position too old (${positionAge.inMinutes}min), will stream for fresh position');
-        } else {
-          bestPosition = initialPosition;
-          debugPrint(
-              '[GPS] Best accuracy so far=${bestPosition!.accuracy.toStringAsFixed(1)}m');
+              '[GPS] Initial position: lat=${initialPosition.latitude.toStringAsFixed(6)}, lng=${initialPosition.longitude.toStringAsFixed(6)}, accuracy=${initialPosition.accuracy.toStringAsFixed(1)}m, age=${positionAge.inSeconds}s');
 
-          // If already accurate enough, accept immediately
-          if (bestPosition!.accuracy <= maxAccuracyMeters) {
-            debugPrint('[GPS] Position accepted immediately');
-            _log(
-                '[GPS] Position accepted: accuracy ${bestPosition!.accuracy.toStringAsFixed(1)}m ≤ threshold ${maxAccuracyMeters}m');
-            acquisitionComplete = true;
-            return bestPosition;
+          // Reject mock/simulated locations (anti-spoofing)
+          if (initialPosition.isMocked) {
+            debugPrint('[GPS] Mock location detected, rejecting');
+            failureReason = 'Mock or simulated location detected';
+            continue; // Skip to next attempt
           }
-        }
-      } catch (e) {
-        debugPrint('[GPS] Initial position fetch failed: $e');
-        // Continue to stream-based approach
-      }
 
-      // Step 4: If not immediately accurate, start streaming for improvement
-      if (!acquisitionComplete) {
-        debugPrint(
-            '[GPS] Starting location stream for continuous improvement...');
-
-        final locationSettings = const LocationSettings(
-          accuracy: LocationAccuracy.bestForNavigation,
-          distanceFilter: 0,
-        );
-
-        final completer = Completer<Position?>();
-        final timeoutTimer = Timer(overallTimeout, () {
-          if (!acquisitionComplete && !completer.isCompleted) {
-            debugPrint('[GPS] Overall timeout reached');
-            completer.complete(bestPosition);
-          }
-        });
-
-        positionStreamSubscription =
-            Geolocator.getPositionStream(locationSettings: locationSettings)
-                .listen(
-          (position) {
-            if (acquisitionComplete || completer.isCompleted) return;
-
-            final positionAge = DateTime.now().difference(position.timestamp);
+          // Validate coordinates (reject null, zero, or invalid values)
+          if (initialPosition.latitude == 0.0 || initialPosition.longitude == 0.0) {
+            debugPrint('[GPS] Invalid coordinates (0,0), skipping');
+          } else if (initialPosition.latitude.abs() > 90 || initialPosition.longitude.abs() > 180) {
+            debugPrint('[GPS] Invalid coordinates (out of range), skipping');
+          } else if (positionAge.inMinutes > 5) {
             debugPrint(
-                '[GPS] Position: accuracy=${position.accuracy.toStringAsFixed(1)}m, age=${positionAge.inSeconds}s');
+                '[GPS] Initial position too old (${positionAge.inMinutes}min), will stream for fresh position');
+          } else {
+            bestPosition = initialPosition;
+            debugPrint(
+                '[GPS] Best accuracy so far=${bestPosition!.accuracy.toStringAsFixed(1)}m');
 
-            // Validate freshness
-            if (positionAge.inMinutes > 5) {
-              debugPrint('[GPS] Position too old, skipping');
-              return;
-            }
-
-            // Track best position
-            if (bestPosition == null ||
-                position.accuracy < bestPosition!.accuracy) {
-              bestPosition = position;
-              debugPrint(
-                  '[GPS] Best accuracy so far=${bestPosition!.accuracy.toStringAsFixed(1)}m');
-            }
-
-            // Accept immediately if accuracy is good enough
-            if (position.accuracy <= maxAccuracyMeters) {
-              debugPrint('[GPS] Position accepted');
+            // If already accurate enough for this attempt, accept immediately
+            if (bestPosition!.accuracy <= currentMaxAccuracy) {
+              debugPrint('[GPS] Position accepted immediately (attempt $attempt)');
               _log(
-                  '[GPS] Position accepted: accuracy ${position.accuracy.toStringAsFixed(1)}m ≤ threshold ${maxAccuracyMeters}m');
+                  '[GPS] Position accepted: accuracy ${bestPosition!.accuracy.toStringAsFixed(1)}m ≤ threshold ${currentMaxAccuracy}m');
               acquisitionComplete = true;
-              timeoutTimer.cancel();
-              completer.complete(position);
+              break; // Exit retry loop
             }
-          },
-          onError: (error) {
-            if (!completer.isCompleted) {
-              debugPrint('[GPS] Stream error: $error');
+          }
+        } on TimeoutException catch (e) {
+          debugPrint('[LOCATION] Initial position timeout on attempt $attempt after ${attemptStopwatch.elapsedMilliseconds} ms: $e');
+          debugPrint('[GPS] Initial position fetch timed out: $e');
+          // Continue to stream-based approach
+        } on LocationServiceDisabledException catch (e) {
+          debugPrint('[LOCATION] Location service disabled during attempt $attempt: $e');
+          debugPrint('[GPS] Location service disabled: $e');
+          failureReason = 'GPS service disabled';
+          break;
+        } on PermissionDeniedException catch (e) {
+          debugPrint('[LOCATION] Permission denied during attempt $attempt: $e');
+          debugPrint('[GPS] Permission denied: $e');
+          failureReason = 'Location permission denied';
+          break;
+        } catch (e) {
+          debugPrint('[LOCATION] Initial position fetch failed on attempt $attempt: ${e.runtimeType}: $e');
+          debugPrint('[GPS] Initial position fetch failed: $e');
+          // Continue to stream-based approach
+        }
+
+        // Step 4: If not immediately accurate, start streaming for improvement
+        if (!acquisitionComplete) {
+          debugPrint(
+              '[GPS] Starting location stream for continuous improvement...');
+
+          final locationSettings = LocationSettings(
+            accuracy: currentAccuracySetting,
+            distanceFilter: 0,
+          );
+
+          final completer = Completer<Position?>();
+          final timeoutTimer = Timer(const Duration(seconds: 20), () {
+            if (!acquisitionComplete && !completer.isCompleted) {
+              debugPrint('[LOCATION] Attempt $attempt timeout after ${attemptStopwatch.elapsedMilliseconds} ms');
+              debugPrint('[GPS] Attempt $attempt timeout reached');
               completer.complete(bestPosition);
             }
-          },
-        );
+          });
 
-        // Wait for completion (either good position or timeout)
-        bestPosition = await completer.future;
-        timeoutTimer.cancel();
+          positionStreamSubscription =
+              Geolocator.getPositionStream(locationSettings: locationSettings)
+                  .listen(
+            (position) {
+              if (acquisitionComplete || completer.isCompleted) return;
+
+              final positionAge = DateTime.now().difference(position.timestamp);
+              debugPrint(
+                  '[GPS] Stream position: lat=${position.latitude.toStringAsFixed(6)}, lng=${position.longitude.toStringAsFixed(6)}, accuracy=${position.accuracy.toStringAsFixed(1)}m, age=${positionAge.inSeconds}s');
+
+              // Reject mock/simulated locations (anti-spoofing)
+              if (position.isMocked) {
+                debugPrint('[GPS] Mock location detected in stream, skipping');
+                return;
+              }
+
+              // Validate freshness
+              if (positionAge.inMinutes > 5) {
+                debugPrint('[GPS] Position too old, skipping');
+                return;
+              }
+
+              // Validate coordinates
+              if (position.latitude == 0.0 || position.longitude == 0.0) {
+                debugPrint('[GPS] Invalid coordinates (0,0), skipping');
+                return;
+              }
+              if (position.latitude.abs() > 90 || position.longitude.abs() > 180) {
+                debugPrint('[GPS] Invalid coordinates (out of range), skipping');
+                return;
+              }
+
+              // Track best position
+              if (bestPosition == null ||
+                  position.accuracy < bestPosition!.accuracy) {
+                bestPosition = position;
+                debugPrint(
+                    '[GPS] Best accuracy so far=${bestPosition!.accuracy.toStringAsFixed(1)}m');
+              }
+
+              // Accept immediately if accuracy is good enough for this attempt
+              if (position.accuracy <= currentMaxAccuracy) {
+                debugPrint('[GPS] Position accepted (attempt $attempt)');
+                _log(
+                    '[GPS] Position accepted: accuracy ${position.accuracy.toStringAsFixed(1)}m ≤ threshold ${currentMaxAccuracy}m');
+                acquisitionComplete = true;
+                timeoutTimer.cancel();
+                completer.complete(position);
+              }
+            },
+            onError: (error) {
+              if (!completer.isCompleted) {
+                debugPrint('[LOCATION] Stream error on attempt $attempt: ${error.runtimeType}: $error');
+                debugPrint('[GPS] Stream error: $error');
+                completer.complete(bestPosition);
+              }
+            },
+          );
+
+          // Wait for completion (either good position or timeout)
+          bestPosition = await completer.future;
+          timeoutTimer.cancel();
+          
+          await positionStreamSubscription.cancel();
+        }
+
+        // If we got a position that meets the current attempt's threshold, accept it
+        if (bestPosition != null && bestPosition!.accuracy <= currentMaxAccuracy) {
+          debugPrint('[GPS] Attempt $attempt succeeded with accuracy ${bestPosition!.accuracy.toStringAsFixed(1)}m');
+          break; // Exit retry loop
+        }
+        
+        // If this was the last attempt, record the failure reason
+        if (attempt == maxAttempts) {
+          if (bestPosition == null) {
+            failureReason = 'No GPS coordinates received';
+          } else {
+            failureReason = 'GPS accuracy ${bestPosition!.accuracy.toStringAsFixed(1)}m exceeds threshold ${maxAccuracyMeters}m';
+          }
+        }
+        debugPrint('[LOCATION] attempt $attempt completed in ${attemptStopwatch.elapsedMilliseconds} ms, bestPosition=${bestPosition == null ? 'null' : 'accuracy=${bestPosition!.accuracy.toStringAsFixed(1)}m'}');
+      } on TimeoutException catch (e) {
+        debugPrint('[LOCATION] Attempt $attempt timed out after ${attemptStopwatch.elapsedMilliseconds} ms: $e');
+        debugPrint('[GPS] Attempt $attempt error: $e');
+        if (attempt == maxAttempts) {
+          failureReason = 'GPS acquisition timed out';
+        }
+      } on LocationServiceDisabledException catch (e) {
+        debugPrint('[LOCATION] Location service disabled during attempt $attempt: $e');
+        debugPrint('[GPS] Attempt $attempt error: $e');
+        failureReason = 'GPS service disabled';
+        break;
+      } on PermissionDeniedException catch (e) {
+        debugPrint('[LOCATION] Permission denied during attempt $attempt: $e');
+        debugPrint('[GPS] Attempt $attempt error: $e');
+        failureReason = 'Location permission denied';
+        break;
+      } catch (e) {
+        debugPrint('[LOCATION] Attempt $attempt error: ${e.runtimeType}: $e');
+        debugPrint('[GPS] Attempt $attempt error: $e');
+        if (attempt == maxAttempts) {
+          failureReason = 'GPS error: ${e.toString()}';
+        }
       }
+    }
 
-      // Step 5: Final decision
-      final finalPosition = bestPosition;
+    // Step 5: Final decision
+    final finalPosition = bestPosition;
 
-      if (finalPosition == null) {
-        debugPrint('[GPS] Final result: no position obtained');
-        debugPrint('[GPS] Attendance API will be called: false');
-        _log('[GPS] Final: No position obtained within timeout');
-        _showSingleError(
-            quiet, 'Unable to determine your location. Please try again.');
-        return null;
-      }
-
-      if (finalPosition.accuracy <= maxAccuracyMeters) {
-        debugPrint('[GPS] Final result: valid position obtained');
-        debugPrint(
-            '[GPS] Final accuracy: ${finalPosition.accuracy.toStringAsFixed(1)}m');
-        debugPrint('[GPS] Attendance API will be called: true');
-        _log(
-            '[GPS] Final: Position accepted with accuracy ${finalPosition.accuracy.toStringAsFixed(1)}m');
-        return finalPosition;
-      }
-
-      debugPrint('[GPS] Final result: position rejected due to low accuracy');
-      debugPrint(
-          '[GPS] Best accuracy achieved: ${finalPosition.accuracy.toStringAsFixed(1)}m');
-      debugPrint('[GPS] Attendance API will be called: false');
-      _log(
-          '[GPS] Final: Best accuracy ${finalPosition.accuracy.toStringAsFixed(1)}m > threshold ${maxAccuracyMeters}m');
-      _showSingleError(quiet,
-          'Unable to get an accurate location. Please move to an open area and try again.');
-      return null;
-    } catch (e) {
-      debugPrint('[GPS] Unexpected error occurred');
-      _log('[GPS] Final: Unexpected error occurred');
+    if (finalPosition == null) {
+      debugPrint('[LOCATION] GPS acquisition failed after ${totalStopwatch.elapsedMilliseconds} ms, no position obtained');
+      debugPrint('[GPS] Final result: no position obtained');
+      debugPrint('[GPS] Final failure reason: $failureReason');
+      _log('[GPS] Final: No position obtained - $failureReason');
       _showSingleError(
-          quiet, 'Unable to determine your location. Please try again.');
+          quiet, 'Unable to determine your location. $failureReason');
       return null;
-    } finally {
-      // Always clean up stream subscription
-      if (positionStreamSubscription != null) {
-        await positionStreamSubscription.cancel();
-        debugPrint('[GPS] Location stream cancelled');
-      }
-      acquisitionComplete = true;
+    }
 
-      // Clear loading state
+    // Reject if final position still exceeds the maximum acceptable accuracy.
+    // Progressive retries relax the threshold up to 200m, but anything worse
+    // is too unreliable for geofence validation and must be rejected.
+    const absoluteMaxAccuracy = 200.0;
+    if (finalPosition.accuracy > absoluteMaxAccuracy) {
+      final reason =
+          'GPS accuracy ${finalPosition.accuracy.toStringAsFixed(1)}m exceeds maximum ${absoluteMaxAccuracy.toStringAsFixed(0)}m';
+      debugPrint('[GPS] Final result: position rejected due to low accuracy');
+      debugPrint('[GPS] Final failure reason: $reason');
+      debugPrint('[GPS] Attendance API will be called: false');
+      _log('[GPS] Final: $reason');
       if (!quiet && mounted) {
         ScaffoldMessenger.of(context).clearSnackBars();
       }
+      _showSingleError(quiet,
+          'Unable to get an accurate location ($reason). Please move to an open area and try again.');
+      return null;
     }
+
+    debugPrint('[LOCATION] GPS acquisition succeeded in ${totalStopwatch.elapsedMilliseconds} ms');
+    debugPrint('[LOCATION] latitude=${finalPosition.latitude}, longitude=${finalPosition.longitude}, accuracy=${finalPosition.accuracy}m, timestamp=${finalPosition.timestamp}, isMocked=${finalPosition.isMocked}');
+    debugPrint('[GPS] Final result: position obtained');
+    debugPrint('[GPS] Final accuracy: ${finalPosition.accuracy.toStringAsFixed(1)}m');
+    debugPrint('[GPS] Final coordinates: lat=${finalPosition.latitude.toStringAsFixed(6)}, lng=${finalPosition.longitude.toStringAsFixed(6)}');
+    debugPrint('[GPS] Attendance API will be called: true');
+    _log(
+        '[GPS] Final: Position accepted with accuracy ${finalPosition.accuracy.toStringAsFixed(1)}m');
+
+    // Clear loading state
+    if (!quiet && mounted) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+    }
+
+    return finalPosition;
   }
 
   // Helper to show single error message (no duplicate SnackBar + AlertDialog)
@@ -1726,6 +1835,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 // 3) Add this for manual button flow.
   Future<void> _handleManualCheckInTap() async {
     if (_isManualLoading || _isBiometricLoading) return;
+    debugPrint('[CHECKIN] button tapped (manual)');
     debugPrint('[Attendance] Manual attendance button pressed');
 
     final canProceed = await _canProceedWithCheckIn();
@@ -1749,6 +1859,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 // 4) UPDATE biometric flow so duplicate check is blocked BEFORE biometric auth starts.
   Future<void> _authenticateAndCheckIn() async {
     if (_isManualLoading || _isBiometricLoading) return;
+    debugPrint('[CHECKIN] button tapped (biometric)');
 
     final canProceed = await _canProceedWithCheckIn();
     if (!canProceed) return;
@@ -1909,10 +2020,38 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       maxAccuracyMeters: 50.0,
     );
     debugPrint('[GPS] Final result: ${pos == null ? 'null' : 'valid'}');
+    if (pos != null) {
+      debugPrint('[LOCATION] latitude = ${pos.latitude}');
+      debugPrint('[LOCATION] longitude = ${pos.longitude}');
+      debugPrint('[LOCATION] accuracy = ${pos.accuracy}m');
+      debugPrint('[LOCATION] captured timestamp = ${pos.timestamp}');
+    }
     if (pos == null) {
       _log('[ManualAttendance] Location acquisition failed and returned null');
       debugPrint('[GPS] Final failure reason: location null');
       debugPrint('[GPS] Attendance API reached: false');
+      return;
+    }
+
+    // Final guard before hitting the API: never send invalid, stale, or mocked
+    // coordinates even if an earlier code path changes.
+    final posAge = DateTime.now().difference(pos.timestamp);
+    final invalidReason = pos.isMocked
+        ? 'Mock or simulated location detected'
+        : (!pos.latitude.isFinite || !pos.longitude.isFinite
+            ? 'Invalid coordinates'
+            : (pos.latitude == 0.0 && pos.longitude == 0.0
+                ? 'Invalid coordinates (0,0)'
+                : (pos.latitude.abs() > 90 || pos.longitude.abs() > 180
+                    ? 'Coordinates out of range'
+                    : (posAge.inMinutes > 5 ? 'Location is stale' : null))));
+
+    if (invalidReason != null) {
+      _log('[ManualAttendance] Location rejected before API: $invalidReason');
+      debugPrint('[GPS] Final failure reason: $invalidReason');
+      debugPrint('[GPS] Attendance API reached: false');
+      _showErrorDialog(
+          'Unable to check in. $invalidReason. Please move to an open area and try again.');
       return;
     }
 
@@ -1961,6 +2100,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final url = Uri.parse('${ApiService.baseUrl}/attendance/check-in');
     debugPrint('[GPS] Attendance API reached: true');
 
+    // Capture the GPS fix time in UTC ISO-8601.
+    // pos.timestamp is non-nullable in geolocator >= 14, so it always reflects
+    // the actual location fix time rather than the current device time.
+    final locationTimestamp = pos.timestamp.toUtc().toIso8601String();
+
+    debugPrint('[CHECKIN] locationTimestamp generated');
+    debugPrint('[CHECKIN] locationTimestamp type = ${locationTimestamp.runtimeType}');
+
     final bodyMap = {
       'empid': userId,
       'name': userName,
@@ -1968,6 +2115,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       'latitude': pos.latitude,
       'longitude': pos.longitude,
       'accuracy': pos.accuracy,
+      'locationTimestamp': locationTimestamp,
+      'isMocked': pos.isMocked,
       'source': type,
       'branchName': branchName,
       'expectedLatitude': expLat,
@@ -1981,6 +2130,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       if (reasonInfo != null) 'reasonTypeId': reasonInfo['reasonTypeId'],
       if (reasonInfo != null) 'reasonTypeName': reasonInfo['reasonTypeName'],
     };
+
+    debugPrint('[CHECKIN] payload keys = ${bodyMap.keys.toList()}');
+    debugPrint('[CHECKIN] payload contains locationTimestamp = ${bodyMap.containsKey('locationTimestamp')}');
+    debugPrint('[CHECKIN] payload contains isMocked = ${bodyMap.containsKey('isMocked')}');
 
     final prevState = (
       wasCheckedIn: isCheckedIn,
@@ -2011,6 +2164,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
 
     try {
+      debugPrint('[CHECKIN] preparing API request');
+      debugPrint('[API] endpoint = ${url.toString()}');
       debugPrint('[GPS] API reached: attendance/check-in');
       final res = await http.post(
         url,
@@ -2020,6 +2175,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         },
         body: jsonEncode(bodyMap),
       );
+
+      debugPrint('[API] HTTP status = ${res.statusCode}');
 
       Map<String, dynamic> responseData = <String, dynamic>{};
       try {

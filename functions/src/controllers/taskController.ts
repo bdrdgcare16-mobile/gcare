@@ -36,6 +36,54 @@ type Audience = 'all' | 'employee';
 
 
 
+// ---------------------------------------------------------------------------
+// Employee identity helpers
+// ---------------------------------------------------------------------------
+//
+// The project stores employee identity in several shapes:
+//  - root fields: empid, empId, employeeId
+//  - nested onboarding fields: companyDetails.employeeId
+//  - names: name, employeeName, fullName, personalDetails.fullName, firstName+lastName
+//
+// These helpers normalize those shapes so task history always shows the real
+// employee name instead of "-".
+
+function getEmployeeIdValues(data: any): string[] {
+  const ids = new Set<string>();
+  const add = (v: any) => {
+    const s = String(v ?? '').trim();
+    if (s && s !== 'null' && s !== 'undefined') ids.add(s);
+  };
+  add(data?.empid);
+  add(data?.empId);
+  add(data?.employeeId);
+  add(data?.companyDetails?.employeeId);
+  return Array.from(ids);
+}
+
+function getEmployeeDisplayName(data: any): string {
+  if (!data || typeof data !== 'object') return '';
+
+  // Some users mirror the full employee document in an employeeProfile field.
+  if (data.employeeProfile && typeof data.employeeProfile === 'object') {
+    const fromProfile = getEmployeeDisplayName(data.employeeProfile);
+    if (fromProfile) return fromProfile;
+  }
+
+  const firstLast = `${data?.firstName ?? ''} ${data?.lastName ?? ''}`.trim();
+  const name = String(
+    data?.name ??
+    data?.employeeName ??
+    data?.fullName ??
+    data?.personalDetails?.fullName ??
+    firstLast ??
+    ''
+  ).trim();
+  return name;
+}
+
+
+
 interface TaskDoc {
 
   id: string;
@@ -144,9 +192,18 @@ async function createAssignmentsForTask(
       .where('companyId', '==', task.companyId)
       .where('role', '==', 'employee')
       .get();
-    employeeIds = employeeSnap.docs
-      .map((doc) => (doc.data()?.empid || '').toString().trim())
-      .filter((e) => e);
+
+    const seen = new Set<string>();
+    employeeSnap.docs.forEach((doc) => {
+      const ids = getEmployeeIdValues(doc.data());
+      for (const id of ids) {
+        if (id && !seen.has(id)) {
+          seen.add(id);
+          employeeIds.push(id);
+          break; // one assignment per employee
+        }
+      }
+    });
   }
 
   if (employeeIds.length === 0) return;
@@ -865,6 +922,9 @@ export async function listTasksForUser(req: Request, res: Response) {
         result.push({
           ...task,
           status: 'assigned',
+          // Legacy tasks have no assignment doc, so the task creation
+          // timestamp is the real assignment time stored in the database.
+          assignedAt: task.createdAt || null,
           completedAt: null,
           completedBy: null,
           completionNote: null,
@@ -907,19 +967,66 @@ export async function listEmployeeTasks(req: Request, res: Response) {
       });
     }
 
-    const [taskSnap, assignmentSnap] = await Promise.all([
+    const [taskSnap, assignmentSnap, employeeSnap, userSnap] = await Promise.all([
       db.collection('tasks').where('companyId', '==', companyId).get(),
       db.collection(COLLECTIONS.TASK_ASSIGNMENTS).where('companyId', '==', companyId).get(),
+      db.collection(COLLECTIONS.EMPLOYEES).where('companyId', '==', companyId).get(),
+      db.collection(COLLECTIONS.USERS).where('companyId', '==', companyId).get(),
     ]);
 
+    // empid -> display name, and userId -> display name.
+    // `employees` is the authoritative HR record; `users` is the login mirror
+    // and is used as a fallback so admin history never loses employee identity.
+    const nameByEmpid = new Map<string, string>();
+    const nameByUserId = new Map<string, string>();
+
+    userSnap.docs.forEach((d) => {
+      const u = d.data() as any;
+      const name = getEmployeeDisplayName(u);
+      if (name) nameByUserId.set(d.id, name);
+
+      for (const id of getEmployeeIdValues(u)) {
+        if (name && !nameByEmpid.has(id)) nameByEmpid.set(id, name);
+      }
+    });
+
+    employeeSnap.docs.forEach((d) => {
+      const e = d.data() as any;
+      const name = getEmployeeDisplayName(e);
+      // Employees are authoritative: overwrite any user-derived name.
+      for (const id of getEmployeeIdValues(e)) {
+        if (name) nameByEmpid.set(id, name);
+      }
+    });
+
     const assignmentsByTask = new Map<string, any[]>();
+    let unresolvedNames = 0;
     assignmentSnap.docs.forEach(d => {
       const a = { id: d.id, ...d.data() } as any;
+      const eid = String(a.employeeId || '').trim();
+
+      // Attach the employee display name so the admin table can show
+      // "who received the task" without a second round-trip.
+      a.employeeName = nameByEmpid.get(eid) || '';
+
+      if (eid && !a.employeeName) {
+        unresolvedNames += 1;
+        console.warn(
+          `[listEmployeeTasks] Unresolved employee name for empid "${eid}". ` +
+          `Looked up by: empid / empId / employeeId / companyDetails.employeeId. ` +
+          `Name map size: ${nameByEmpid.size}`
+        );
+      }
+
       if (!assignmentsByTask.has(a.taskId)) {
         assignmentsByTask.set(a.taskId, []);
       }
       assignmentsByTask.get(a.taskId)!.push(a);
     });
+
+    if (unresolvedNames > 0) {
+      console.warn(`[listEmployeeTasks] ${unresolvedNames} assignment(s) could not resolve an employee name.`);
+    }
 
     const items = taskSnap.docs.map((d) => {
       const task = { id: d.id, ...d.data() } as any;
@@ -937,6 +1044,8 @@ export async function listEmployeeTasks(req: Request, res: Response) {
       return {
         ...task,
         status: overallStatus,
+        createdByName: nameByUserId.get(String(task.createdBy || '').trim()) || '',
+        assignedToName: nameByEmpid.get(String(task.assignedTo || '').trim()) || '',
         completedCount: completed,
         totalAssignments: total,
         assignments: taskAssignments,

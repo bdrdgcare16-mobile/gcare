@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { FieldValue } from 'firebase-admin/firestore';
-import { db } from '../config/firebase';
+import { getDb } from '../config/firebase';
 import { COLLECTIONS } from '../constants/collections';
 import { successResponse, errorResponse } from '../common/response';
 
@@ -45,7 +45,7 @@ export async function registerDevice(req: Request, res: Response) {
 
     // Avoid duplicate documents for the same FCM token. A token can only
     // belong to one device install, so reassign/refresh it if found.
-    const existing = await db
+    const existing = await getDb()
       .collection(COLLECTIONS.DEVICE_REGISTRATIONS)
       .where('fcmToken', '==', token)
       .limit(1)
@@ -67,7 +67,7 @@ export async function registerDevice(req: Request, res: Response) {
       return successResponse(res, { id: existing.docs[0].id }, 'Device registration updated', 200);
     }
 
-    const docRef = await db.collection(COLLECTIONS.DEVICE_REGISTRATIONS).add({
+    const docRef = await getDb().collection(COLLECTIONS.DEVICE_REGISTRATIONS).add({
       ...payload,
       createdAt: FieldValue.serverTimestamp(),
     });
@@ -98,7 +98,7 @@ export async function unregisterDevice(req: Request, res: Response) {
       return errorResponse(res, 'fcmToken is required', 400);
     }
 
-    const snap = await db
+    const snap = await getDb()
       .collection(COLLECTIONS.DEVICE_REGISTRATIONS)
       .where('fcmToken', '==', token)
       .where('userId', '==', userId)

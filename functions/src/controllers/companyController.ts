@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 const COMPANY_COLLECTION = 'companyProfile';
 import { Timestamp } from 'firebase-admin/firestore';
-import { db } from '../config/firebase';
+import { getDb } from '../config/firebase';
 import { trackUsage } from '../services/usageService';
 
 
@@ -57,16 +57,16 @@ async function trackCompanyUsage(
 /** Try multiple ways to find a profile for a given admin email (lowercased). */
 async function findProfileDoc(adminEmailLower: string) {
   // 1) Fast path: docId === admin email lower
-  const byIdRef = db.collection(COMPANY_COLLECTION).doc(adminEmailLower);
+  const byIdRef = getDb().collection(COMPANY_COLLECTION).doc(adminEmailLower);
   const byIdSnap = await byIdRef.get();
   if (byIdSnap.exists) return byIdSnap;
 
   // 2) Fallbacks (support older shapes)
   const tryQueries: Array<Promise<FirebaseFirestore.QuerySnapshot>> = [
-    db.collection(COMPANY_COLLECTION).where('adminEmailLower', '==', adminEmailLower).limit(1).get(),
-    db.collection(COMPANY_COLLECTION).where('adminEmail', '==', adminEmailLower).limit(1).get(),
-    db.collection(COMPANY_COLLECTION).where('emailLower', '==', adminEmailLower).limit(1).get(),
-    db.collection(COMPANY_COLLECTION).where('email', '==', adminEmailLower).limit(1).get(),
+    getDb().collection(COMPANY_COLLECTION).where('adminEmailLower', '==', adminEmailLower).limit(1).get(),
+    getDb().collection(COMPANY_COLLECTION).where('adminEmail', '==', adminEmailLower).limit(1).get(),
+    getDb().collection(COMPANY_COLLECTION).where('emailLower', '==', adminEmailLower).limit(1).get(),
+    getDb().collection(COMPANY_COLLECTION).where('email', '==', adminEmailLower).limit(1).get(),
   ];
 
   for (const p of tryQueries) {
@@ -103,7 +103,7 @@ export const saveCompanyProfile = async (req: Request, res: Response): Promise<R
     }
 
     const now =Timestamp.now();
-    const docRef = db.collection(COMPANY_COLLECTION).doc(adminEmailFromToken);
+    const docRef = getDb().collection(COMPANY_COLLECTION).doc(adminEmailFromToken);
 
     const data: Partial<CompanyProfile> = {
       id: adminEmailFromToken,

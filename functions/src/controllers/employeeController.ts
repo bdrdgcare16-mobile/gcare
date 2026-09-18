@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { db } from '../config/firebase';
+import { getDb } from '../config/firebase';
 import * as bcrypt from 'bcryptjs';
 import { Timestamp } from 'firebase-admin/firestore';
 import { trackUsage } from '../services/usageService';
@@ -108,7 +108,7 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
     console.log('[CREATE EMPLOYEE] empid:', normalizedEmpid);
 
     // Check duplicate email with companyId filter
-    const emailSnap = await db.collection('employees')
+    const emailSnap = await getDb().collection('employees')
       .where('companyId', '==', companyId)
       .where('email', '==', normalizedEmail)
       .limit(1)
@@ -121,7 +121,7 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
     }
 
     // Check duplicate empid with companyId filter
-    const empidSnap = await db.collection('employees')
+    const empidSnap = await getDb().collection('employees')
       .where('companyId', '==', companyId)
       .where('empid', '==', normalizedEmpid)
       .limit(1)
@@ -159,7 +159,7 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
       employeeData.password = await bcrypt.hash(password, 10);
     }
 
-    const ref = await db.collection(EMPLOYEES).add(employeeData);
+    const ref = await getDb().collection(EMPLOYEES).add(employeeData);
     const doc = await ref.get();
 
     // Track usage after successful employee creation
@@ -188,7 +188,7 @@ export const getEmployees = async (req: Request, res: Response): Promise<Respons
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const snap = await db
+    const snap = await getDb()
       .collection(EMPLOYEES)
       .where('companyId', '==', companyId) // 
       .get();
@@ -218,7 +218,7 @@ export const getEmployeeById = async (req: Request, res: Response): Promise<Resp
     const companyId = (req as any).user?.companyId;
     const { id } = req.params;
 
-    const doc = await db.collection(EMPLOYEES).doc(id).get();
+    const doc = await getDb().collection(EMPLOYEES).doc(id).get();
 
     if (!doc.exists) {
       return res.status(404).json({ error: 'Employee not found' });
@@ -253,7 +253,7 @@ export const updateEmployee = async (req: Request, res: Response): Promise<Respo
     const companyId = (req as any).user?.companyId;
     const { id } = req.params;
 
-    const ref = db.collection(EMPLOYEES).doc(id);
+    const ref = getDb().collection(EMPLOYEES).doc(id);
     const doc = await ref.get();
 
     if (!doc.exists) {
@@ -289,7 +289,7 @@ export const deleteEmployee = async (req: Request, res: Response): Promise<Respo
     const companyId = (req as any).user?.companyId;
     const { id } = req.params;
 
-    const ref = db.collection(EMPLOYEES).doc(id);
+    const ref = getDb().collection(EMPLOYEES).doc(id);
     const doc = await ref.get();
 
     if (!doc.exists) {

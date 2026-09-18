@@ -1,7 +1,7 @@
 // functions/src/controllers/reasonMasterController.ts
 import { Request, Response } from "express";
 import { FieldValue } from "firebase-admin/firestore";
-import { db } from "../config/firebase";
+import { getDb } from "../config/firebase";
 import { trackUsage } from "../services/usageService";
 const TYPES_COL   = "reason_types";
 const REASONS_COL = "reasons";
@@ -50,7 +50,7 @@ export async function listTypes(req: Request, res: Response) {
     return res.status(403).json({ status: "error", message: "Company ID missing in token" });
   }
 
-  const snap = await db.collection(TYPES_COL)
+  const snap = await getDb().collection(TYPES_COL)
     .where("companyId", "==", companyId)
     .where("deleted", "==", false)
     .get();
@@ -78,7 +78,7 @@ export async function createType(req: Request, res: Response) {
   const name = safe(req.body?.name);
   if (!name) return bad(res, "Field `name` is required");
 
-  const dup = await db.collection(TYPES_COL)
+  const dup = await getDb().collection(TYPES_COL)
     .where("companyId", "==", companyId)
     .where("name_lower", "==", name.toLowerCase())
     .where("deleted", "==", false)
@@ -92,7 +92,7 @@ export async function createType(req: Request, res: Response) {
     deleted: false
   });
 
-  const doc = await db.collection(TYPES_COL).add({
+  const doc = await getDb().collection(TYPES_COL).add({
     name,
     name_lower: name.toLowerCase(),
     companyId,
@@ -118,7 +118,7 @@ export async function deleteType(req: Request, res: Response) {
   }
 
   const id = safe(req.params.id);
-  const ref = db.collection(TYPES_COL).doc(id);
+  const ref = getDb().collection(TYPES_COL).doc(id);
   const snap = await ref.get();
   if (!snap.exists) return notfound(res, "Type not found");
 
@@ -131,8 +131,8 @@ export async function deleteType(req: Request, res: Response) {
   await ref.update({ deleted: true, updatedAt: now() });
 
   // Soft delete reasons for this type as well (only from same company)
-  const batch = db.batch();
-  const rs = await db.collection(REASONS_COL)
+  const batch = getDb().batch();
+  const rs = await getDb().collection(REASONS_COL)
     .where("typeId", "==", id)
     .where("companyId", "==", companyId)
     .where("deleted", "==", false)
@@ -162,7 +162,7 @@ export async function listReasons(req: Request, res: Response) {
 
   // First try the ideal (indexed) query
   try {
-    let q: FirebaseFirestore.Query = db.collection(REASONS_COL)
+    let q: FirebaseFirestore.Query = getDb().collection(REASONS_COL)
       .where("companyId", "==", companyId)
       .where("deleted", "==", false)
       .orderBy("createdAt", "desc");
@@ -170,7 +170,7 @@ export async function listReasons(req: Request, res: Response) {
     if (typeId) q = q.where("typeId", "==", safe(typeId));
 
     if (cursor) {
-      const cdoc = await db.collection(REASONS_COL).doc(String(cursor)).get();
+      const cdoc = await getDb().collection(REASONS_COL).doc(String(cursor)).get();
       if (cdoc.exists) q = q.startAfter(cdoc);
     }
 
@@ -204,7 +204,7 @@ export async function listReasons(req: Request, res: Response) {
 
   // Fallback (no composite index): fetch without orderBy and sort in memory
   try {
-    let q: FirebaseFirestore.Query = db.collection(REASONS_COL)
+    let q: FirebaseFirestore.Query = getDb().collection(REASONS_COL)
       .where("companyId", "==", companyId)
       .where("deleted", "==", false);
 
@@ -256,7 +256,7 @@ export async function createReason(req: Request, res: Response) {
   if (!typeId) return bad(res, "Field `typeId` is required");
   if (!reason) return bad(res, "Field `reason` is required");
 
-  const typeDoc = await db.collection(TYPES_COL).doc(typeId).get();
+  const typeDoc = await getDb().collection(TYPES_COL).doc(typeId).get();
   if (!typeDoc.exists || (typeDoc.data() as any)?.deleted) return bad(res, "Invalid typeId");
 
   const typeData = typeDoc.data() as any;
@@ -266,7 +266,7 @@ export async function createReason(req: Request, res: Response) {
 
   const typeName = typeData.name;
 
-  const doc = await db.collection(REASONS_COL).add({
+  const doc = await getDb().collection(REASONS_COL).add({
     typeId,
     typeName,
     reason,
@@ -296,7 +296,7 @@ export async function deleteReason(req: Request, res: Response) {
   }
 
   const id = safe(req.params.id);
-  const ref = db.collection(REASONS_COL).doc(id);
+  const ref = getDb().collection(REASONS_COL).doc(id);
   const snap = await ref.get();
   if (!snap.exists) return notfound(res, "Reason not found");
 

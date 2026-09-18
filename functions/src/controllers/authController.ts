@@ -9,48 +9,8 @@ import { normEmail } from "../common/utils";
 import { isBcryptHash } from "../common/password.utils";
 import { pickEmpId } from "../common/user.utils";
 
-// ── Firebase Admin (explicit, single init) ───────────────────────────────────
-import {
-  getApps,
-  initializeApp,
-  App,
-  cert,
-  applicationDefault,
-} from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
-import {
-  getFirestore,
-  type DocumentSnapshot,
-} from 'firebase-admin/firestore';
-
-// Choose credential: prefer service account JSON via env, else ADC.
-const SERVICE_ACCOUNT_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '';
-const PROJECT_ID = process.env.APP_FIREBASE_PROJECT_ID || 'servappbackend';
-
-const APP_NAME = 'serv-core';
-const existingApp = getApps().find((a) => a.name === APP_NAME);
-
-const adminApp: App =
-  existingApp ??
-  initializeApp(
-    {
-      credential: SERVICE_ACCOUNT_JSON
-        ? cert(JSON.parse(SERVICE_ACCOUNT_JSON))
-        : applicationDefault(),
-      projectId: PROJECT_ID,
-    },
-    APP_NAME
-  );
-
-console.log(
-  '[ADMIN PROJECT]',
-  PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT
-);
-
-const auth = getAuth(adminApp);
-const db = getFirestore(adminApp);
-
-console.log('[ADMIN PROJECT]', adminApp.options.projectId);
+import { getDb, getAdminAuth, checkFirestoreAccess } from '../config/firebase';
+import { type DocumentSnapshot } from 'firebase-admin/firestore';
 
 // ── Config ───────────────────────────────────────────────────────────────────
 const JWT_EXPIRES = getJwtExpires();
@@ -60,7 +20,16 @@ const EMPS_COL = 'employees';
 
 // Optional: where the Firebase hosted reset flow should land after completion
 function getResetContinueUrl(): string {
-  return process.env.RESET_CONTINUE_URL || 'https://servappbackend.web.app/reset-done';
+  const configured = process.env.RESET_CONTINUE_URL?.trim();
+  if (configured) {
+    return configured;
+  }
+
+  if (process.env.FUNCTIONS_EMULATOR === 'true') {
+    return 'http://localhost:3000/reset-done';
+  }
+
+  throw new Error('RESET_CONTINUE_URL is required');
 }
 
 // *** Web API key used only for server-side Firebase fallback ***
@@ -112,14 +81,14 @@ const sanitizeUser = (id: string, data: any) => {
 };
 
 async function getByEmail(colName: string, emailLower: string) {
-  let snap = await db
+  let snap = await getDb()
     .collection(colName)
     .where('emailLower', '==', emailLower)
     .limit(1)
     .get();
   if (!snap.empty) return snap;
 
-  snap = await db
+  snap = await getDb()
     .collection(colName)
     .where('email', '==', emailLower)
     .limit(1)
@@ -132,14 +101,14 @@ async function getByEmail(colName: string, emailLower: string) {
 async function getUserDocByEmailAny(
   emailLower: string
 ): Promise<DocumentSnapshot | null> {
-  let snap = await db
+  let snap = await getDb()
     .collection(USERS_COL)
     .where('emailLower', '==', emailLower)
     .limit(1)
     .get();
   if (!snap.empty) return snap.docs[0];
 
-  snap = await db
+  snap = await getDb()
     .collection(USERS_COL)
     .where('email', '==', emailLower)
     .limit(1)
@@ -217,7 +186,7 @@ export const register = async (req: Request, res: Response): Promise<Response> =
       return errorResponse(res, 'Role must be "employee" or "admin"', 400);
     }
 
-    const byEmail = await db
+    const byEmail = await getDb()
       .collection(USERS_COL)
       .where('emailLower', '==', email)
       .limit(1)
@@ -228,7 +197,7 @@ export const register = async (req: Request, res: Response): Promise<Response> =
     }
 
     if (empid) {
-      const byEmp = await db
+      const byEmp = await getDb()
         .collection(USERS_COL)
         .where('empid', '==', empid)
         .limit(1)
@@ -243,7 +212,7 @@ export const register = async (req: Request, res: Response): Promise<Response> =
     const now = new Date();
     const userId = uuidv4();
 
-    await db.collection(USERS_COL).doc(userId).set({
+    await getDb().collection(USERS_COL).doc(userId).set({
       empid: empid || null,
       empId: empid || null,
       name,
@@ -333,7 +302,7 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
 
         try {
           await rotatePassword({
-            db,
+            db: getDb(),
             userId: doc.id,
             oldHash: storedHash || null,
             newPlainPassword: password,
@@ -358,7 +327,7 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
 
       let userEmpid = pickEmpId(user);
       if (!userEmpid) {
-        const empQ = await db
+        const empQ = await getDb()
           .collection(EMPS_COL)
           .where('emailLower', '==', email)
           .limit(1)
@@ -466,7 +435,7 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
               null) as string | null;
 
           await rotatePassword({
-            db,
+            db: getDb(),
             userId: existingMirrorDoc.id,
             oldHash: prev,
             newPlainPassword: password,
@@ -484,7 +453,7 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
       const now = new Date();
       const empIdVal = pickEmpId(emp);
 
-      const ref = await db.collection(USERS_COL).add({
+      const ref = await getDb().collection(USERS_COL).add({
         empid: empIdVal || null,
         empId: empIdVal || null,
         name: emp.name || emp.fullName || '',
@@ -573,15 +542,20 @@ export const getMe = async (req: Request, res: Response): Promise<Response> => {
       return errorResponse(res, 'Unauthorized', 401);
     }
 
+    // One-time Firestore connectivity check
+    await checkFirestoreAccess();
+
     let doc: DocumentSnapshot | null = null;
 
     if (userId) {
-      const d = await db.collection(USERS_COL).doc(userId).get();
+      console.log(`[FIRESTORE ACCESS] collection=users, docId=${String(userId).substring(0, 12)}...`);
+      const d = await getDb().collection(USERS_COL).doc(userId).get();
       if (d.exists) doc = d;
     }
 
     if (!doc && email) {
-      const q = await db
+      console.log(`[FIRESTORE ACCESS] collection=users, query by email`);
+      const q = await getDb()
         .collection(USERS_COL)
         .where('emailLower', '==', email)
         .limit(1)
@@ -601,7 +575,7 @@ export const getMe = async (req: Request, res: Response): Promise<Response> => {
       if (eid && !(user as any).empId) (user as any).empId = eid;
 
       if ((user as any).empid) {
-        const empSnap = await db
+        const empSnap = await getDb()
           .collection(EMPS_COL)
           .where('empid', '==', (user as any).empid)
           .limit(1)
@@ -618,7 +592,7 @@ export const getMe = async (req: Request, res: Response): Promise<Response> => {
     }
 
     if (email) {
-      const empSnap = await db
+      const empSnap = await getDb()
         .collection(EMPS_COL)
         .where('emailLower', '==', email)
         .limit(1)
@@ -649,7 +623,23 @@ export const getMe = async (req: Request, res: Response): Promise<Response> => {
     }
 
     return errorResponse(res, 'User not found', 404);
-  } catch (err) {
+  } catch (err: any) {
+    const code = err?.code || 'unknown';
+    const message = err?.message || 'Internal server error';
+
+    // Firestore permission errors are controlled – return a clear message
+    // instead of an unhandled internal failure.
+    if (code === 7 || message.includes('PERMISSION_DENIED')) {
+      console.error(
+        `[getMe] Firestore access denied: code=${code}, message=${message}`
+      );
+      return errorResponse(
+        res,
+        'Database access error. Please contact support if this persists.',
+        503
+      );
+    }
+
     console.error('getMe error:', err);
     return errorResponse(res, 'Internal server error', 500);
   }
@@ -670,7 +660,7 @@ export const changePassword = async (req: Request, res: Response): Promise<Respo
       return errorResponse(res, 'Password must be at least 8 characters', 400);
     }
 
-    const userDoc = await db.collection(USERS_COL).doc(userId).get();
+    const userDoc = await getDb().collection(USERS_COL).doc(userId).get();
     if (!userDoc.exists) {
       return errorResponse(res, 'User not found', 404);
     }
@@ -683,8 +673,8 @@ export const changePassword = async (req: Request, res: Response): Promise<Respo
     }
 
     try {
-      const fbUser = await auth.getUserByEmail(emailLower);
-      await auth.updateUser(fbUser.uid, { password: newPassword });
+      const fbUser = await getAdminAuth().getUserByEmail(emailLower);
+      await getAdminAuth().updateUser(fbUser.uid, { password: newPassword });
     } catch (e) {
       console.warn('Firebase Auth update by email failed:', e);
       return errorResponse(res, 'Failed to update password in Firebase Auth', 500);
@@ -694,7 +684,7 @@ export const changePassword = async (req: Request, res: Response): Promise<Respo
       user.password || user.passwordHash || user.hashedPassword || null;
 
     await rotatePassword({
-      db,
+      db: getDb(),
       userId,
       oldHash: prevHash,
       newPlainPassword: newPassword,
@@ -728,7 +718,7 @@ export const createEmployeeLogin = async (
       return errorResponse(res, 'empid is required', 400);
     }
 
-    const empQ = await db
+    const empQ = await getDb()
       .collection(EMPS_COL)
       .where('empid', '==', empid)
       .limit(1)
@@ -752,7 +742,7 @@ export const createEmployeeLogin = async (
       return errorResponse(res, 'email is required (not found on employee record)', 400);
     }
 
-    const existsByEmail = await db
+    const existsByEmail = await getDb()
       .collection(USERS_COL)
       .where('emailLower', '==', email)
       .limit(1)
@@ -762,7 +752,7 @@ export const createEmployeeLogin = async (
       return errorResponse(res, 'Login already exists for this email', 409);
     }
 
-    const existsByEmpid = await db
+    const existsByEmpid = await getDb()
       .collection(USERS_COL)
       .where('empid', '==', empid)
       .limit(1)
@@ -777,7 +767,7 @@ export const createEmployeeLogin = async (
     const hash = await bcrypt.hash(finalPassword, 10);
     const now = new Date();
 
-    const docRef = await db.collection(USERS_COL).add({
+    const docRef = await getDb().collection(USERS_COL).add({
       empid,
       empId: empid,
       name,
@@ -814,7 +804,7 @@ export const backfillEmployeesToUsers = async (
   res: Response
 ): Promise<Response> => {
   try {
-    const empSnap = await db.collection(EMPS_COL).get();
+    const empSnap = await getDb().collection(EMPS_COL).get();
     const created: any[] = [];
     const updatedEmp: any[] = [];
 
@@ -841,7 +831,7 @@ export const backfillEmployeesToUsers = async (
         updatedEmp.push({ empid, emailLower });
       }
 
-      const exists = await db
+      const exists = await getDb()
         .collection(USERS_COL)
         .where('emailLower', '==', emailLower)
         .limit(1)
@@ -849,7 +839,7 @@ export const backfillEmployeesToUsers = async (
 
       if (!exists.empty) continue;
 
-      const existsEmp = await db
+      const existsEmp = await getDb()
         .collection(USERS_COL)
         .where('empid', '==', empid)
         .limit(1)
@@ -861,7 +851,7 @@ export const backfillEmployeesToUsers = async (
       const hash = await bcrypt.hash(temp, 10);
       const now = new Date();
 
-      const ref = await db.collection(USERS_COL).add({
+      const ref = await getDb().collection(USERS_COL).add({
         empid,
         empId: empid,
         name,
@@ -921,7 +911,7 @@ export const requestPasswordResetLink = async (
 
     const userDoc = await getUserDocByEmailAny(email);
     if (!userDoc) {
-      const empQ = await db
+      const empQ = await getDb()
         .collection(EMPS_COL)
         .where('emailLower', '==', email)
         .limit(1)
@@ -932,7 +922,7 @@ export const requestPasswordResetLink = async (
       }
     }
 
-    const link = await auth.generatePasswordResetLink(email, {
+    const link = await getAdminAuth().generatePasswordResetLink(email, {
       url: getResetContinueUrl(),
       handleCodeInApp: true,
     });
@@ -1046,7 +1036,7 @@ export const createPrivilegedUser = async (
     const now = new Date();
     const userId = uuidv4();
 
-    await db.collection(USERS_COL).doc(userId).set({
+    await getDb().collection(USERS_COL).doc(userId).set({
       empid: null,
       empId: null,
       name: userName,
@@ -1097,15 +1087,29 @@ export const firebaseLogin = async (
       : String(req.body.idToken || '');
 
     if (!idToken) {
+      console.warn('FIREBASE LOGIN: no ID token provided');
       return errorResponse(res, 'Firebase ID token required', 400);
     }
 
+    // Safe token diagnostics – never log the full token
+    console.log(
+      `[FIREBASE LOGIN] token received: length=${idToken.length}, ` +
+        `prefix=${idToken.substring(0, 20)}..., ` +
+        `source=${authHeader.startsWith('Bearer ') ? 'Authorization header' : 'body'}`
+    );
+
     let decoded: any;
     try {
-      decoded = await auth.verifyIdToken(idToken);
-      console.log('FIREBASE TOKEN VERIFIED');
+      decoded = await getAdminAuth().verifyIdToken(idToken);
+      console.log(
+        `[FIREBASE TOKEN VERIFIED] aud=${decoded.aud}, ` +
+          `email=${decoded.email || 'N/A'}, uid=${decoded.uid || 'N/A'}`
+      );
     } catch (e: any) {
-      console.warn('FIREBASE TOKEN VERIFIED failed:', e.code || e.message);
+      console.warn(
+        `[FIREBASE TOKEN VERIFY FAILED] code=${e.code || 'unknown'}, ` +
+          `message=${e.message || 'N/A'}`
+      );
       return errorResponse(res, 'Invalid or expired Firebase token', 401);
     }
 
@@ -1113,6 +1117,9 @@ export const firebaseLogin = async (
     if (!email) {
       return errorResponse(res, 'Firebase token does not contain an email', 401);
     }
+
+    // One-time Firestore connectivity check
+    await checkFirestoreAccess();
 
     const userSnap = await getByEmail(USERS_COL, email);
 
@@ -1136,7 +1143,7 @@ export const firebaseLogin = async (
 
       let userEmpid = pickEmpId(user);
       if (!userEmpid) {
-        const empQ = await db
+        const empQ = await getDb()
           .collection(EMPS_COL)
           .where('emailLower', '==', email)
           .limit(1)
@@ -1224,7 +1231,7 @@ export const firebaseLogin = async (
     const name = String(emp.name || emp.fullName || '').trim();
     const now = new Date();
 
-    const ref = await db.collection(USERS_COL).add({
+    const ref = await getDb().collection(USERS_COL).add({
       empid: finalEmpid,
       empId: finalEmpid,
       name,
@@ -1276,6 +1283,21 @@ export const firebaseLogin = async (
       'Login successful'
     );
   } catch (error: any) {
+    const errCode = error?.code || 'unknown';
+    const errMsg = error?.message || 'Internal server error';
+
+    // Firestore permission errors – controlled 503
+    if (errCode === 7 || errMsg.includes('PERMISSION_DENIED')) {
+      console.error(
+        `[FIREBASE LOGIN FAILED] Firestore access denied: code=${errCode}, message=${errMsg}`
+      );
+      return errorResponse(
+        res,
+        'Database access error. Please contact support if this persists.',
+        503
+      );
+    }
+
     console.error('FIREBASE LOGIN FAILED:', error?.message || error);
     return errorResponse(res, 'Internal server error', 500);
   }
