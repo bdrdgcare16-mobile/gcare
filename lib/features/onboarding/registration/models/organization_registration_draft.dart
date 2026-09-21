@@ -39,6 +39,16 @@ class OrganizationRegistrationDraft {
   /// The furthest step the applicant has completed and may jump back to.
   int maxCompletedStep;
 
+  /// Server-side draft ID (from POST /org-registration/draft).
+  ///
+  /// NOT a credential — it is useless without the resume token, which is
+  /// stored separately in flutter_secure_storage.
+  String registrationId;
+
+  /// True when the last backend sync failed — the local draft is preserved
+  /// and will be re-synced on the next save.
+  bool backendSyncFailed;
+
   OrganizationRegistrationDraft({
     this.organizationName = '',
     this.organizationType = '',
@@ -58,6 +68,8 @@ class OrganizationRegistrationDraft {
     this.adminMobile = '',
     this.currentStep = 0,
     this.maxCompletedStep = -1,
+    this.registrationId = '',
+    this.backendSyncFailed = false,
   }) : requestedFeatures = requestedFeatures ?? <String>{};
 
   bool get isEmpty =>
@@ -98,6 +110,8 @@ class OrganizationRegistrationDraft {
         'adminMobile': adminMobile,
         'currentStep': currentStep,
         'maxCompletedStep': maxCompletedStep,
+        'registrationId': registrationId,
+        'backendSyncFailed': backendSyncFailed,
       };
 
   factory OrganizationRegistrationDraft.fromJson(
@@ -129,6 +143,8 @@ class OrganizationRegistrationDraft {
       maxCompletedStep: (json['maxCompletedStep'] is num)
           ? (json['maxCompletedStep'] as num).toInt()
           : -1,
+      registrationId: (json['registrationId'] ?? '').toString(),
+      backendSyncFailed: json['backendSyncFailed'] == true,
     );
   }
 }

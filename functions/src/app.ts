@@ -175,6 +175,7 @@ import payrollRoutes from "./routes/payrollRoutes";
 import onboardingRoutes from "./routes/onboarding.routes";
 import notificationRoutes from "./routes/notificationRoutes";
 import policyRoutes from "./routes/policyRoutes";
+import organizationRegistrationRoutes from "./routes/organizationRegistrationRoutes";
 
 import * as authController from "./controllers/authController";
 
@@ -306,6 +307,12 @@ app.use(`${apiPrefix}/payroll`, payrollRoutes);
 app.use(`${apiPrefix}/onboarding`, onboardingRoutes);
 app.use(`${apiPrefix}/notifications`, generalRateLimit, notificationRoutes);
 app.use(`${apiPrefix}/organization`, generalRateLimit, policyRoutes);
+// Public org-registration draft endpoints — credential-gated, strict limit.
+app.use(
+  `${apiPrefix}/org-registration`,
+  authRateLimit,
+  organizationRegistrationRoutes
+);
 
 // Log to confirm payroll routes are registered at startup
 // (keeps placement consistent before the final 404 handler)
