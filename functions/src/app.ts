@@ -174,6 +174,7 @@ import billingRoutes from "./routes/billingRoutes";
 import payrollRoutes from "./routes/payrollRoutes";
 import onboardingRoutes from "./routes/onboarding.routes";
 import notificationRoutes from "./routes/notificationRoutes";
+import policyRoutes from "./routes/policyRoutes";
 
 import * as authController from "./controllers/authController";
 
@@ -269,41 +270,49 @@ app.get("/health", (_req: Request, res: Response) => {
 app.use(generalRateLimit);
 
 // ---------------- Routes ----------------
-app.use("/api/auth", authRateLimit, authRoutes);
-app.use("/api/company", generalRateLimit, companyRoutes);
-app.use("/api/employees", generalRateLimit, employeeRoutes);
-app.use("/api/attendance", attendanceRateLimit, attendanceRoutes);
-app.use("/api/employee-details", generalRateLimit, employeeDetailsRoutes);
-app.use("/api/leaves", generalRateLimit, leaveRoutes);
-app.use("/api/leave-types", generalRateLimit, leaveTypeRoutes);
-app.use("/api/office", generalRateLimit, officeLocationRoutes);
-app.use("/api/uploads", uploadRateLimit, uploadRoutes);
-app.use("/api/reports", generalRateLimit, reportRoutes);
-app.use("/api/rewards", generalRateLimit, rewardRoutes);
-app.use("/api/events", generalRateLimit, eventRoutes());
-app.use("/api/feedback", generalRateLimit, feedbackRoutes());
-app.use("/api/shifts", generalRateLimit, shiftRoutes);
-app.use("/api/tasks", generalRateLimit, taskRoutes);
-app.use("/api/tracking", trackingRateLimit, trackingRoutes);
+// In production (Cloud Run), the service root maps to the function root and
+// Express sees the full `/api/<resource>/...` path.
+// In the Functions emulator the function name `api` is part of the URL and is
+// stripped before reaching Express, so `/api/<resource>` would actually need
+// to be requested as `/api/api/<resource>`. Use an empty prefix in emulator.
+const apiPrefix = process.env.FUNCTIONS_EMULATOR === 'true' ? '' : '/api';
+
+app.use(`${apiPrefix}/auth`, authRateLimit, authRoutes);
+app.use(`${apiPrefix}/company`, generalRateLimit, companyRoutes);
+app.use(`${apiPrefix}/employees`, generalRateLimit, employeeRoutes);
+app.use(`${apiPrefix}/attendance`, attendanceRateLimit, attendanceRoutes);
+app.use(`${apiPrefix}/employee-details`, generalRateLimit, employeeDetailsRoutes);
+app.use(`${apiPrefix}/leaves`, generalRateLimit, leaveRoutes);
+app.use(`${apiPrefix}/leave-types`, generalRateLimit, leaveTypeRoutes);
+app.use(`${apiPrefix}/office`, generalRateLimit, officeLocationRoutes);
+app.use(`${apiPrefix}/uploads`, uploadRateLimit, uploadRoutes);
+app.use(`${apiPrefix}/reports`, generalRateLimit, reportRoutes);
+app.use(`${apiPrefix}/rewards`, generalRateLimit, rewardRoutes);
+app.use(`${apiPrefix}/events`, generalRateLimit, eventRoutes());
+app.use(`${apiPrefix}/feedback`, generalRateLimit, feedbackRoutes());
+app.use(`${apiPrefix}/shifts`, generalRateLimit, shiftRoutes);
+app.use(`${apiPrefix}/tasks`, generalRateLimit, taskRoutes);
+app.use(`${apiPrefix}/tracking`, trackingRateLimit, trackingRoutes);
 app.use(
-  "/api/liveEmployeeDetails",
+  `${apiPrefix}/liveEmployeeDetails`,
   generalRateLimit,
   liveEmployeeDetailsRouter,
 );
-app.use("/api/reasons", generalRateLimit, reasonsRouter);
-app.use("/api/overtime", generalRateLimit, overtimeRoutes);
-app.use("/api/admin", generalRateLimit, adminRoutes);
-app.use("/api/billing", generalRateLimit, billingRoutes);
-app.use("/api/payroll", payrollRoutes);
-app.use("/api/onboarding", onboardingRoutes);
-app.use("/api/notifications", generalRateLimit, notificationRoutes);
+app.use(`${apiPrefix}/reasons`, generalRateLimit, reasonsRouter);
+app.use(`${apiPrefix}/overtime`, generalRateLimit, overtimeRoutes);
+app.use(`${apiPrefix}/admin`, generalRateLimit, adminRoutes);
+app.use(`${apiPrefix}/billing`, generalRateLimit, billingRoutes);
+app.use(`${apiPrefix}/payroll`, payrollRoutes);
+app.use(`${apiPrefix}/onboarding`, onboardingRoutes);
+app.use(`${apiPrefix}/notifications`, generalRateLimit, notificationRoutes);
+app.use(`${apiPrefix}/organization`, generalRateLimit, policyRoutes);
 
 // Log to confirm payroll routes are registered at startup
 // (keeps placement consistent before the final 404 handler)
 console.log("[ROUTES] Payroll routes registered");
 
-app.get("/api/me", authController.getMe);
-app.get("/api/profile", authController.getMe);
+app.get(`${apiPrefix}/me`, authController.getMe);
+app.get(`${apiPrefix}/profile`, authController.getMe);
 
 // ---------------- 404 Handler ----------------
 app.use((req: Request, res: Response) => {

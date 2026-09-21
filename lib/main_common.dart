@@ -3,10 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'
     show kIsWeb;
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 import 'package:workmanager/workmanager.dart';
-import 'package:serv_app/features/auth/auth_guard.dart';
+import 'package:serv_app/features/onboarding/onboarding_guard.dart';
 import 'core/app_messenger.dart';
 import 'core/app_navigator.dart';
 import 'package:serv_app/features/users/login_page.dart';
@@ -57,6 +58,13 @@ Future<void> startApp({
     );
     debugPrint('Firebase initialized for [$environmentName]: ${app.options.projectId}');
     debugPrint('API key configured: ${app.options.apiKey.isNotEmpty ? 'YES' : 'NO'}');
+
+    // Connect to the Firebase Auth emulator in DEV builds only.
+    if (environmentName == 'DEV') {
+      final authHost = kIsWeb ? '127.0.0.1' : '192.168.1.47';
+      await FirebaseAuth.instance.useAuthEmulator(authHost, 9099);
+      debugPrint('Firebase Auth emulator connected [$environmentName]: $authHost:9099');
+    }
 
     FirebaseMessaging.onBackgroundMessage(
       firebaseMessagingBackgroundHandler,
@@ -166,7 +174,7 @@ class MyApp extends StatelessWidget {
           child: wrapped,
         );
       },
-      home: AuthGuard(),
+      home: const OnboardingGuard(),
       routes: {
         '/login': (context) => const LoginPage(),
         '/leave': (context) => const LeavePage(),

@@ -11,6 +11,10 @@ import { pickEmpId } from "../common/user.utils";
 
 import { getDb, getAdminAuth, checkFirestoreAccess } from '../config/firebase';
 import { type DocumentSnapshot } from 'firebase-admin/firestore';
+import {
+  getCompanyProfileByCode,
+  normalizeOrgCode,
+} from './companyController';
 
 // ── Config ───────────────────────────────────────────────────────────────────
 const JWT_EXPIRES = getJwtExpires();
@@ -1074,6 +1078,140 @@ export const createPrivilegedUser = async (
   }
 };
 
+// ── Employee organization validation helpers ─────────────────────────────────
+
+/**
+ * Validates an organization code + employee email without receiving a password.
+ * Used by the Flutter employee login flow to confirm the employee is eligible to
+ * authenticate before invoking Firebase Authentication.
+ */
+export const employeeLoginValidate = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  try {
+    const organizationCode = normalizeOrgCode(req.body?.organizationCode);
+    const email = normEmail(req.body?.email);
+
+    if (!organizationCode || !email) {
+      return errorResponse(
+        res,
+        'Organization code and email are required',
+        400,
+      );
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return errorResponse(res, 'Enter a valid email address', 400);
+    }
+
+    const companySnap = await getCompanyProfileByCode(organizationCode);
+    if (!companySnap) {
+      return errorResponse(res, 'Invalid organization or email', 401);
+    }
+
+    const company = companySnap.data() || {};
+    const companyStatus = String(company.status || 'active').trim().toLowerCase();
+    if (companyStatus !== 'active') {
+      return errorResponse(res, 'Invalid organization or email', 401);
+    }
+
+    const companyId = String(companySnap.id).trim();
+
+    const userSnap = await getByEmail(USERS_COL, email);
+    let user: any = null;
+
+    if (userSnap && !userSnap.empty) {
+      user = userSnap.docs[0].data();
+    } else {
+      const empSnap = await getByEmail(EMPS_COL, email);
+      if (empSnap && !empSnap.empty) {
+        user = empSnap.docs[0].data();
+      }
+    }
+
+    if (!user) {
+      return errorResponse(res, 'Invalid organization or email', 401);
+    }
+
+    const role = String(user.role || '').trim().toLowerCase();
+    if (role !== 'employee') {
+      return errorResponse(res, 'Invalid organization or email', 401);
+    }
+
+    const status = String(user.status || 'active').trim().toLowerCase();
+    if (status !== 'active') {
+      return errorResponse(res, 'Invalid organization or email', 401);
+    }
+
+    const userCompanyId = String(user.companyId || '').trim();
+    if (!userCompanyId || userCompanyId !== companyId) {
+      return errorResponse(res, 'Invalid organization or email', 401);
+    }
+
+    return successResponse(
+      res,
+      {
+        email: user.email || email,
+        companyId,
+        organizationCode,
+        canProceed: true,
+      },
+      'Employee validated successfully',
+    );
+  } catch (error: any) {
+    console.error('employeeLoginValidate error:', error);
+    return errorResponse(res, 'Internal server error', 500);
+  }
+};
+
+/**
+ * Validates organization constraints for the employee login context.
+ * Called after a user/employee record has been located and before a JWT is
+ * issued. Enforces: organization code exists, organization is active, user is
+ * an employee, user account is active, user's companyId matches the code.
+ */
+async function validateEmployeeOrganization(
+  req: Request,
+  userCompanyId: string,
+  userRole: string,
+  userStatus: string
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const loginContext = String(req.body?.loginContext || '').trim().toLowerCase();
+  const organizationCode = normalizeOrgCode(req.body?.organizationCode);
+
+  if (loginContext !== 'employee' || !organizationCode) {
+    return { ok: true };
+  }
+
+  const companySnap = await getCompanyProfileByCode(organizationCode);
+  if (!companySnap) {
+    return { ok: false, message: 'Invalid organization or email' };
+  }
+
+  const company: any = companySnap.data() || {};
+  const status = String(company.status || 'active').trim().toLowerCase();
+  if (status !== 'active') {
+    return { ok: false, message: 'Invalid organization or email' };
+  }
+
+  const codeCompanyId = String(companySnap.id).trim();
+  if (!codeCompanyId || codeCompanyId !== userCompanyId.trim()) {
+    return { ok: false, message: 'Invalid organization or email' };
+  }
+
+  if (userRole !== 'employee') {
+    return { ok: false, message: 'Invalid organization or email' };
+  }
+
+  if (userStatus !== 'active') {
+    return { ok: false, message: 'Invalid organization or email' };
+  }
+
+  return { ok: true };
+}
+
 export const firebaseLogin = async (
   req: Request,
   res: Response
@@ -1139,6 +1277,16 @@ export const firebaseLogin = async (
       const role = String(user.role || 'employee').toLowerCase();
       if (role !== 'employee' && role !== 'admin' && role !== 'super_admin') {
         return errorResponse(res, 'Invalid role on account', 403);
+      }
+
+      const orgValidation = await validateEmployeeOrganization(
+        req,
+        companyId,
+        role,
+        user.status || 'active',
+      );
+      if (!orgValidation.ok) {
+        return errorResponse(res, orgValidation.message, 401);
       }
 
       let userEmpid = pickEmpId(user);
@@ -1223,6 +1371,16 @@ export const firebaseLogin = async (
 
     if (emp.status && emp.status !== 'active') {
       return errorResponse(res, 'Account is not active', 403);
+    }
+
+    const orgValidation = await validateEmployeeOrganization(
+      req,
+      employeeCompanyId,
+      'employee',
+      emp.status || 'active',
+    );
+    if (!orgValidation.ok) {
+      return errorResponse(res, orgValidation.message, 401);
     }
 
     const empIdVal = pickEmpId(emp);

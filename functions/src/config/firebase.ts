@@ -234,3 +234,7 @@ export function getBucket(): ReturnType<Storage['bucket']> {
   }
   return _bucket;
 }
+
+// Firestore access is intentionally lazy. Use getDb() in callers so that
+// module import does not trigger Firebase service initialization during
+// Functions cold-start discovery.

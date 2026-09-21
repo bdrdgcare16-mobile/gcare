@@ -15,7 +15,7 @@ import 'package:serv_app/models/company_data.dart';
 
 // Destinations
 import 'package:serv_app/features/users/login_page.dart';
-import 'package:serv_app/features/users/home_screen_page.dart';
+import 'package:serv_app/features/onboarding/guards/organization_policy_guard.dart';
 import 'package:serv_app/features/admin/admin_dashboard_page.dart';
 import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/services/api_service.dart';
@@ -215,10 +215,12 @@ class _AuthGuardState extends State<AuthGuard> {
 
         final docId = await _readPersisted('userDocId');
 
+        // Route through the organization policy gate so a newly published
+        // required policy blocks the dashboard until it is accepted.
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
-            builder: (_) => HomeScreen(
+            builder: (_) => OrganizationPolicyGuard(
               userName: displayName,
               employeeDocId: docId,
             ),
@@ -322,7 +324,7 @@ class _AuthGuardState extends State<AuthGuard> {
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
-            builder: (_) => HomeScreen(
+            builder: (_) => OrganizationPolicyGuard(
               userName: name.isNotEmpty ? name : 'Employee',
               employeeDocId: docId,
             ),

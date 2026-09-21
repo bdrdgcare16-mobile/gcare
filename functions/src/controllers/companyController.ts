@@ -2,10 +2,20 @@ import { Request, Response } from 'express';
 const COMPANY_COLLECTION = 'companyProfile';
 import { Timestamp } from 'firebase-admin/firestore';
 import { getDb } from '../config/firebase';
+import type { DocumentSnapshot } from 'firebase-admin/firestore';
 import { trackUsage } from '../services/usageService';
 
 
 type TS = Timestamp;
+
+type OrganizationStatus = 'active' | 'inactive' | 'pending_approval' | 'suspended';
+
+const VALID_ORG_STATUS: ReadonlySet<string> = new Set([
+  'active',
+  'inactive',
+  'pending_approval',
+  'suspended',
+]);
 
 interface CompanyProfile {
   id?: string;
@@ -20,6 +30,8 @@ interface CompanyProfile {
   logoBase64?: string;
   adminName: string;
   designation: string;
+  code?: string;            // unique organization code (e.g., SERV001)
+  status?: OrganizationStatus; // organization lifecycle state
   filled?: boolean;
   weeklyOffConfig?: {
     type: 'WEEKLY';
@@ -32,8 +44,55 @@ interface CompanyProfile {
 const normalizeEmail = (v: string | undefined | null) =>
   String(v || '').trim().toLowerCase();
 
+export const normalizeOrgCode = (v: string | undefined | null): string =>
+  String(v || '').trim().toUpperCase();
+
+export const getCompanyProfileByCode = async (
+  code: string
+): Promise<DocumentSnapshot | null> => {
+  const normalized = normalizeOrgCode(code);
+  if (!normalized) return null;
+
+  const snap = await getDb()
+    .collection(COMPANY_COLLECTION)
+    .where('code', '==', normalized)
+    .limit(1)
+    .get();
+
+  return snap.empty ? null : snap.docs[0];
+};
+
 const computeFilled = (p: Partial<CompanyProfile>) =>
   Boolean(p.companyName && p.email && p.phone && p.adminName && p.designation);
+
+async function isOrgCodeInUse(code: string, excludeDocId?: string): Promise<boolean> {
+  const normalized = normalizeOrgCode(code);
+  if (!normalized) return false;
+
+  const snap = await getDb()
+    .collection(COMPANY_COLLECTION)
+    .where('code', '==', normalized)
+    .limit(1)
+    .get();
+
+  if (snap.empty) return false;
+  if (excludeDocId && snap.docs[0].id === excludeDocId) return false;
+  return true;
+}
+
+export function normalizeOrgStatus(
+  v: string | undefined | null
+): OrganizationStatus | null {
+  if (v === undefined || v === null || String(v).trim() === '') {
+    // Legacy documents with no status field are treated as active for backward
+    // compatibility, but the field is not forced on read/write.
+    return 'active';
+  }
+  const s = String(v).trim().toLowerCase();
+  if (VALID_ORG_STATUS.has(s)) return s as OrganizationStatus;
+  // Explicit invalid status is rejected by the caller.
+  return null;
+}
 
 /* ============================== Usage Tracking Helper ============================== */
 
@@ -92,6 +151,8 @@ export const saveCompanyProfile = async (req: Request, res: Response): Promise<R
       website,
       adminName,
       designation,
+      code,
+      status,
       logoBase64,
       logoMimeType,
     } = (req.body || {}) as Partial<CompanyProfile> & { logoMimeType?: string };
@@ -100,6 +161,33 @@ export const saveCompanyProfile = async (req: Request, res: Response): Promise<R
     const missing = Object.entries(required).filter(([, v]) => !v).map(([k]) => k);
     if (missing.length) {
       return res.status(400).json({ success: false, error: 'Missing required fields', missingFields: missing });
+    }
+
+    const normalizedStatus = normalizeOrgStatus(status);
+    if (normalizedStatus === null) {
+      return res.status(400).json({
+        success: false,
+        error:
+          'Invalid organization status. Allowed values: active, inactive, pending_approval, suspended.',
+      });
+    }
+
+    const normalizedCode = normalizeOrgCode(code);
+    if (normalizedCode && !/^[A-Z0-9_-]{3,32}$/.test(normalizedCode)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid organization code. Use 3-32 uppercase letters, numbers, underscores or hyphens.',
+      });
+    }
+
+    if (normalizedCode) {
+      const codeInUse = await isOrgCodeInUse(normalizedCode, adminEmailFromToken);
+      if (codeInUse) {
+        return res.status(409).json({
+          success: false,
+          error: 'Organization code is already in use',
+        });
+      }
     }
 
     const now =Timestamp.now();
@@ -116,8 +204,13 @@ export const saveCompanyProfile = async (req: Request, res: Response): Promise<R
       website: website ? String(website) : '',
       adminName: String(adminName),
       designation: String(designation),
+      status: normalizedStatus,
       updatedAt: now,
     };
+
+    if (normalizedCode) {
+      data.code = normalizedCode;
+    }
 
     // derive/ensure "filled"
     data.filled = computeFilled(data);

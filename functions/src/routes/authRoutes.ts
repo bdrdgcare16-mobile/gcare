@@ -19,6 +19,9 @@ router.post('/forgot-password', authController.forgotPassword);
 // Public – request Firebase reset email link
 router.post('/forgot-password/request-link', authController.requestPasswordResetLink);
 
+// Employee login pre-validation (organization code + email, no password)
+router.post('/employee-login/validate', authController.employeeLoginValidate);
+
 /* ================= Protected ================= */
 router.use(authMiddleware);
 
