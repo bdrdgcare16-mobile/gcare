@@ -249,7 +249,10 @@ class OrganizationRegistrationService {
     if (res.statusCode != 200) _throwFor(res);
   }
 
-  /// Reads application status (for the future pending-approval screen).
+  /// Reads the authoritative application status.
+  ///
+  /// Remains available after submission — the resume credential authorizes
+  /// status retrieval even once editing is revoked server-side.
   Future<Map<String, dynamic>> getStatus(
     String registrationId,
     String resumeToken,
@@ -257,6 +260,28 @@ class OrganizationRegistrationService {
     final res = await _send(() => http.get(
           Uri.parse('$_base/org-registration/status/$registrationId'),
           headers: _headers(resumeToken),
+        ));
+    if (res.statusCode != 200) _throwFor(res);
+    return _decode(res);
+  }
+
+  /// Submits the application for platform-admin review.
+  ///
+  /// The backend independently revalidates completeness, so a client-side
+  /// pass is never sufficient. Repeat calls are idempotent (200 with
+  /// `alreadySubmitted`). A 409 means the status no longer allows submission.
+  Future<Map<String, dynamic>> submit(
+    String registrationId,
+    String resumeToken, {
+    required bool declarationAccepted,
+  }) async {
+    final res = await _send(() => http.post(
+          Uri.parse('$_base/org-registration/submit'),
+          headers: _headers(resumeToken),
+          body: jsonEncode({
+            'registrationId': registrationId,
+            'declarationAccepted': declarationAccepted,
+          }),
         ));
     if (res.statusCode != 200) _throwFor(res);
     return _decode(res);

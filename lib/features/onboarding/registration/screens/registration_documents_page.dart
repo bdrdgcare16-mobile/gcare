@@ -9,6 +9,7 @@ import '../controllers/registration_draft_controller.dart';
 import '../services/organization_registration_service.dart';
 import '../widgets/registration_step_indicator.dart';
 import 'organization_information_page.dart';
+import 'registration_review_page.dart';
 
 class _DocField {
   final String key;
@@ -172,27 +173,16 @@ class _RegistrationDocumentsPageState
     }
   }
 
+  /// Documents complete → Review Application (step 5).
   Future<void> _finish() async {
     if (!_allRequiredUploaded) return;
-    await _controller.markStepCompleted(4, nextStep: 4);
+    await _controller.markStepCompleted(
+      RegistrationDraftController.stepDocuments,
+      nextStep: RegistrationDraftController.stepReview,
+    );
     if (!mounted) return;
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Registration draft complete'),
-        content: const Text(
-          'Your registration draft and uploaded documents have been saved. '
-          'Your application has not yet been submitted to SERV and has not '
-          'been approved. Submission for review will be available in the '
-          'next step.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const RegistrationReviewPage()),
     );
   }
 

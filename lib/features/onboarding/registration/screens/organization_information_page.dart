@@ -14,6 +14,7 @@ const List<String> kRegistrationStepLabels = [
   'HR / Admin',
   'Verification',
   'Documents',
+  'Review',
 ];
 
 const List<String> _kOrgTypes = [

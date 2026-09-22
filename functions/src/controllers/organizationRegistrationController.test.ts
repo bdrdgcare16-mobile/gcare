@@ -65,10 +65,20 @@ function makeMockDb(collections: Record<string, MockDoc[]>) {
     const target = col.find((d) => d.id === id);
     if (!target) throw new Error('NOT_FOUND');
     for (const [k, v] of Object.entries(updates)) {
-      // Resolve FieldValue.increment sentinels so attempt counters work.
+      // Firestore FieldValue sentinels are opaque transform objects —
+      // identify them by constructor name and apply the real semantics.
+      const kind =
+        v && typeof v === 'object' ? String(v.constructor?.name ?? '') : '';
       if (v && typeof v === 'object' && typeof v.operand === 'number') {
+        // NumericIncrementTransform.
         const cur = Number(getPath(target.data, k) || 0);
         setPath(target.data, k, cur + v.operand);
+      } else if (kind === 'ArrayUnionTransform') {
+        const cur = getPath(target.data, k) ?? [];
+        const els = Array.isArray(v.elements) ? v.elements : [];
+        setPath(target.data, k, [...cur, ...els]);
+      } else if (kind === 'ServerTimestampTransform') {
+        setPath(target.data, k, new Date());
       } else {
         setPath(target.data, k, v);
       }
@@ -150,6 +160,20 @@ function makeMockDb(collections: Record<string, MockDoc[]>) {
           }),
         };
       }),
+      // Transactions apply immediately in the mock — sequential test calls
+      // still exercise the status guard that prevents double submission.
+      runTransaction: jest.fn(async (fn: any) =>
+        fn({
+          get: (ref: any) => ref.get(),
+          update: (ref: any, updates: Record<string, any>) =>
+            applyUpdates(ref._col, ref.id, updates),
+          set: (ref: any, data: any) => {
+            const existing = ref._col.find((d: MockDoc) => d.id === ref.id);
+            if (existing) Object.assign(existing.data, data);
+            else ref._col.push({ id: ref.id, data });
+          },
+        }),
+      ),
     },
     collections,
   };
@@ -502,7 +526,10 @@ describe('organizationRegistrationController', () => {
       const res = mockResponse();
       await submitRegistration(
         makeReq({
-          body: { registrationId: body.registrationId },
+          body: {
+            registrationId: body.registrationId,
+            declarationAccepted: true,
+          },
           resumeToken: body.resumeToken,
         }) as Request,
         res,
@@ -940,5 +967,341 @@ describe('organizationRegistrationController � documents (3C)', () => {
       bad,
     );
     expect(statusCode(bad)).toBe(401);
+  });
+});
+
+// -- Milestone 3D-A: applicant submission --------------------------------------
+
+describe('organizationRegistrationController - submission (3D-A)', () => {
+  let collections: Record<string, MockDoc[]>;
+
+  const DOC_META = () => ({
+    field: 'registrationCertificate',
+    storagePath: 'org-registrations/x/registrationCertificate/1_a.pdf',
+    originalName: 'a.pdf',
+    contentType: 'application/pdf',
+    size: 100,
+    uploadedAt: new Date(),
+  });
+
+  beforeEach(() => {
+    collections = {};
+    (getDb as jest.Mock).mockReturnValue(makeMockDb(collections).db);
+    (getBucket as jest.Mock).mockReturnValue({
+      file: (p: string) => ({
+        save: jest.fn(async () => undefined),
+        download: jest.fn(async () => [Buffer.from('%PDF-x')]),
+      }),
+    });
+  });
+
+  /** Creates a draft that satisfies every submission gate. */
+  async function completeDraft(overrides: any = {}) {
+    const res = mockResponse();
+    await createRegistrationDraft(
+      makeReq({ body: { ...validBody(), ...overrides } }) as Request,
+      res,
+    );
+    const { registrationId: id, resumeToken: token } = jsonBody(res);
+    const doc = collections['organizationRegistrations'].find(
+      (d) => d.id === id,
+    )!;
+    doc.data.verification = {
+      orgEmail: { verified: true, target: 'hr@acme-test.example.com' },
+      adminEmail: { verified: true, target: 'jane@acme-test.example.com' },
+      adminMobile: { verified: true, target: '9876543210' },
+    };
+    doc.data.documents = {
+      registrationCertificate: DOC_META(),
+      authorizationLetter: { ...DOC_META(), field: 'authorizationLetter' },
+      adminIdProof: { ...DOC_META(), field: 'adminIdProof' },
+    };
+    return { id, token, doc };
+  }
+
+  async function submit(
+    id: string,
+    token: string | undefined,
+    extra: any = {},
+  ): Promise<{ status: number; body: any }> {
+    const res = mockResponse();
+    await submitRegistration(
+      makeReq({
+        body: { registrationId: id, declarationAccepted: true, ...extra },
+        resumeToken: token,
+      }) as Request,
+      res,
+    );
+    return { status: statusCode(res), body: jsonBody(res) };
+  }
+
+  it('submits a complete application to pending_approval', async () => {
+    const { id, token, doc } = await completeDraft();
+    const r = await submit(id, token);
+    expect(r.status).toBe(200);
+    expect(r.body.status).toBe('pending_approval');
+    expect(doc.data.status).toBe('pending_approval');
+    expect(doc.data.submittedAt).toBeTruthy();
+    expect(doc.data.declarationAccepted).toBe(true);
+    const actions = doc.data.auditTrail.map((a: any) => a.action);
+    expect(actions).toContain('submitted');
+  });
+
+  it('requires the applicant declaration', async () => {
+    const { id, token } = await completeDraft();
+    const res = mockResponse();
+    await submitRegistration(
+      makeReq({ body: { registrationId: id }, resumeToken: token }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(400);
+    expect(collections['organizationRegistrations'][0].data.status)
+      .toBe('draft');
+  });
+
+  it('rejects incomplete organization details', async () => {
+    const res = mockResponse();
+    await createRegistrationDraft(
+      makeReq({
+        body: {
+          ...validBody(),
+          organization: { ...VALID_ORG, name: '' },
+        },
+      }) as Request,
+      res,
+    );
+    const { registrationId: id, resumeToken: token } = jsonBody(res);
+    const doc = collections['organizationRegistrations'].find(
+      (d) => d.id === id,
+    )!;
+    doc.data.verification = {
+      orgEmail: { verified: true, target: 'hr@acme-test.example.com' },
+      adminEmail: { verified: true, target: 'jane@acme-test.example.com' },
+      adminMobile: { verified: true, target: '9876543210' },
+    };
+    doc.data.documents = {
+      registrationCertificate: DOC_META(),
+      authorizationLetter: DOC_META(),
+      adminIdProof: DOC_META(),
+    };
+    const r = await submit(id, token);
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain('organization');
+  });
+
+  it('rejects incomplete HR/Admin details', async () => {
+    const res = mockResponse();
+    await createRegistrationDraft(
+      makeReq({
+        body: {
+          ...validBody(),
+          adminContact: { ...VALID_ADMIN, fullName: '' },
+        },
+      }) as Request,
+      res,
+    );
+    const { registrationId: id, resumeToken: token } = jsonBody(res);
+    const doc = collections['organizationRegistrations'].find(
+      (d) => d.id === id,
+    )!;
+    doc.data.verification = {
+      orgEmail: { verified: true, target: 'hr@acme-test.example.com' },
+      adminEmail: { verified: true, target: 'jane@acme-test.example.com' },
+      adminMobile: { verified: true, target: '9876543210' },
+    };
+    doc.data.documents = {
+      registrationCertificate: DOC_META(),
+      authorizationLetter: DOC_META(),
+      adminIdProof: DOC_META(),
+    };
+    const r = await submit(id, token);
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain('adminContact');
+  });
+
+  it('rejects when a required OTP channel is unverified', async () => {
+    const { id, token, doc } = await completeDraft();
+    doc.data.verification.adminMobile = { verified: false, target: '' };
+    const r = await submit(id, token);
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain('mobile verification');
+  });
+
+  it('rejects when a required document is missing', async () => {
+    const { id, token, doc } = await completeDraft();
+    delete doc.data.documents.adminIdProof;
+    const r = await submit(id, token);
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain('adminIdProof');
+  });
+
+  it('enforces the conditional GST certificate requirement', async () => {
+    const { id, token, doc } = await completeDraft({
+      organization: { ...VALID_ORG, gstNumber: '29ABCDE1234F1Z5' },
+    });
+    // GST number present but no GST certificate -> rejected.
+    let r = await submit(id, token);
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain('gstCertificate');
+    // With the certificate uploaded -> accepted.
+    doc.data.documents.gstCertificate = {
+      ...DOC_META(),
+      field: 'gstCertificate',
+    };
+    r = await submit(id, token);
+    expect(r.status).toBe(200);
+    expect(doc.data.status).toBe('pending_approval');
+  });
+
+  it('rejects invalid stored requested-feature IDs', async () => {
+    const { id, token, doc } = await completeDraft();
+    doc.data.requestedFeatures = ['attendance', 'bogus_module'];
+    const r = await submit(id, token);
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain('bogus_module');
+  });
+
+  it('rejects missing and wrong resume credentials', async () => {
+    const { id, token } = await completeDraft();
+    expect((await submit(id, undefined)).status).toBe(401);
+    expect((await submit(id, 'wrong-token')).status).toBe(401);
+    expect((await submit(id, token)).status).toBe(200);
+  });
+
+  it('rejects a credential belonging to a different registration', async () => {
+    const a = await completeDraft();
+    const resB = mockResponse();
+    await createRegistrationDraft(
+      makeReq({
+        body: {
+          ...validBody(),
+          organization: {
+            ...VALID_ORG,
+            officialEmail: 'b@acme-test.example.com',
+          },
+        },
+      }) as Request,
+      resB,
+    );
+    const b = jsonBody(resB);
+    const r = await submit(a.id, b.resumeToken);
+    expect(r.status).toBe(401);
+  });
+
+  it('returns idempotent success on repeat submission', async () => {
+    const { id, token, doc } = await completeDraft();
+    expect((await submit(id, token)).status).toBe(200);
+    const second = await submit(id, token);
+    expect(second.status).toBe(200);
+    expect(second.body.alreadySubmitted).toBe(true);
+    const submittedEvents = doc.data.auditTrail.filter(
+      (a: any) => a.action === 'submitted',
+    );
+    expect(submittedEvents.length).toBe(1);
+  });
+
+  it('handles concurrent submissions without duplicate audit events', async () => {
+    const { id, token, doc } = await completeDraft();
+    const [r1, r2] = await Promise.all([submit(id, token), submit(id, token)]);
+    expect([r1.status, r2.status].sort()).toEqual([200, 200]);
+    const submittedEvents = doc.data.auditTrail.filter(
+      (a: any) => a.action === 'submitted',
+    );
+    expect(submittedEvents.length).toBe(1);
+    expect(doc.data.status).toBe('pending_approval');
+  });
+
+  it('blocks PATCH edits after submission', async () => {
+    const { id, token } = await completeDraft();
+    await submit(id, token);
+    const res = mockResponse();
+    await updateRegistrationDraft(
+      makeReq({
+        params: { id },
+        resumeToken: token,
+        body: { currentStep: 1 },
+      }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(403);
+  });
+
+  it('blocks document upload after submission', async () => {
+    const { id, token } = await completeDraft();
+    await submit(id, token);
+    const req = makeReq({
+      body: { registrationId: id },
+      resumeToken: token,
+    }) as any;
+    req.files = {
+      registrationCertificate: [
+        {
+          fieldname: 'registrationCertificate',
+          originalname: 'new.pdf',
+          mimetype: 'application/pdf',
+          buffer: Buffer.from('%PDF-1.4 x'),
+          size: 12,
+        },
+      ],
+    };
+    const res = mockResponse();
+    await uploadRegistrationDocuments(req as Request, res);
+    expect(statusCode(res)).toBe(403);
+  });
+
+  it('blocks OTP requests after submission', async () => {
+    const { id, token } = await completeDraft();
+    await submit(id, token);
+    const res = mockResponse();
+    await requestRegistrationVerification(
+      makeReq({
+        body: { registrationId: id, channel: 'orgEmail' },
+        resumeToken: token,
+      }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(403);
+  });
+
+  it('still returns status to the submitted applicant', async () => {
+    const { id, token } = await completeDraft();
+    await submit(id, token);
+    const res = mockResponse();
+    await getRegistrationStatus(
+      makeReq({ params: { id }, resumeToken: token }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(200);
+    expect(jsonBody(res).status).toBe('pending_approval');
+    expect(jsonBody(res).organizationName).toBe('Acme Test Org');
+  });
+
+  it('creates no operational organization or account on submit', async () => {
+    const { id, token, doc } = await completeDraft();
+    await submit(id, token);
+    expect(collections['companyProfile']).toBeUndefined();
+    expect(collections['users']).toBeUndefined();
+    expect(collections['employees']).toBeUndefined();
+    expect(doc.data.organizationCode).toBeUndefined();
+    expect(doc.data.approvedFeatures).toBeUndefined();
+    expect(doc.data.enabledFeatures).toBeUndefined();
+  });
+
+  it('supports resubmission from changes_requested', async () => {
+    const { id, token, doc } = await completeDraft();
+    doc.data.status = 'changes_requested';
+    const r = await submit(id, token);
+    expect(r.status).toBe(200);
+    expect(doc.data.status).toBe('pending_approval');
+    expect(doc.data.resubmissionCount).toBe(1);
+    const actions = doc.data.auditTrail.map((a: any) => a.action);
+    expect(actions).toContain('resubmitted');
+  });
+
+  it('conflicts when the status is not submittable', async () => {
+    const { id, token, doc } = await completeDraft();
+    doc.data.status = 'approved';
+    const r = await submit(id, token);
+    expect(r.status).toBe(409);
   });
 });

@@ -26,6 +26,7 @@ class RegistrationDraftController extends ChangeNotifier {
   static const int stepAdmin = 2;
   static const int stepVerification = 3;
   static const int stepDocuments = 4;
+  static const int stepReview = 5;
   static const int lastEditableStep = stepAdmin;
 
   final _api = OrganizationRegistrationService.instance;
@@ -43,7 +44,33 @@ class RegistrationDraftController extends ChangeNotifier {
       draft = saved;
       notifyListeners();
     }
+    await refreshApplicationStatus();
+    // A submitted application is server-owned — never pull it back into the
+    // editable wizard or re-sync local edits over it.
+    if (draft.isSubmitted) return;
     await _refreshFromBackend();
+  }
+
+  /// Fetches the authoritative application status.
+  ///
+  /// On a backend outage the cached status is preserved — a submitted
+  /// application is never silently reverted to draft, and an unsubmitted one
+  /// is never shown as submitted.
+  Future<void> refreshApplicationStatus() async {
+    if (draft.registrationId.isEmpty) return;
+    final token = await _api.loadResumeToken();
+    if (token == null || token.isEmpty) return;
+    try {
+      final status = await _api.getStatus(draft.registrationId, token);
+      final serverStatus = (status['status'] ?? '').toString();
+      if (serverStatus.isNotEmpty) {
+        draft.applicationStatus = serverStatus;
+        await RegistrationDraftStorageService.instance.saveDraft(draft);
+        notifyListeners();
+      }
+    } on RegistrationApiException {
+      // Outage or revoked credential — keep the last-known cached status.
+    }
   }
 
   /// Pull the authoritative server draft if we have an id + credential.
@@ -81,7 +108,39 @@ class RegistrationDraftController extends ChangeNotifier {
 
   Future<void> persist() async {
     await RegistrationDraftStorageService.instance.saveDraft(draft);
+    // Submitted applications are read-only — do not attempt a draft sync
+    // (the server would reject it) and do not create a replacement draft.
+    if (draft.isSubmitted) return;
     await _syncToBackend();
+  }
+
+  /// Submits the application for platform-admin review.
+  ///
+  /// Returns the authoritative status from the backend. Throws
+  /// [RegistrationApiException] on validation/conflict/network failures so
+  /// the caller can surface the real reason.
+  Future<Map<String, dynamic>> submitApplication() async {
+    if (draft.registrationId.isEmpty) {
+      throw const RegistrationApiException(
+          'The application has not been saved to the server yet.');
+    }
+    final token = await _api.loadResumeToken();
+    if (token == null || token.isEmpty) {
+      throw const RegistrationApiException(
+          'Registration credential is unavailable on this device.');
+    }
+    final body = await _api.submit(
+      draft.registrationId,
+      token,
+      declarationAccepted: true,
+    );
+    final status = (body['status'] ?? '').toString();
+    if (status.isNotEmpty) {
+      draft.applicationStatus = status;
+      await RegistrationDraftStorageService.instance.saveDraft(draft);
+      notifyListeners();
+    }
+    return body;
   }
 
   /// Best-effort backend sync — errors are swallowed into
@@ -120,13 +179,13 @@ class RegistrationDraftController extends ChangeNotifier {
     if (step > draft.maxCompletedStep) {
       draft.maxCompletedStep = step;
     }
-    draft.currentStep = nextStep ?? (step + 1).clamp(0, stepDocuments);
+    draft.currentStep = nextStep ?? (step + 1).clamp(0, stepReview);
     await persist();
     notifyListeners();
   }
 
   Future<void> goToStep(int step) async {
-    draft.currentStep = step.clamp(0, stepDocuments);
+    draft.currentStep = step.clamp(0, stepReview);
     await persist();
     notifyListeners();
   }

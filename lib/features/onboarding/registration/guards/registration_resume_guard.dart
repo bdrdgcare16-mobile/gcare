@@ -8,15 +8,23 @@ import '../screens/feature_selection_page.dart';
 import '../screens/admin_information_page.dart';
 import '../screens/registration_verification_page.dart';
 import '../screens/registration_documents_page.dart';
+import '../screens/registration_review_page.dart';
+import '../screens/registration_status_page.dart';
 
 /// Entry point for the Register Organization path.
 ///
-/// Hydrates the local draft and routes to the last saved step:
+/// Hydrates the local draft, reconciles the AUTHORITATIVE application status
+/// with the backend, and routes accordingly.
+///
+/// A submitted application (pending_approval / approved / rejected) always
+/// opens Application Status — never the editable wizard. `changes_requested`
+/// is editable again and resumes the wizard. Otherwise the last saved step:
 ///   0 → Organization Information (also used when no draft exists)
 ///   1 → Feature Selection
 ///   2 → Authorized HR/Admin Information
 ///   3 → Contact Verification
 ///   4 → Organization Documents
+///   5 → Review Application
 class RegistrationResumeGuard extends StatefulWidget {
   const RegistrationResumeGuard({super.key});
 
@@ -44,6 +52,8 @@ class _RegistrationResumeGuardState extends State<RegistrationResumeGuard> {
         return const RegistrationVerificationPage();
       case RegistrationDraftController.stepDocuments:
         return const RegistrationDocumentsPage();
+      case RegistrationDraftController.stepReview:
+        return const RegistrationReviewPage();
       case RegistrationDraftController.stepOrganization:
       default:
         return const OrganizationInformationPage();
@@ -51,14 +61,20 @@ class _RegistrationResumeGuardState extends State<RegistrationResumeGuard> {
   }
 
   Future<void> _resolve() async {
+    // hydrate() reconciles the backend application status before deciding.
     await RegistrationDraftController.instance.hydrate();
     if (!mounted || _navigated) return;
     _navigated = true;
+    final draft = RegistrationDraftController.instance.draft;
+
+    // Submitted (or decided) applications are read-only — the resume
+    // credential authorizes status retrieval, never further edits.
+    final Widget target = draft.isSubmitted
+        ? const RegistrationStatusPage()
+        : _pageForStep(draft.currentStep);
+
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) =>
-            _pageForStep(RegistrationDraftController.instance.draft.currentStep),
-      ),
+      MaterialPageRoute(builder: (_) => target),
     );
   }
 

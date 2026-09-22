@@ -17,6 +17,7 @@ import {
   REGISTRATION_DRAFT_TTL_MS,
   REQUIRED_DOC_FIELDS,
   RESUME_REVOKED_STATUSES,
+  SUBMITTABLE_STATUSES,
 } from '../models/organizationRegistration';
 import {
   channelDestination,
@@ -214,10 +215,10 @@ function validateStep(
 ): { errors: string[]; value: number } {
   const n = Number(raw ?? min);
   // Steps: 0 organization, 1 features, 2 admin contact, 3 verification,
-  // 4 documents.
-  if (!Number.isInteger(n) || n < min || n > 4) {
+  // 4 documents, 5 review & submit.
+  if (!Number.isInteger(n) || n < min || n > 5) {
     return {
-      errors: [`${name} must be an integer between ${min} and 4`],
+      errors: [`${name} must be an integer between ${min} and 5`],
       value: min,
     };
   }
@@ -622,7 +623,12 @@ export const getRegistrationStatus = async (
       registrationId: doc.id,
       status: d.status,
       currentStep: d.currentStep,
+      organizationName: d.organization?.name ?? '',
       organizationCode: d.organizationCode ?? null,
+      submittedAt: d.submittedAt ?? null,
+      review: d.review
+        ? { decision: d.review.decision, reasons: d.review.reasons ?? [] }
+        : null,
     }, 'Status retrieved');
   } catch (err: any) {
     console.error('getRegistrationStatus error:', err);
@@ -630,13 +636,24 @@ export const getRegistrationStatus = async (
   }
 };
 
+/** Status conflict on submit — mapped to HTTP 409. */
+class SubmissionConflictError extends Error {
+  constructor(public readonly currentStatus: string) {
+    super(`Application cannot be submitted from status '${currentStatus}'`);
+  }
+}
+
 /**
  * POST /org-registration/submit
- * Header: x-registration-resume-token; body: { registrationId }
+ * Header: x-registration-resume-token
+ * Body: { registrationId, declarationAccepted: true }
  *
- * Completeness gate: verification and document stages (Milestone 3C) must
- * be satisfied before an application can enter pending_approval. Until those
- * stages exist, every submission is honestly rejected — no fake success.
+ * Transitions draft|changes_requested → pending_approval. The transition is
+ * a Firestore transaction so concurrent submits can't double-write the audit
+ * trail — a repeat submission returns the persisted status idempotently.
+ *
+ * Submission NEVER provisions an organization, Admin account, org code, or
+ * feature enablement — those happen in the platform-admin approval flow.
  */
 export const submitRegistration = async (
   req: Request,
@@ -646,10 +663,19 @@ export const submitRegistration = async (
     const id = String(req.body?.registrationId || '').trim();
     if (!id) return errorResponse(res, 'registrationId is required', 400);
 
-    const doc = await getDb()
+    // The applicant must confirm the review declaration on every submission.
+    if (req.body?.declarationAccepted !== true) {
+      return errorResponse(
+        res,
+        'You must review the application and accept the declaration before submitting',
+        400,
+      );
+    }
+
+    const docRef = getDb()
       .collection(ORGANIZATION_REGISTRATIONS_COL)
-      .doc(id)
-      .get();
+      .doc(id);
+    const doc = await docRef.get();
     if (!doc.exists) return errorResponse(res, 'Registration not found', 404);
 
     const data = doc.data() as OrganizationRegistration;
@@ -661,7 +687,24 @@ export const submitRegistration = async (
       return errorResponse(res, 'Invalid resume credential', 401);
     }
 
+    // ── Full server-side completeness gate ──────────────────────────────
+    // Stored data is revalidated in non-partial mode — the client wizard's
+    // checks are a convenience, never the authority.
     const missing: string[] = [];
+
+    const orgCheck = validateOrganization(data.organization);
+    if (orgCheck.errors.length) {
+      missing.push(...orgCheck.errors.map((e) => `organization: ${e}`));
+    }
+    const adminCheck = validateAdminContact(data.adminContact);
+    if (adminCheck.errors.length) {
+      missing.push(...adminCheck.errors.map((e) => `adminContact: ${e}`));
+    }
+    const featuresCheck = validateRequestedFeatures(data.requestedFeatures);
+    if (featuresCheck.errors.length) {
+      missing.push(...featuresCheck.errors);
+    }
+
     const channelLabels: Record<VerificationChannel, string> = {
       orgEmail: 'organization email verification',
       adminEmail: 'admin email verification',
@@ -693,9 +736,54 @@ export const submitRegistration = async (
       );
     }
 
-    // Future: transition to pending_approval inside the 3C/3D flow.
-    return errorResponse(res, 'Submission is not yet available', 400);
+    // ── Atomic, idempotent transition ───────────────────────────────────
+    const outcome = await getDb().runTransaction(async (tx) => {
+      const snap = await tx.get(docRef);
+      if (!snap.exists) throw new Error('Registration not found');
+      const cur = snap.data() as OrganizationRegistration;
+
+      // Already submitted — idempotent success, no duplicate audit event.
+      if (cur.status === 'pending_approval') {
+        return { already: true as const, submittedAt: cur.submittedAt ?? null };
+      }
+      if (!SUBMITTABLE_STATUSES.has(cur.status)) {
+        throw new SubmissionConflictError(cur.status);
+      }
+
+      const resubmission = cur.status === 'changes_requested';
+      tx.update(docRef, {
+        status: 'pending_approval',
+        submittedAt: FieldValue.serverTimestamp(),
+        declarationAccepted: true,
+        declarationAcceptedAt: FieldValue.serverTimestamp(),
+        resubmissionCount: FieldValue.increment(resubmission ? 1 : 0),
+        auditTrail: FieldValue.arrayUnion({
+          at: new Date(),
+          action: resubmission ? 'resubmitted' : 'submitted',
+          actor: 'applicant',
+        }),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return { already: false as const };
+    });
+
+    return successResponse(
+      res,
+      {
+        registrationId: id,
+        status: 'pending_approval',
+        ...(outcome.already
+          ? { submittedAt: outcome.submittedAt, alreadySubmitted: true }
+          : {}),
+      },
+      outcome.already
+        ? 'Application is already submitted for review'
+        : 'Application submitted for review',
+    );
   } catch (err: any) {
+    if (err instanceof SubmissionConflictError) {
+      return errorResponse(res, err.message, 409);
+    }
     console.error('submitRegistration error:', err);
     return errorResponse(res, err.message || 'Internal server error', 500);
   }

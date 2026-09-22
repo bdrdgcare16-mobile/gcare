@@ -49,6 +49,13 @@ class OrganizationRegistrationDraft {
   /// and will be re-synced on the next save.
   bool backendSyncFailed;
 
+  /// Last-known AUTHORITATIVE application status from the backend.
+  ///
+  /// Cached locally only so a backend outage cannot revert an already
+  /// submitted application to the editable wizard. It is never used to
+  /// claim submission — only the server can set a non-draft status.
+  String applicationStatus;
+
   OrganizationRegistrationDraft({
     this.organizationName = '',
     this.organizationType = '',
@@ -70,7 +77,20 @@ class OrganizationRegistrationDraft {
     this.maxCompletedStep = -1,
     this.registrationId = '',
     this.backendSyncFailed = false,
+    this.applicationStatus = 'draft',
   }) : requestedFeatures = requestedFeatures ?? <String>{};
+
+  /// True when the backend has taken over the application (no more edits).
+  bool get isSubmitted => const {
+        'submitted',
+        'pending_verification',
+        'pending_approval',
+        'approved',
+        'rejected',
+      }.contains(applicationStatus);
+
+  /// True when the reviewer sent it back for corrections (editable again).
+  bool get needsChanges => applicationStatus == 'changes_requested';
 
   bool get isEmpty =>
       organizationName.isEmpty &&
@@ -112,6 +132,7 @@ class OrganizationRegistrationDraft {
         'maxCompletedStep': maxCompletedStep,
         'registrationId': registrationId,
         'backendSyncFailed': backendSyncFailed,
+        'applicationStatus': applicationStatus,
       };
 
   factory OrganizationRegistrationDraft.fromJson(
@@ -145,6 +166,10 @@ class OrganizationRegistrationDraft {
           : -1,
       registrationId: (json['registrationId'] ?? '').toString(),
       backendSyncFailed: json['backendSyncFailed'] == true,
+      applicationStatus:
+          (json['applicationStatus'] ?? 'draft').toString().isEmpty
+              ? 'draft'
+              : (json['applicationStatus'] ?? 'draft').toString(),
     );
   }
 }

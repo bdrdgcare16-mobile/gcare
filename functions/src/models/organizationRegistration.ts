@@ -30,7 +30,19 @@ export const EDITABLE_STATUSES: ReadonlySet<RegistrationStatus> = new Set([
 
 /** Terminal-ish statuses where the resume credential is revoked. */
 export const RESUME_REVOKED_STATUSES: ReadonlySet<RegistrationStatus> =
-  new Set(['pending_approval', 'approved', 'rejected']);
+  new Set([
+    'submitted',
+    'pending_verification',
+    'pending_approval',
+    'approved',
+    'rejected',
+  ]);
+
+/** Statuses from which an applicant may submit / resubmit. */
+export const SUBMITTABLE_STATUSES: ReadonlySet<RegistrationStatus> = new Set([
+  'draft',
+  'changes_requested',
+]);
 
 /** Draft expiry — resume credential stops working after this. */
 export const REGISTRATION_DRAFT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -150,6 +162,22 @@ export interface OrganizationRegistration {
     actor?: string;
     note?: string;
   }>;
+  /** Set once when the application enters pending_approval (server time). */
+  submittedAt?: FirebaseFirestore.FieldValue | Date;
+  /** Applicant confirmed the review declaration at submit time. */
+  declarationAccepted?: boolean;
+  declarationAcceptedAt?: FirebaseFirestore.FieldValue | Date;
+  /** Number of changes_requested → pending_approval resubmissions. */
+  resubmissionCount?: number;
+  /** Platform-admin review record (3D-B/C — server-written only). */
+  review?: {
+    reviewerId: string;
+    reviewerEmail: string;
+    decidedAt: FirebaseFirestore.FieldValue | Date;
+    decision: 'approved' | 'rejected' | 'changes_requested';
+    reasons?: string[];
+    note?: string;
+  };
   organizationCode?: string;
   approvedCompanyId?: string;
   createdAt: FirebaseFirestore.FieldValue | Date;
