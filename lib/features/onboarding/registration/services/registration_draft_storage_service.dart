@@ -17,6 +17,7 @@ class RegistrationDraftStorageService {
       RegistrationDraftStorageService._();
 
   static const String _draftKey = 'serv_org_registration_draft_v1';
+  static const String _archiveKey = 'serv_org_registration_archive_v1';
 
   Future<void> saveDraft(OrganizationRegistrationDraft draft) async {
     final prefs = await SharedPreferences.getInstance();
@@ -43,5 +44,49 @@ class RegistrationDraftStorageService {
   Future<void> clearDraft() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_draftKey);
+  }
+
+  /// Records a previously submitted application so that starting a new one
+  /// does not erase all trace of it on this device.
+  ///
+  /// Non-secret reference data only — the resume credential itself stays in
+  /// secure storage (see [OrganizationRegistrationService.archiveResumeToken]).
+  Future<void> archiveApplication({
+    required String registrationId,
+    required String organizationName,
+    required String status,
+  }) async {
+    if (registrationId.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final existing = loadArchiveFrom(prefs)
+        .where((e) => e['registrationId'] != registrationId)
+        .toList();
+    existing.add({
+      'registrationId': registrationId,
+      'organizationName': organizationName,
+      'status': status,
+      'archivedAt': DateTime.now().toIso8601String(),
+    });
+    await prefs.setString(_archiveKey, jsonEncode(existing));
+  }
+
+  Future<List<Map<String, String>>> loadArchive() async {
+    final prefs = await SharedPreferences.getInstance();
+    return loadArchiveFrom(prefs);
+  }
+
+  List<Map<String, String>> loadArchiveFrom(SharedPreferences prefs) {
+    final raw = prefs.getString(_archiveKey);
+    if (raw == null || raw.isEmpty) return [];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return [];
+      return decoded
+          .whereType<Map>()
+          .map((e) => e.map((k, v) => MapEntry(k.toString(), v.toString())))
+          .toList();
+    } catch (_) {
+      return [];
+    }
   }
 }

@@ -64,6 +64,38 @@ class OrganizationRegistrationService {
     } catch (_) {}
   }
 
+  /// Detaches the ACTIVE resume credential and preserves it under a
+  /// per-registration key.
+  ///
+  /// The resume token is issued exactly once and never re-shown, so simply
+  /// deleting it would permanently destroy the applicant's only means of
+  /// retrieving a submitted application's status. Archiving keeps that
+  /// credential recoverable while guaranteeing it is no longer the active
+  /// credential and so cannot be attached to a new application.
+  Future<void> archiveResumeToken(String registrationId) async {
+    try {
+      final token = await _secureStorage.read(key: _tokenKey);
+      if (token != null && token.isNotEmpty && registrationId.isNotEmpty) {
+        await _secureStorage.write(
+          key: '${_tokenKey}_$registrationId',
+          value: token,
+        );
+      }
+    } catch (_) {
+      // Archiving is best-effort; detaching the active slot still proceeds.
+    }
+    await clearResumeToken();
+  }
+
+  /// Reads a previously archived credential for [registrationId].
+  Future<String?> loadArchivedResumeToken(String registrationId) async {
+    try {
+      return await _secureStorage.read(key: '${_tokenKey}_$registrationId');
+    } catch (_) {
+      return null;
+    }
+  }
+
   // ── HTTP plumbing ────────────────────────────────────────────────────────
 
   static String get _base => ApiConfig.baseUrl;

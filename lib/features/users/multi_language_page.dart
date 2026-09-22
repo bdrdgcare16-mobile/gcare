@@ -69,13 +69,20 @@ class _MultiLanguagePageState extends State<MultiLanguagePage> {
                     ),
                   ],
                 ),
-                child: RadioListTile<String>(
-                  value: language,
-                  groupValue: _selectedLanguage,
-                  onChanged: (value) => _onLanguageSelected(value!),
-                  title: Text(
-                    language,
-                    style: const TextStyle(fontSize: 16),
+                // Transparent Material hosts the RadioListTile's ink splash
+                // above the DecoratedBox background.
+                child: Material(
+                  type: MaterialType.transparency,
+                  borderRadius: BorderRadius.circular(12),
+                  clipBehavior: Clip.antiAlias,
+                  child: RadioListTile<String>(
+                    value: language,
+                    groupValue: _selectedLanguage,
+                    onChanged: (value) => _onLanguageSelected(value!),
+                    title: Text(
+                      language,
+                      style: const TextStyle(fontSize: 16),
+                    ),
                   ),
                 ),
               ),

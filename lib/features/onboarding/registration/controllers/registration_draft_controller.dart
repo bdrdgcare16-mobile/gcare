@@ -190,11 +190,61 @@ class RegistrationDraftController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Clears the draft entirely (e.g. after a future successful submission).
+  /// True when unsent local work would be lost by starting a new application.
+  bool get hasUnsentDraftWork => !draft.isSubmitted && !draft.isEmpty;
+
+  /// Starts a genuinely new organization application.
+  ///
+  /// The previously submitted application is NEVER touched in Firestore —
+  /// its status, audit trail and documents are left exactly as they are.
+  /// Only the LOCAL active association is detached:
+  ///   * a submitted application is archived (reference + credential kept so
+  ///     it remains retrievable) and its cached status is dropped;
+  ///   * an unsent server draft simply has its credential released.
+  ///
+  /// The new application starts with no registrationId and no credential, so
+  /// the previous application's resume token or cached status can never be
+  /// attached to it. A fresh registrationId is minted by the backend on the
+  /// first save of the new draft.
+  Future<void> startNewApplication() async {
+    final previous = draft;
+
+    if (previous.registrationId.isNotEmpty) {
+      if (previous.isSubmitted) {
+        await RegistrationDraftStorageService.instance.archiveApplication(
+          registrationId: previous.registrationId,
+          organizationName: previous.organizationName,
+          status: previous.applicationStatus,
+        );
+        // Preserve the once-issued credential under a per-registration key.
+        await _api.archiveResumeToken(previous.registrationId);
+      } else {
+        // Unsent draft — release the credential; the orphaned server draft
+        // expires on its own TTL and is never mutated here.
+        await _api.clearResumeToken();
+      }
+    } else {
+      await _api.clearResumeToken();
+    }
+
+    await RegistrationDraftStorageService.instance.clearDraft();
+
+    // Blank draft: no registrationId, no cached status, step 0.
+    draft = OrganizationRegistrationDraft();
+    // Keep `hydrated` true so the cleared draft is not re-loaded from disk.
+    hydrated = true;
+    notifyListeners();
+  }
+
+  /// Clears the draft entirely, discarding the active credential.
+  ///
+  /// Prefer [startNewApplication] for the applicant-facing flow — it retains
+  /// the submitted application's credential instead of destroying it.
   Future<void> reset() async {
     draft = OrganizationRegistrationDraft();
     await RegistrationDraftStorageService.instance.clearDraft();
     await _api.clearResumeToken();
+    hydrated = true;
     notifyListeners();
   }
 }

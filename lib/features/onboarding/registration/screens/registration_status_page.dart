@@ -27,6 +27,7 @@ class _RegistrationStatusPageState extends State<RegistrationStatusPage> {
 
   Map<String, dynamic> _status = {};
   bool _loading = true;
+  bool _startingNew = false;
   String? _error;
 
   @override
@@ -62,6 +63,56 @@ class _RegistrationStatusPageState extends State<RegistrationStatusPage> {
         _error = e.message;
       });
     }
+  }
+
+  /// Explicit applicant action: detach this device from the current
+  /// application and begin a genuinely new one on a blank form.
+  ///
+  /// A submitted application is never modified — it stays under review and
+  /// its credential is archived, not destroyed. An UNSENT editable draft is
+  /// never discarded silently: it requires explicit confirmation first.
+  Future<void> _onStartNewApplication() async {
+    if (_startingNew) return;
+
+    final hasUnsent = _controller.hasUnsentDraftWork;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Start a new organization application?'),
+        content: Text(
+          hasUnsent
+              ? 'The application on this device still has information that '
+                  'has NOT been submitted for review. Starting a new '
+                  'application removes that unsent work from this device — '
+                  'this cannot be undone.'
+              : 'This application remains under review by the SERV Platform '
+                  'Admin and is not affected. A new, separate application '
+                  'will start with a blank form.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Start new application'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _startingNew = true);
+    try {
+      await _controller.startNewApplication();
+    } finally {
+      if (mounted) setState(() => _startingNew = false);
+    }
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const OrganizationInformationPage()),
+    );
   }
 
   String get _effectiveStatus {
@@ -143,6 +194,22 @@ class _RegistrationStatusPageState extends State<RegistrationStatusPage> {
                               builder: (_) => const SelectUserTypePage()),
                         ),
                         child: const Text('Close'),
+                      ),
+                      const Divider(height: 36),
+                      Text(
+                        'Need to register a different organization?',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            fontSize: 12.5, color: Colors.grey.shade700),
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed:
+                            _startingNew ? null : _onStartNewApplication,
+                        icon: const Icon(Icons.add_business_outlined,
+                            size: 18),
+                        label: const Text(
+                            'Start New Organization Application'),
                       ),
                     ],
                   ),

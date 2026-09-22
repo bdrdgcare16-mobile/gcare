@@ -100,7 +100,20 @@ class _RegistrationReviewPageState extends State<RegistrationReviewPage> {
         MaterialPageRoute(builder: (_) => const RegistrationStatusPage()),
       );
     } on RegistrationApiException catch (e) {
+      // The submit request may have reached the server even though the
+      // client observed a failure (e.g. the response was lost to a timeout
+      // or a dropped connection). Reconcile against the AUTHORITATIVE
+      // application status before allowing a retry — repeat submissions
+      // are idempotent server-side, and this prevents a false local
+      // "failure" while the application is actually pending_approval.
+      await _controller.refreshApplicationStatus();
       if (!mounted) return;
+      if (_controller.draft.isSubmitted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const RegistrationStatusPage()),
+        );
+        return;
+      }
       setState(() {
         _submitting = false;
         _error = e.message;
@@ -433,28 +446,36 @@ class _RegistrationReviewPageState extends State<RegistrationReviewPage> {
           color: const Color(0xFFFFF8E1),
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Declaration',
-                style: TextStyle(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 6),
-            CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              controlAffinity: ListTileControlAffinity.leading,
-              activeColor: _kPrimaryDark,
-              value: _declared,
-              onChanged: _submitting
-                  ? null
-                  : (v) => setState(() => _declared = v == true),
-              title: const Text(
-                'I have reviewed the information above, confirm that it is '
-                'accurate and complete, and I am authorized by this '
-                'organization to submit this application to SERV.',
-                style: TextStyle(fontSize: 12.5, height: 1.4),
+        // Transparent Material gives the CheckboxListTile's ink splash an
+        // ink host ABOVE the DecoratedBox — without it Flutter asserts that
+        // the tile's background/splash would be invisible.
+        child: Material(
+          type: MaterialType.transparency,
+          borderRadius: BorderRadius.circular(10),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Declaration',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 6),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                activeColor: _kPrimaryDark,
+                value: _declared,
+                onChanged: _submitting
+                    ? null
+                    : (v) => setState(() => _declared = v == true),
+                title: const Text(
+                  'I have reviewed the information above, confirm that it is '
+                  'accurate and complete, and I am authorized by this '
+                  'organization to submit this application to SERV.',
+                  style: TextStyle(fontSize: 12.5, height: 1.4),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       );
 }
