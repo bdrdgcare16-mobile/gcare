@@ -1,3 +1,4 @@
+/// <reference types="jest" />
 import { Request, Response } from 'express';
 import {
   listOrganizationPolicies,

@@ -1,3 +1,4 @@
+/// <reference types="jest" />
 /**
  * Integration test verifying that pre-authentication auth routes are reachable
  * without a SERV JWT while protected routes still require one.

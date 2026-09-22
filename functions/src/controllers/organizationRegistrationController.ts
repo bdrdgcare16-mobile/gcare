@@ -4,7 +4,7 @@ import { Request, Response } from 'express';
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { FieldValue } from 'firebase-admin/firestore';
-import { getDb } from '../config/firebase';
+import { getDb, getBucket } from '../config/firebase';
 import { errorResponse, successResponse } from '../common/response';
 import {
   CANONICAL_FEATURES,
@@ -12,9 +12,27 @@ import {
   EDITABLE_STATUSES,
   ORGANIZATION_REGISTRATIONS_COL,
   OrganizationRegistration,
+  RegistrationDocumentMeta,
+  REGISTRATION_DOC_FIELDS,
   REGISTRATION_DRAFT_TTL_MS,
+  REQUIRED_DOC_FIELDS,
   RESUME_REVOKED_STATUSES,
 } from '../models/organizationRegistration';
+import {
+  channelDestination,
+  clearOtp,
+  confirmOtp,
+  issueOtp,
+  OtpError,
+  requiredChannels,
+  VerificationChannel,
+  VERIFICATION_CHANNELS,
+} from '../services/registrationVerificationService';
+import {
+  sendEmailOtp,
+  sendSmsOtp,
+} from '../services/registrationDeliveryService';
+import * as path from 'path';
 
 const RESUME_HEADER = 'x-registration-resume-token';
 
@@ -195,9 +213,11 @@ function validateStep(
   min = 0,
 ): { errors: string[]; value: number } {
   const n = Number(raw ?? min);
-  if (!Number.isInteger(n) || n < min || n > 3) {
+  // Steps: 0 organization, 1 features, 2 admin contact, 3 verification,
+  // 4 documents.
+  if (!Number.isInteger(n) || n < min || n > 4) {
     return {
-      errors: [`${name} must be an integer between ${min} and 3`],
+      errors: [`${name} must be an integer between ${min} and 4`],
       value: min,
     };
   }
@@ -281,6 +301,19 @@ function publicDraft(doc: FirebaseFirestore.DocumentSnapshot) {
     adminContact: d.adminContact,
     currentStep: d.currentStep,
     maxCompletedStep: d.maxCompletedStep,
+    verification: d.verification ?? {},
+    documents: Object.fromEntries(
+      Object.entries(d.documents ?? {}).map(([k, v]) => [
+        k,
+        {
+          field: v.field,
+          originalName: v.originalName,
+          contentType: v.contentType,
+          size: v.size,
+          uploadedAt: v.uploadedAt,
+        },
+      ]),
+    ),
   };
 }
 
@@ -366,7 +399,11 @@ export const createRegistrationDraft = async (
       currentStep: stepCheck.value,
       maxCompletedStep: maxStepCheck.value,
       resumeTokenHash: hashResumeToken(resumeToken),
-      verification: { emailVerified: false, mobileVerified: false },
+      verification: {
+        orgEmail: { verified: false, target: '' },
+        adminEmail: { verified: false, target: '' },
+        adminMobile: { verified: false, target: '' },
+      },
       documents: {},
       auditTrail: [
         // serverTimestamp() is not allowed inside arrays — use a Date.
@@ -496,6 +533,44 @@ export const updateRegistrationDraft = async (
         updates['requestedFeatures'] = check.value;
       }
     }
+    // Changing a contact invalidates its prior verification — the applicant
+    // must re-verify the new address/number. Outstanding OTPs are cleared.
+    if (updates['organization']) {
+      const nextOrg = updates['organization'] as any;
+      if (
+        (nextOrg.officialEmailLower ?? '') !==
+        (data.organization?.officialEmailLower ?? '')
+      ) {
+        updates['verification.orgEmail'] = {
+          verified: false,
+          target: '',
+          verifiedAt: null,
+        };
+        await clearOtp(doc.id, 'orgEmail');
+      }
+    }
+    if (updates['adminContact']) {
+      const nextAdmin = updates['adminContact'] as any;
+      if (
+        (nextAdmin.emailLower ?? '') !== (data.adminContact?.emailLower ?? '')
+      ) {
+        updates['verification.adminEmail'] = {
+          verified: false,
+          target: '',
+          verifiedAt: null,
+        };
+        await clearOtp(doc.id, 'adminEmail');
+      }
+      if ((nextAdmin.mobile ?? '') !== (data.adminContact?.mobile ?? '')) {
+        updates['verification.adminMobile'] = {
+          verified: false,
+          target: '',
+          verifiedAt: null,
+        };
+        await clearOtp(doc.id, 'adminMobile');
+      }
+    }
+
     if (req.body?.currentStep !== undefined) {
       const check = validateStep(req.body.currentStep, 'currentStep');
       errors.push(...check.errors);
@@ -587,15 +662,27 @@ export const submitRegistration = async (
     }
 
     const missing: string[] = [];
-    if (!data.verification?.emailVerified) {
-      missing.push('email verification');
-    }
-    if (!data.verification?.mobileVerified) {
-      missing.push('mobile verification');
+    const channelLabels: Record<VerificationChannel, string> = {
+      orgEmail: 'organization email verification',
+      adminEmail: 'admin email verification',
+      adminMobile: 'mobile verification',
+    };
+    for (const ch of requiredChannels(data)) {
+      if (!data.verification?.[ch]?.verified) {
+        missing.push(channelLabels[ch]);
+      }
     }
     const docs = data.documents || {};
-    if (Object.keys(docs).length === 0) {
-      missing.push('required documents');
+    const missingDocs = [...REQUIRED_DOC_FIELDS].filter((f) => !docs[f]);
+    // GST certificate is required only when a GST number was provided.
+    if (
+      String(data.organization?.gstNumber || '').trim() &&
+      !docs['gstCertificate']
+    ) {
+      missingDocs.push('gstCertificate');
+    }
+    if (missingDocs.length) {
+      missing.push(`documents: ${missingDocs.join(', ')}`);
     }
 
     if (missing.length) {
@@ -610,6 +697,351 @@ export const submitRegistration = async (
     return errorResponse(res, 'Submission is not yet available', 400);
   } catch (err: any) {
     console.error('submitRegistration error:', err);
+    return errorResponse(res, err.message || 'Internal server error', 500);
+  }
+};
+
+// -- Verification (OTP) -------------------------------------------------------
+
+/**
+ * POST /org-registration/verify/request
+ * Header: x-registration-resume-token; body: { registrationId, channel }
+ * channel: orgEmail | adminEmail | adminMobile
+ */
+export const requestRegistrationVerification = async (
+  req: Request,
+  res: Response,
+): Promise<Response> => {
+  try {
+    const id = String(req.body?.registrationId || '').trim();
+    const channel = String(req.body?.channel || '').trim();
+    if (!id) return errorResponse(res, 'registrationId is required', 400);
+    if (!VERIFICATION_CHANNELS.has(channel)) {
+      return errorResponse(res, 'Invalid verification channel', 400);
+    }
+
+    const doc = await getDb()
+      .collection(ORGANIZATION_REGISTRATIONS_COL)
+      .doc(id)
+      .get();
+    if (!doc.exists) return errorResponse(res, 'Registration not found', 404);
+
+    const data = doc.data() as OrganizationRegistration;
+    const presented = getResumeToken(req);
+    if (
+      !presented ||
+      !tokensEqual(hashResumeToken(presented), String(data.resumeTokenHash || ''))
+    ) {
+      return errorResponse(res, 'Invalid resume credential', 401);
+    }
+    if (!EDITABLE_STATUSES.has(data.status)) {
+      return errorResponse(res, 'Registration no longer accepts changes', 403);
+    }
+
+    const ch = channel as VerificationChannel;
+    if (!requiredChannels(data).includes(ch)) {
+      return errorResponse(res, 'This channel does not require verification', 400);
+    }
+    const destination = channelDestination(data, ch);
+    const state = data.verification?.[ch];
+    if (state?.verified && state?.target === destination) {
+      return successResponse(res, { channel: ch }, 'Already verified');
+    }
+
+    const { code } = await issueOtp(id, ch, destination);
+
+    const delivery =
+      ch === 'adminMobile'
+        ? await sendSmsOtp(destination, code)
+        : await sendEmailOtp(destination, code);
+
+    if (delivery.mode === 'unavailable') {
+      // No provider configured and not in the emulator � nothing to send.
+      return errorResponse(
+        res,
+        'Verification delivery is not configured on this server',
+        503,
+      );
+    }
+
+    return successResponse(
+      res,
+      {
+        channel: ch,
+        delivered: delivery.mode === 'smtp' ? 'email' : 'dev',
+        // devCode is populated ONLY in emulator mode � never in production.
+        ...(delivery.devCode ? { devCode: delivery.devCode } : {}),
+      },
+      'Verification code sent',
+    );
+  } catch (err: any) {
+    if (err instanceof OtpError) {
+      return errorResponse(res, err.message, err.status);
+    }
+    console.error('requestRegistrationVerification error:', err);
+    return errorResponse(res, err.message || 'Internal server error', 500);
+  }
+};
+
+/**
+ * POST /org-registration/verify/confirm
+ * Header: x-registration-resume-token; body: { registrationId, channel, code }
+ */
+export const confirmRegistrationVerification = async (
+  req: Request,
+  res: Response,
+): Promise<Response> => {
+  try {
+    const id = String(req.body?.registrationId || '').trim();
+    const channel = String(req.body?.channel || '').trim();
+    const code = String(req.body?.code || '').trim();
+    if (!id) return errorResponse(res, 'registrationId is required', 400);
+    if (!VERIFICATION_CHANNELS.has(channel)) {
+      return errorResponse(res, 'Invalid verification channel', 400);
+    }
+    if (!/^\d{6}$/.test(code)) {
+      return errorResponse(res, 'Enter the 6-digit code', 400);
+    }
+
+    const doc = await getDb()
+      .collection(ORGANIZATION_REGISTRATIONS_COL)
+      .doc(id)
+      .get();
+    if (!doc.exists) return errorResponse(res, 'Registration not found', 404);
+
+    const data = doc.data() as OrganizationRegistration;
+    const presented = getResumeToken(req);
+    if (
+      !presented ||
+      !tokensEqual(hashResumeToken(presented), String(data.resumeTokenHash || ''))
+    ) {
+      return errorResponse(res, 'Invalid resume credential', 401);
+    }
+
+    const ch = channel as VerificationChannel;
+    // A successfully-used OTP can never be reused — even a retry of the
+    // same code is rejected. The client learns the verified state from
+    // the draft's verification map, not by replaying confirm.
+    await confirmOtp(id, ch, code);
+    return successResponse(res, { channel: ch }, 'Verified');
+  } catch (err: any) {
+    if (err instanceof OtpError) {
+      return errorResponse(res, err.message, err.status);
+    }
+    console.error('confirmRegistrationVerification error:', err);
+    return errorResponse(res, err.message || 'Internal server error', 500);
+  }
+};
+
+// -- Organization documents ---------------------------------------------------
+
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+const JPG_MAGIC = Buffer.from([0xff, 0xd8, 0xff]);
+
+/** Validates actual file content � not the client-supplied mimetype. */
+function sniffContentType(buf: Buffer): string | null {
+  if (!buf || buf.length < 5) return null;
+  if (buf.subarray(0, 4).equals(PNG_MAGIC)) return 'image/png';
+  if (buf.subarray(0, 3).equals(JPG_MAGIC)) return 'image/jpeg';
+  if (buf.subarray(0, 5).toString('latin1') === '%PDF-') return 'application/pdf';
+  return null;
+}
+
+function safeFilename(name: string): string {
+  const base = path.basename(name).replace(/[^A-Za-z0-9._-]/g, '_');
+  return base.slice(0, 80) || 'document';
+}
+
+function storageGuardError(): string | null {
+  // Never let a DEV/emulator request fall through to the real bucket.
+  if (
+    process.env.FUNCTIONS_EMULATOR === 'true' &&
+    !process.env.STORAGE_EMULATOR_HOST &&
+    !process.env.FIREBASE_STORAGE_EMULATOR_HOST
+  ) {
+    return 'Storage emulator is not running � DEV uploads are blocked';
+  }
+  return null;
+}
+
+/**
+ * POST /org-registration/documents
+ * Header: x-registration-resume-token
+ * Multipart: registrationId + file fields (registrationCertificate,
+ * gstCertificate, authorizationLetter, adminIdProof).
+ * Requires all required verification channels to be verified first.
+ */
+export const uploadRegistrationDocuments = async (
+  req: Request,
+  res: Response,
+): Promise<Response> => {
+  try {
+    const guard = storageGuardError();
+    if (guard) return errorResponse(res, guard, 503);
+
+    const id = String(req.body?.registrationId || '').trim();
+    if (!id) return errorResponse(res, 'registrationId is required', 400);
+
+    const doc = await getDb()
+      .collection(ORGANIZATION_REGISTRATIONS_COL)
+      .doc(id)
+      .get();
+    if (!doc.exists) return errorResponse(res, 'Registration not found', 404);
+
+    const data = doc.data() as OrganizationRegistration;
+    const presented = getResumeToken(req);
+    if (
+      !presented ||
+      !tokensEqual(hashResumeToken(presented), String(data.resumeTokenHash || ''))
+    ) {
+      return errorResponse(res, 'Invalid resume credential', 401);
+    }
+    if (!EDITABLE_STATUSES.has(data.status)) {
+      return errorResponse(res, 'Registration no longer accepts changes', 403);
+    }
+
+    // Documents only after the required contacts are verified.
+    const unverified = requiredChannels(data).filter(
+      (c) => !data.verification?.[c]?.verified,
+    );
+    if (unverified.length) {
+      return errorResponse(
+        res,
+        'Contact verification is required before uploading documents',
+        403,
+      );
+    }
+
+    // Minimal uploaded-file shape — avoids depending on Express.Multer
+    // namespace types, which are not auto-loaded by this tsconfig.
+    type UploadedFile = {
+      fieldname: string;
+      originalname: string;
+      mimetype: string;
+      buffer: Buffer;
+      size: number;
+    };
+    const files = ((req as any).files || {}) as Record<string, UploadedFile[]>;
+    const fieldNames = Object.keys(files);
+    if (!fieldNames.length) {
+      return errorResponse(res, 'No document files were provided', 400);
+    }
+
+    const bucket = getBucket();
+    const updates: Record<string, unknown> = {
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+    const uploaded: string[] = [];
+
+    for (const field of fieldNames) {
+      if (!REGISTRATION_DOC_FIELDS.has(field)) {
+        return errorResponse(res, `Unknown document field '${field}'`, 400);
+      }
+      const file = files[field][0];
+      const detected = sniffContentType(file.buffer);
+      if (!detected) {
+        return errorResponse(
+          res,
+          `File '${field}' is not a valid PDF, JPG, or PNG`,
+          400,
+        );
+      }
+      const objectPath =
+        `org-registrations/${id}/${field}/` +
+        `${Date.now()}_${safeFilename(file.originalname)}`;
+      await bucket.file(objectPath).save(file.buffer, {
+        metadata: { contentType: detected },
+      });
+      const meta: RegistrationDocumentMeta = {
+        field,
+        storagePath: objectPath,
+        originalName: safeFilename(file.originalname),
+        contentType: detected,
+        size: file.size,
+        uploadedAt: new Date(),
+      };
+      updates[`documents.${field}`] = meta;
+      uploaded.push(field);
+    }
+
+    updates['auditTrail'] = FieldValue.arrayUnion({
+      at: new Date(),
+      action: `documents_uploaded:${uploaded.join(',')}`,
+      actor: 'applicant',
+    });
+
+    await doc.ref.update(updates);
+    return successResponse(res, { uploaded }, 'Documents uploaded');
+  } catch (err: any) {
+    console.error('uploadRegistrationDocuments error:', err);
+    return errorResponse(res, err.message || 'Internal server error', 500);
+  }
+};
+
+/**
+ * GET /org-registration/documents/:id
+ * Header: x-registration-resume-token � returns document metadata.
+ */
+export const listRegistrationDocuments = async (
+  req: Request,
+  res: Response,
+): Promise<Response> => {
+  const doc = await loadAuthorizedRegistration(req, res);
+  if (!doc) return res;
+  const d = doc.data() as OrganizationRegistration;
+  return successResponse(res, {
+    documents: Object.fromEntries(
+      Object.entries(d.documents ?? {}).map(([k, v]) => [
+        k,
+        {
+          field: v.field,
+          originalName: v.originalName,
+          contentType: v.contentType,
+          size: v.size,
+          uploadedAt: v.uploadedAt,
+        },
+      ]),
+    ),
+  }, 'Documents retrieved');
+};
+
+/**
+ * GET /org-registration/documents/:id/:field/url
+ * Header: x-registration-resume-token � short-lived signed URL.
+ */
+export const getRegistrationDocument = async (
+  req: Request,
+  res: Response,
+): Promise<Response | void> => {
+  try {
+    const guard = storageGuardError();
+    if (guard) return errorResponse(res, guard, 503);
+
+    const doc = await loadAuthorizedRegistration(req, res);
+    if (!doc) return res;
+    const field = String(req.params.field || '').trim();
+    if (!REGISTRATION_DOC_FIELDS.has(field)) {
+      return errorResponse(res, 'Unknown document field', 400);
+    }
+    const meta = (doc.data() as OrganizationRegistration).documents?.[field];
+    if (!meta) return errorResponse(res, 'Document not found', 404);
+
+    // Stream bytes through the backend — no signed URLs, no public objects.
+    // (Signed URLs also require a client_email that ADC doesn't provide.)
+    const [bytes] = await getBucket().file(meta.storagePath).download();
+    res.setHeader(
+      'Content-Type',
+      meta.contentType || 'application/octet-stream',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${meta.originalName}"`,
+    );
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(bytes);
+    return res;
+  } catch (err: any) {
+    console.error('getRegistrationDocument error:', err);
     return errorResponse(res, err.message || 'Internal server error', 500);
   }
 };

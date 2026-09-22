@@ -60,6 +60,13 @@ export const upload = multer({
   fileFilter,
 });
 
+const registrationDocFields = new Set([
+  'registrationCertificate',
+  'gstCertificate',
+  'authorizationLetter',
+  'adminIdProof',
+]);
+
 const onboardingFileFields = new Set([
   'resume',
   'offerLetter',
@@ -74,7 +81,9 @@ const onboardingFileFields = new Set([
 
 const onboardingMimeTypes = new Set(allowedMimeTypes);
 
-export const uploadOnboarding = (
+const makeMultipartParser = (
+  allowedFields: ReadonlySet<string>,
+  logTag: string,
   fields: { name: string; maxCount?: number }[],
 ) => {
   const multerUpload = upload.fields(fields);
@@ -84,11 +93,11 @@ export const uploadOnboarding = (
     const contentType = String(req.headers['content-type'] ?? '').toLowerCase();
 
     if (!rawBody || rawBody.length === 0 || !contentType.startsWith('multipart/form-data')) {
-      console.log('[onboarding-upload] parser mode: multer');
+      console.log(`[${logTag}] parser mode: multer`);
       return multerUpload(req, res, next);
     }
 
-    console.log('[onboarding-upload] parser mode: rawBody');
+    console.log(`[${logTag}] parser mode: rawBody`);
 
     const parsedBody: Record<string, string> = {};
     const parsedFiles: Record<string, Express.Multer.File[]> = {};
@@ -110,7 +119,7 @@ export const uploadOnboarding = (
 
     busboy.on('file', (fieldName, stream, info) => {
       const count = fileCounts.get(fieldName) ?? 0;
-      const isAllowedField = onboardingFileFields.has(fieldName);
+      const isAllowedField = allowedFields.has(fieldName);
       const isAllowedMime = onboardingMimeTypes.has(info.mimeType);
       const extension = path.extname(info.filename).toLowerCase();
       const isAllowedExtension = allowedExtensions.includes(extension);
@@ -172,7 +181,7 @@ export const uploadOnboarding = (
         if (parserError) return next(parserError);
         req.body = parsedBody;
         req.files = parsedFiles;
-        console.log('[onboarding-upload] rawbody complete', {
+        console.log(`[${logTag}] rawbody complete`, {
           bodyFieldCount: Object.keys(parsedBody).length,
           fileFieldCount: Object.keys(parsedFiles).length,
         });
@@ -183,3 +192,11 @@ export const uploadOnboarding = (
     busboy.end(rawBody);
   };
 };
+
+export const uploadOnboarding = (
+  fields: { name: string; maxCount?: number }[],
+) => makeMultipartParser(onboardingFileFields, 'onboarding-upload', fields);
+
+export const uploadRegistrationDocs = (
+  fields: { name: string; maxCount?: number }[],
+) => makeMultipartParser(registrationDocFields, 'registration-upload', fields);

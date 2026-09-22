@@ -93,6 +93,45 @@ export interface RegistrationAdminContact {
   mobile: string;
 }
 
+/** Verification state for one contact channel (server-controlled). */
+export interface ChannelVerification {
+  verified: boolean;
+  /** The verified destination (email/phone) — stamped server-side. */
+  target: string;
+  verifiedAt?: FirebaseFirestore.FieldValue | Date | null;
+}
+
+export interface RegistrationVerification {
+  orgEmail: ChannelVerification;
+  adminEmail: ChannelVerification;
+  adminMobile: ChannelVerification;
+}
+
+/** Registration document categories the applicant can upload. */
+export const REGISTRATION_DOC_FIELDS: ReadonlySet<string> = new Set([
+  'registrationCertificate',
+  'gstCertificate',
+  'authorizationLetter',
+  'adminIdProof',
+]);
+
+/** Document categories required before submission. GST is conditional
+ *  (required only when the organization supplied a GST number). */
+export const REQUIRED_DOC_FIELDS: ReadonlySet<string> = new Set([
+  'registrationCertificate',
+  'authorizationLetter',
+  'adminIdProof',
+]);
+
+export interface RegistrationDocumentMeta {
+  field: string;
+  storagePath: string;
+  originalName: string;
+  contentType: string;
+  size: number;
+  uploadedAt: FirebaseFirestore.FieldValue | Date;
+}
+
 export interface OrganizationRegistration {
   applicationId: string;
   status: RegistrationStatus;
@@ -103,8 +142,8 @@ export interface OrganizationRegistration {
   maxCompletedStep: number;
   /** SHA-256 hex of the resume token. The token itself is never stored. */
   resumeTokenHash: string;
-  verification: { emailVerified: boolean; mobileVerified: boolean };
-  documents: Record<string, unknown>;
+  verification: RegistrationVerification;
+  documents: Record<string, RegistrationDocumentMeta>;
   auditTrail: Array<{
     at: FirebaseFirestore.FieldValue | Date;
     action: string;

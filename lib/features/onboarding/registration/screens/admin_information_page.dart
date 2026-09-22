@@ -6,7 +6,7 @@ import '../controllers/registration_draft_controller.dart';
 import '../widgets/registration_form_section.dart';
 import 'organization_information_page.dart';
 import 'feature_selection_page.dart';
-import 'registration_verification_placeholder_page.dart';
+import 'registration_verification_page.dart';
 
 /// Step 3 — Authorized HR/Admin Information.
 ///
@@ -81,7 +81,7 @@ class _AdminInformationPageState extends State<AdminInformationPage> {
     setState(() => _busy = false);
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => const RegistrationVerificationPlaceholderPage(),
+        builder: (_) => const RegistrationVerificationPage(),
       ),
     );
   }

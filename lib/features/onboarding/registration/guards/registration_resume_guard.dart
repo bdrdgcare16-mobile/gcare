@@ -6,7 +6,8 @@ import '../controllers/registration_draft_controller.dart';
 import '../screens/organization_information_page.dart';
 import '../screens/feature_selection_page.dart';
 import '../screens/admin_information_page.dart';
-import '../screens/registration_verification_placeholder_page.dart';
+import '../screens/registration_verification_page.dart';
+import '../screens/registration_documents_page.dart';
 
 /// Entry point for the Register Organization path.
 ///
@@ -14,7 +15,8 @@ import '../screens/registration_verification_placeholder_page.dart';
 ///   0 → Organization Information (also used when no draft exists)
 ///   1 → Feature Selection
 ///   2 → Authorized HR/Admin Information
-///   3 → Verification placeholder
+///   3 → Contact Verification
+///   4 → Organization Documents
 class RegistrationResumeGuard extends StatefulWidget {
   const RegistrationResumeGuard({super.key});
 
@@ -39,7 +41,9 @@ class _RegistrationResumeGuardState extends State<RegistrationResumeGuard> {
       case RegistrationDraftController.stepAdmin:
         return const AdminInformationPage();
       case RegistrationDraftController.stepVerification:
-        return const RegistrationVerificationPlaceholderPage();
+        return const RegistrationVerificationPage();
+      case RegistrationDraftController.stepDocuments:
+        return const RegistrationDocumentsPage();
       case RegistrationDraftController.stepOrganization:
       default:
         return const OrganizationInformationPage();

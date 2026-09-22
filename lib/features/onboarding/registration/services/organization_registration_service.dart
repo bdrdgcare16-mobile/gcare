@@ -261,4 +261,91 @@ class OrganizationRegistrationService {
     if (res.statusCode != 200) _throwFor(res);
     return _decode(res);
   }
+
+  // ── Contact verification (OTP) ───────────────────────────────────────────
+
+  /// Requests a verification code for [channel]
+  /// ('orgEmail' | 'adminEmail' | 'adminMobile').
+  ///
+  /// Returns the decoded body. In DEV emulator mode it may contain `devCode`
+  /// for local testing; production responses never include the code.
+  Future<Map<String, dynamic>> requestOtp(
+    String registrationId,
+    String resumeToken,
+    String channel,
+  ) async {
+    final res = await _send(() => http.post(
+          Uri.parse('$_base/org-registration/verify/request'),
+          headers: _headers(resumeToken),
+          body: jsonEncode({
+            'registrationId': registrationId,
+            'channel': channel,
+          }),
+        ));
+    if (res.statusCode != 200) _throwFor(res);
+    return _decode(res);
+  }
+
+  /// Confirms a 6-digit [code] for [channel].
+  Future<void> confirmOtp(
+    String registrationId,
+    String resumeToken,
+    String channel,
+    String code,
+  ) async {
+    final res = await _send(() => http.post(
+          Uri.parse('$_base/org-registration/verify/confirm'),
+          headers: _headers(resumeToken),
+          body: jsonEncode({
+            'registrationId': registrationId,
+            'channel': channel,
+            'code': code,
+          }),
+        ));
+    if (res.statusCode != 200) _throwFor(res);
+  }
+
+  // ── Organization documents ───────────────────────────────────────────────
+
+  /// Uploads one document [field] with the given file bytes. The backend
+  /// validates actual content type — the filename is cosmetic only.
+  Future<void> uploadDocument(
+    String registrationId,
+    String resumeToken,
+    String field,
+    String filename,
+    List<int> bytes,
+  ) async {
+    final req = http.MultipartRequest(
+      'POST',
+      Uri.parse('$_base/org-registration/documents'),
+    );
+    req.headers.addAll({'x-registration-resume-token': resumeToken});
+    req.fields['registrationId'] = registrationId;
+    req.files.add(
+      http.MultipartFile.fromBytes(field, bytes, filename: filename),
+    );
+    http.Response res;
+    try {
+      res = await http.Response.fromStream(await req.send())
+          .timeout(_timeout);
+    } on TimeoutException {
+      throw const RegistrationApiException(
+          'Network unavailable. Please check your connection.');
+    }
+    if (res.statusCode != 200) _throwFor(res);
+  }
+
+  /// Returns document metadata for the registration.
+  Future<Map<String, dynamic>> listDocuments(
+    String registrationId,
+    String resumeToken,
+  ) async {
+    final res = await _send(() => http.get(
+          Uri.parse('$_base/org-registration/documents/$registrationId'),
+          headers: _headers(resumeToken),
+        ));
+    if (res.statusCode != 200) _throwFor(res);
+    return _decode(res);
+  }
 }

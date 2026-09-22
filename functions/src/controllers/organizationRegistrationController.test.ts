@@ -1,4 +1,5 @@
 // functions/src/controllers/organizationRegistrationController.test.ts
+/// <reference types="jest" />
 
 import { Request, Response } from 'express';
 import {
@@ -9,13 +10,17 @@ import {
   updateRegistrationDraft,
 } from './organizationRegistrationController';
 
+process.env.FUNCTIONS_EMULATOR = 'true';
+process.env.STORAGE_EMULATOR_HOST = '127.0.0.1:9199';
+
 jest.mock('../config/firebase', () => ({
   getDb: jest.fn(),
   getAdminAuth: jest.fn(),
+  getBucket: jest.fn(),
   checkFirestoreAccess: jest.fn().mockResolvedValue(true),
 }));
 
-import { getDb } from '../config/firebase';
+import { getDb, getBucket } from '../config/firebase';
 
 // ---------- Helpers ----------
 
@@ -56,9 +61,24 @@ function setPath(obj: any, path: string, value: any): void {
  * `doc.ref.update` (dot-path keys merged into the doc).
  */
 function makeMockDb(collections: Record<string, MockDoc[]>) {
+  function applyUpdates(col: MockDoc[], id: string, updates: Record<string, any>) {
+    const target = col.find((d) => d.id === id);
+    if (!target) throw new Error('NOT_FOUND');
+    for (const [k, v] of Object.entries(updates)) {
+      // Resolve FieldValue.increment sentinels so attempt counters work.
+      if (v && typeof v === 'object' && typeof v.operand === 'number') {
+        const cur = Number(getPath(target.data, k) || 0);
+        setPath(target.data, k, cur + v.operand);
+      } else {
+        setPath(target.data, k, v);
+      }
+    }
+  }
+
   function makeDocRef(col: MockDoc[], id: string) {
     return {
       id,
+      _col: col,
       get: jest.fn(async () => {
         const doc = col.find((d) => d.id === id);
         return {
@@ -66,13 +86,8 @@ function makeMockDb(collections: Record<string, MockDoc[]>) {
           exists: !!doc,
           data: () => (doc ? doc.data : undefined),
           ref: {
-            update: jest.fn(async (updates: Record<string, any>) => {
-              const target = col.find((d) => d.id === id);
-              if (!target) throw new Error('NOT_FOUND');
-              for (const [k, v] of Object.entries(updates)) {
-                setPath(target.data, k, v);
-              }
-            }),
+            update: jest.fn(async (updates: Record<string, any>) =>
+              applyUpdates(col, id, updates)),
           },
         };
       }),
@@ -80,6 +95,12 @@ function makeMockDb(collections: Record<string, MockDoc[]>) {
         const existing = col.find((d) => d.id === id);
         if (existing) targetMerge(existing.data, data);
         else col.push({ id, data });
+      }),
+      update: jest.fn(async (updates: Record<string, any>) =>
+        applyUpdates(col, id, updates)),
+      delete: jest.fn(async () => {
+        const i = col.findIndex((d) => d.id === id);
+        if (i >= 0) col.splice(i, 1);
       }),
     };
   }
@@ -116,6 +137,18 @@ function makeMockDb(collections: Record<string, MockDoc[]>) {
       collection: jest.fn((name: string) => {
         const col = collections[name] || (collections[name] = []);
         return makeQuery(col);
+      }),
+      batch: jest.fn(() => {
+        const ops: Array<{ ref: any; updates: Record<string, any> }> = [];
+        return {
+          update: jest.fn((ref: any, updates: Record<string, any>) => {
+            ops.push({ ref, updates });
+          }),
+          set: jest.fn(),
+          commit: jest.fn(async () => {
+            for (const op of ops) applyUpdates(op.ref._col, op.ref.id, op.updates);
+          }),
+        };
       }),
     },
     collections,
@@ -200,8 +233,9 @@ describe('organizationRegistrationController', () => {
       expect(doc.data.resumeTokenHash).not.toBe(body.resumeToken);
       expect(doc.data.status).toBe('draft');
       expect(doc.data.verification).toEqual({
-        emailVerified: false,
-        mobileVerified: false,
+        orgEmail: { verified: false, target: '' },
+        adminEmail: { verified: false, target: '' },
+        adminMobile: { verified: false, target: '' },
       });
     });
 
@@ -499,5 +533,412 @@ describe('organizationRegistrationController', () => {
         'leave_management',
       ]);
     });
+  });
+});
+
+// -- Milestone 3C: OTP verification + document upload -------------------------
+
+import {
+  confirmRegistrationVerification,
+  getRegistrationDocument,
+  listRegistrationDocuments,
+  requestRegistrationVerification,
+  uploadRegistrationDocuments,
+} from './organizationRegistrationController';
+
+describe('organizationRegistrationController � verification (3C)', () => {
+  let collections: Record<string, MockDoc[]>;
+  let bucketCalls: { saved: Array<{ path: string; size: number }> };
+
+  beforeEach(() => {
+    collections = {};
+    (getDb as jest.Mock).mockReturnValue(makeMockDb(collections).db);
+    bucketCalls = { saved: [] };
+    (getBucket as jest.Mock).mockReturnValue({
+      file: (p: string) => ({
+        save: jest.fn(async (buf: Buffer) => {
+          bucketCalls.saved.push({ path: p, size: buf.length });
+        }),
+        getSignedUrl: jest.fn(async () => [
+          `https://storage.emulator/${p}?sig=dev`,
+        ]),
+      }),
+    });
+  });
+
+  async function draftWithToken() {
+    const res = mockResponse();
+    await createRegistrationDraft(makeReq({ body: validBody() }) as Request, res);
+    const body = jsonBody(res);
+    return { id: body.registrationId as string, token: body.resumeToken as string };
+  }
+
+  async function requestCode(
+    id: string,
+    token: string,
+    channel: string,
+  ): Promise<{ status: number; body: any }> {
+    const res = mockResponse();
+    await requestRegistrationVerification(
+      makeReq({
+        body: { registrationId: id, channel },
+        resumeToken: token,
+      }) as Request,
+      res,
+    );
+    return { status: statusCode(res), body: jsonBody(res) };
+  }
+
+  async function confirmCode(
+    id: string,
+    token: string,
+    channel: string,
+    code: string,
+  ): Promise<{ status: number; body: any }> {
+    const res = mockResponse();
+    await confirmRegistrationVerification(
+      makeReq({
+        body: { registrationId: id, channel, code },
+        resumeToken: token,
+      }) as Request,
+      res,
+    );
+    return { status: statusCode(res), body: jsonBody(res) };
+  }
+
+  it('requests an OTP and returns a dev code in emulator mode', async () => {
+    const { id, token } = await draftWithToken();
+    const r = await requestCode(id, token, 'orgEmail');
+    expect(r.status).toBe(200);
+    expect(r.body.delivered).toBe('dev');
+    expect(r.body.devCode).toMatch(/^\d{6}$/);
+
+    const otpDoc = collections['registrationOtps'][0];
+    // Plaintext OTP is never stored � only the hash.
+    expect(otpDoc.data.codeHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(otpDoc.data.codeHash).not.toBe(r.body.devCode);
+  });
+
+  it('confirms a correct OTP and stamps verification', async () => {
+    const { id, token } = await draftWithToken();
+    const { body } = await requestCode(id, token, 'orgEmail');
+    const r = await confirmCode(id, token, 'orgEmail', body.devCode);
+    expect(r.status).toBe(200);
+
+    const doc = collections['organizationRegistrations'].find((d) => d.id === id)!;
+    expect(doc.data.verification.orgEmail.verified).toBe(true);
+    expect(doc.data.verification.orgEmail.target)
+      .toBe('hr@acme-test.example.com');
+  });
+
+  it('rejects an incorrect OTP and counts the attempt', async () => {
+    const { id, token } = await draftWithToken();
+    await requestCode(id, token, 'orgEmail');
+    const r = await confirmCode(id, token, 'orgEmail', '000000');
+    expect(r.status).toBe(400);
+    expect(collections['registrationOtps'][0].data.attempts)
+      .toBeGreaterThanOrEqual(1);
+  });
+
+  it('enforces the 5-attempt limit', async () => {
+    const { id, token } = await draftWithToken();
+    await requestCode(id, token, 'orgEmail');
+    for (let i = 0; i < 5; i++) {
+      await confirmCode(id, token, 'orgEmail', '000000');
+    }
+    const r = await confirmCode(id, token, 'orgEmail', '111111');
+    expect(r.status).toBe(429);
+  });
+
+  it('enforces the 60-second resend cooldown', async () => {
+    const { id, token } = await draftWithToken();
+    await requestCode(id, token, 'orgEmail');
+    const r = await requestCode(id, token, 'orgEmail');
+    expect(r.status).toBe(429);
+  });
+
+  it('rejects an expired OTP', async () => {
+    const { id, token } = await draftWithToken();
+    const { body } = await requestCode(id, token, 'orgEmail');
+    // Expire the record in the mock store.
+    collections['registrationOtps'][0].data.expiresAt =
+      new Date(Date.now() - 1000);
+    const r = await confirmCode(id, token, 'orgEmail', body.devCode);
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain('expired');
+  });
+
+  it('rejects reuse of a verified OTP', async () => {
+    const { id, token } = await draftWithToken();
+    const { body } = await requestCode(id, token, 'orgEmail');
+    await confirmCode(id, token, 'orgEmail', body.devCode);
+    const r = await confirmCode(id, token, 'orgEmail', body.devCode);
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain('already been used');
+  });
+
+  it('a code minted for registration A fails on registration B', async () => {
+    const a = await draftWithToken();
+    // Second registration needs a unique email to avoid the dedup rule.
+    const resB = mockResponse();
+    await createRegistrationDraft(
+      makeReq({
+        body: {
+          ...validBody(),
+          organization: {
+            ...VALID_ORG,
+            officialEmail: 'b@acme-test.example.com',
+          },
+        },
+      }) as Request,
+      resB,
+    );
+    const b = jsonBody(resB);
+
+    const { body } = await requestCode(a.id, a.token, 'orgEmail');
+    const r = await confirmCode(b.registrationId, b.resumeToken, 'orgEmail', body.devCode);
+    expect(r.status).toBe(400);
+  });
+
+  it('changing the org email invalidates its verification', async () => {
+    const { id, token } = await draftWithToken();
+    const { body } = await requestCode(id, token, 'orgEmail');
+    await confirmCode(id, token, 'orgEmail', body.devCode);
+
+    const res = mockResponse();
+    await updateRegistrationDraft(
+      makeReq({
+        params: { id },
+        resumeToken: token,
+        body: {
+          organization: {
+            ...VALID_ORG,
+            officialEmail: 'new-hr@acme-test.example.com',
+          },
+        },
+      }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(200);
+    const doc = collections['organizationRegistrations'].find((d) => d.id === id)!;
+    expect(doc.data.verification.orgEmail.verified).toBe(false);
+    // Outstanding OTP for the old target is cleared.
+    expect(collections['registrationOtps'].length).toBe(0);
+  });
+
+  it('admin email is required only when it differs from org email', async () => {
+    const res = mockResponse();
+    await createRegistrationDraft(
+      makeReq({
+        body: {
+          ...validBody(),
+          adminContact: { ...VALID_ADMIN, email: VALID_ORG.officialEmail },
+        },
+      }) as Request,
+      res,
+    );
+    const { registrationId, resumeToken } = jsonBody(res);
+    // adminEmail is NOT required when it equals orgEmail.
+    const r = await requestCode(registrationId, resumeToken, 'adminEmail');
+    expect(r.status).toBe(400);
+    // orgEmail + adminMobile remain required.
+    expect((await requestCode(registrationId, resumeToken, 'adminMobile')).status)
+      .toBe(200);
+  });
+
+  it('rejects verification requests without a resume token', async () => {
+    const { id } = await draftWithToken();
+    const res = mockResponse();
+    await requestRegistrationVerification(
+      makeReq({ body: { registrationId: id, channel: 'orgEmail' } }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(401);
+  });
+});
+
+describe('organizationRegistrationController � documents (3C)', () => {
+  let collections: Record<string, MockDoc[]>;
+  let bucketCalls: { saved: Array<{ path: string; size: number }> };
+
+  const PDF = Buffer.from('%PDF-1.4 fake-pdf-content');
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+
+  beforeEach(() => {
+    collections = {};
+    (getDb as jest.Mock).mockReturnValue(makeMockDb(collections).db);
+    bucketCalls = { saved: [] };
+    (getBucket as jest.Mock).mockReturnValue({
+      file: (p: string) => ({
+        save: jest.fn(async (buf: Buffer) => {
+          bucketCalls.saved.push({ path: p, size: buf.length });
+        }),
+        download: jest.fn(async () => [PDF]),
+      }),
+    });
+  });
+
+  async function verifiedDraft() {
+    const res = mockResponse();
+    await createRegistrationDraft(makeReq({ body: validBody() }) as Request, res);
+    const body = jsonBody(res);
+    const id = body.registrationId as string;
+    const token = body.resumeToken as string;
+    const doc = collections['organizationRegistrations'].find((d) => d.id === id)!;
+    doc.data.verification.orgEmail = { verified: true, target: 'hr@acme-test.example.com' };
+    doc.data.verification.adminMobile = { verified: true, target: '9876543210' };
+    doc.data.verification.adminEmail = { verified: true, target: 'jane@acme-test.example.com' };
+    return { id, token };
+  }
+
+  function uploadReq(
+    id: string,
+    token: string | undefined,
+    files: Record<string, Buffer>,
+  ): Partial<Request> {
+    const req = makeReq({
+      body: { registrationId: id },
+      resumeToken: token,
+    }) as any;
+    req.files = Object.fromEntries(
+      Object.entries(files).map(([k, buf]) => [
+        k,
+        [{
+          fieldname: k,
+          originalname: `${k}.pdf`,
+          mimetype: 'application/pdf',
+          buffer: buf,
+          size: buf.length,
+        }],
+      ]),
+    );
+    return req;
+  }
+
+  it('uploads a document to a private registration path', async () => {
+    const { id, token } = await verifiedDraft();
+    const res = mockResponse();
+    await uploadRegistrationDocuments(
+      uploadReq(id, token, { registrationCertificate: PDF }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(200);
+    expect(bucketCalls.saved[0].path).toContain(`org-registrations/${id}/registrationCertificate/`);
+    const doc = collections['organizationRegistrations'].find((d) => d.id === id)!;
+    expect(doc.data.documents.registrationCertificate.contentType)
+      .toBe('application/pdf');
+  });
+
+  it('rejects upload without a resume token', async () => {
+    const { id } = await verifiedDraft();
+    const res = mockResponse();
+    await uploadRegistrationDocuments(
+      uploadReq(id, undefined, { registrationCertificate: PDF }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(401);
+  });
+
+  it('rejects upload before contact verification', async () => {
+    const res = mockResponse();
+    await createRegistrationDraft(makeReq({ body: validBody() }) as Request, res);
+    const { registrationId, resumeToken } = jsonBody(res);
+    const r = mockResponse();
+    await uploadRegistrationDocuments(
+      uploadReq(registrationId, resumeToken, { registrationCertificate: PDF }) as Request,
+      r,
+    );
+    expect(statusCode(r)).toBe(403);
+  });
+
+  it('rejects a file that is not PDF/JPG/PNG by content', async () => {
+    const { id, token } = await verifiedDraft();
+    const res = mockResponse();
+    await uploadRegistrationDocuments(
+      uploadReq(id, token, {
+        registrationCertificate: Buffer.from('PK\x03\x04 zip-not-pdf'),
+      }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(400);
+    expect(bucketCalls.saved.length).toBe(0);
+  });
+
+  it('rejects an unknown document field', async () => {
+    const { id, token } = await verifiedDraft();
+    const res = mockResponse();
+    await uploadRegistrationDocuments(
+      uploadReq(id, token, { notAField: PDF }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(400);
+  });
+
+  it('replaces an existing document', async () => {
+    const { id, token } = await verifiedDraft();
+    await uploadRegistrationDocuments(
+      uploadReq(id, token, { registrationCertificate: PDF }) as Request,
+      mockResponse(),
+    );
+    const res = mockResponse();
+    await uploadRegistrationDocuments(
+      uploadReq(id, token, { registrationCertificate: PNG }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(200);
+    const doc = collections['organizationRegistrations'].find((d) => d.id === id)!;
+    expect(doc.data.documents.registrationCertificate.contentType)
+      .toBe('image/png');
+  });
+
+  it('lists document metadata with a valid token', async () => {
+    const { id, token } = await verifiedDraft();
+    await uploadRegistrationDocuments(
+      uploadReq(id, token, { registrationCertificate: PDF }) as Request,
+      mockResponse(),
+    );
+    const res = mockResponse();
+    await listRegistrationDocuments(
+      makeReq({ params: { id }, resumeToken: token }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(200);
+    expect(jsonBody(res).documents.registrationCertificate).toBeTruthy();
+  });
+
+  it('streams the document to the applicant only', async () => {
+    const { id, token } = await verifiedDraft();
+    await uploadRegistrationDocuments(
+      uploadReq(id, token, { registrationCertificate: PDF }) as Request,
+      mockResponse(),
+    );
+    const res = {
+      setHeader: jest.fn(),
+      send: jest.fn(),
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn().mockReturnThis(),
+    } as any;
+    await getRegistrationDocument(
+      makeReq({
+        params: { id, field: 'registrationCertificate' },
+        resumeToken: token,
+      }) as Request,
+      res,
+    );
+    expect(res.send).toHaveBeenCalledWith(PDF);
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'Content-Type',
+      'application/pdf',
+    );
+
+    const bad = mockResponse();
+    await getRegistrationDocument(
+      makeReq({
+        params: { id, field: 'registrationCertificate' },
+        resumeToken: 'wrong',
+      }) as Request,
+      bad,
+    );
+    expect(statusCode(bad)).toBe(401);
   });
 });

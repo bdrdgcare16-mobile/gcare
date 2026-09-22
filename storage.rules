@@ -1,0 +1,12 @@
+rules_version = '2';
+
+// All uploads and reads for organization-registration documents flow through
+// the backend (Firebase Admin SDK), which bypasses Security Rules and is
+// gated by the registration resume credential. Direct client access is denied.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

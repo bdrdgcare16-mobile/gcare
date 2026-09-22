@@ -25,6 +25,7 @@ class RegistrationDraftController extends ChangeNotifier {
   static const int stepFeatures = 1;
   static const int stepAdmin = 2;
   static const int stepVerification = 3;
+  static const int stepDocuments = 4;
   static const int lastEditableStep = stepAdmin;
 
   final _api = OrganizationRegistrationService.instance;
@@ -119,13 +120,13 @@ class RegistrationDraftController extends ChangeNotifier {
     if (step > draft.maxCompletedStep) {
       draft.maxCompletedStep = step;
     }
-    draft.currentStep = nextStep ?? (step + 1).clamp(0, stepVerification);
+    draft.currentStep = nextStep ?? (step + 1).clamp(0, stepDocuments);
     await persist();
     notifyListeners();
   }
 
   Future<void> goToStep(int step) async {
-    draft.currentStep = step.clamp(0, stepVerification);
+    draft.currentStep = step.clamp(0, stepDocuments);
     await persist();
     notifyListeners();
   }
