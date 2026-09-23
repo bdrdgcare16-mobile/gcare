@@ -29,6 +29,15 @@ function pickDate(req: Request) {
 
 export async function liveEmployeeDetails(req: Request, res: Response) {
   try {
+    const companyId = (req as any).user?.companyId;
+
+    if (!companyId) {
+      return res.status(401).json({
+        status: 'error',
+        message: 'Unauthorized: missing company context',
+      });
+    }
+
     const empid =
       (req.params.empid || '').trim() ||
       String(req.headers['x-empid'] || '').trim();
@@ -44,6 +53,7 @@ export async function liveEmployeeDetails(req: Request, res: Response) {
 
     const attendanceSnap = await getDb()
       .collection('attendance')
+      .where('companyId', '==', companyId)
       .where('empid', '==', empid)
       .where('date', '==', dateIso)
       .limit(1)
@@ -51,11 +61,20 @@ export async function liveEmployeeDetails(req: Request, res: Response) {
 
     const employeeSnap = await getDb()
       .collection('employees')
+      .where('companyId', '==', companyId)
       .where('empid', '==', empid)
       .limit(1)
       .get();
 
     const employeeData = !employeeSnap.empty ? employeeSnap.docs[0].data() : null;
+
+    // Defensive check: ensure returned employee belongs to the authenticated company
+    if (employeeData && employeeData.companyId !== companyId) {
+      return res.status(403).json({
+        status: 'error',
+        message: 'Access denied: employee belongs to another company',
+      });
+    }
 
     if (attendanceSnap.empty) {
       return res.json({
