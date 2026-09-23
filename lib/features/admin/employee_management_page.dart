@@ -490,46 +490,22 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
   }
 
   Future<void> _editEmployee(Employee e) async {
-    final edited = await Navigator.push<Employee>(
+    final updated = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => CreateEmployeeScreen(editEmployee: e),
       ),
     );
 
-    if (edited == null) return;
+    if (updated != true) return;
 
-    if (e.docId == null || e.docId!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Missing server id for this employee')),
-      );
-      return;
-    }
+    await _loadEmployees();
 
-    try {
-      await EmployeeService.updateEmployee(e.docId!, {
-        'name': edited.name,
-        'phone': edited.mobile,
-        'location': edited.location,
-        'dept': edited.dept,
-        'designation': edited.designation,
-        'shiftGroup': edited.shiftGroup,
-      });
+    if (!mounted) return;
 
-      await _loadEmployees();
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Employee updated')),
-      );
-    } catch (err) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Update failed: $err')),
-      );
-    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Employee updated')),
+    );
   }
 
   Widget _buildTableHeader() {
@@ -884,7 +860,6 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
       location.text = emp.location;
       dept.text = emp.dept;
       desig.text = emp.designation;
-      status = emp.status;
     }
 
     _loadShiftGroups();
@@ -925,12 +900,14 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
     String label,
     TextEditingController ctrl, {
     TextInputType type = TextInputType.text,
+    bool readOnly = false,
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: TextFormField(
         controller: ctrl,
         keyboardType: type,
+        readOnly: readOnly,
         validator: (v) {
           if (v == null || v.trim().isEmpty) return 'Required';
 
@@ -957,6 +934,8 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
           return null;
         },
         decoration: InputDecoration(
+          filled: readOnly,
+          fillColor: readOnly ? Colors.black12 : null,
           label: RichText(
             text: TextSpan(
               text: label,
@@ -1080,42 +1059,70 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
   Future<void> submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    // Clear previous email error
-    setState(() => _emailError = null);
+    final existingEmployee = widget.editEmployee;
+    if (existingEmployee == null) {
+      setState(() => _emailError = null);
+    }
 
-    final newEmp = Employee(
-      companyId: companyId.text.trim(),
+    final employee = Employee(
+      companyId: existingEmployee?.companyId ?? companyId.text.trim(),
       name: name.text.trim(),
-      id: id.text.trim(),
-      email: email.text.trim().toLowerCase(),
+      id: existingEmployee?.id ?? id.text.trim(),
+      email: existingEmployee?.email ?? email.text.trim().toLowerCase(),
       mobile: '$dialCode ${mobile.text.trim()}',
       shiftGroup: shiftgroup.text.trim(),
       location: location.text.trim(),
       dept: dept.text.trim(),
       designation: desig.text.trim(),
-      status: status,
-      password: password.text.trim(),
-      role: 'employee',
+      status: existingEmployee?.status ?? status,
+      password: existingEmployee == null ? password.text.trim() : null,
+      role: existingEmployee?.role ?? 'employee',
     );
 
+    if (existingEmployee != null) {
+      if (existingEmployee.docId == null || existingEmployee.docId!.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Missing server id for this employee')),
+        );
+        return;
+      }
+
+      try {
+        await EmployeeService.updateEmployee(existingEmployee.docId!, {
+          'name': employee.name,
+          'phone': employee.mobile,
+          'location': employee.location,
+          'dept': employee.dept,
+          'designation': employee.designation,
+          'shiftGroup': employee.shiftGroup,
+        });
+
+        if (!mounted) return;
+        Navigator.pop(context, true);
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Update failed: $e')),
+        );
+      }
+      return;
+    }
+
     try {
-      final response = await EmployeeService.createEmployee(newEmp);
-      
-      // Handle backend duplicate email response
+      final response = await EmployeeService.createEmployee(employee);
+
       if (response.contains('Email already exists for this company')) {
         setState(() => _emailError = 'Email already exists for this company');
-        _formKey.currentState?.validate(); // Revalidate to show error
+        _formKey.currentState?.validate();
         return;
       }
-      
-      // Handle backend duplicate employee ID response
+
       if (response.contains('Employee ID already exists for this company')) {
         setState(() => _empidError = 'Employee ID already exists for this company');
-        _formKey.currentState?.validate(); // Revalidate to show error
+        _formKey.currentState?.validate();
         return;
       }
-      
-      // Handle other validation errors from backend
+
       if (response.contains('already exists')) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1123,11 +1130,9 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
         );
         return;
       }
-      
-      // Success - navigate back with success flag
+
       if (!mounted) return;
       Navigator.pop(context, true);
-      
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1181,17 +1186,14 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
             key: _formKey,
             child: Column(
               children: [
-                formField('Company ID', companyId),
+                formField('Company ID', companyId, readOnly: isEdit),
                 formField('Employee Name', name),
-                // Employee ID is read-only in edit mode (cannot be changed after creation)
-                AbsorbPointer(
-                  absorbing: isEdit,
-                  child: formField('Employee ID', id),
-                ),
-                // Email is read-only in edit mode (requires dedicated update endpoint)
-                AbsorbPointer(
-                  absorbing: isEdit,
-                  child: formField('Email', email, type: TextInputType.emailAddress),
+                formField('Employee ID', id, readOnly: isEdit),
+                formField(
+                  'Email',
+                  email,
+                  type: TextInputType.emailAddress,
+                  readOnly: isEdit,
                 ),
                 IntlPhoneField(
                   initialCountryCode: 'IN',
@@ -1222,7 +1224,7 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
                   },
                 ),
                 shiftDropdownField(),
-                passwordField(),
+                if (!isEdit) passwordField(),
                 formField('Location', location),
                 formField('Department', dept),
                 formField('Designation', desig),
