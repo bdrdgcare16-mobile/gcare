@@ -251,6 +251,7 @@ export const updateEmployee = async (req: Request, res: Response): Promise<Respo
   try {
 
     const companyId = (req as any).user?.companyId;
+    const currentUserId = (req as any).user?.userId;
     const { id } = req.params;
 
     const ref = getDb().collection(EMPLOYEES).doc(id);
@@ -264,10 +265,44 @@ export const updateEmployee = async (req: Request, res: Response): Promise<Respo
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    await ref.update({
-      ...req.body,
-      updatedAt: Timestamp.now()
-    });
+    const empid = doc.data()?.empid;
+
+    // Field whitelist to prevent mass assignment
+    // Status changes must use a dedicated status lifecycle endpoint (not general profile update)
+    // Email changes require users mirror synchronization — deferred to dedicated endpoint
+    const allowedFields = [
+      'name',
+      'phone',
+      'location',
+      'dept',
+      'designation',
+      'shiftGroup',
+    ];
+
+    const updates: Record<string, any> = {};
+    const invalidFields: string[] = [];
+
+    for (const key of Object.keys(req.body)) {
+      if (!allowedFields.includes(key)) {
+        invalidFields.push(key);
+      } else {
+        updates[key] = req.body[key];
+      }
+    }
+
+    if (invalidFields.length > 0) {
+      return res.status(400).json({
+        error: 'Invalid fields',
+        message: `The following fields are not allowed for update: ${invalidFields.join(', ')}`,
+        invalidFields,
+      });
+    }
+
+    // Set audit fields
+    updates.updatedAt = Timestamp.now();
+    updates.updatedBy = currentUserId;
+
+    await ref.update(updates);
 
     // Track usage after successful employee update
     await trackEmployeeUsage(req, {

@@ -86,6 +86,7 @@ class Employee {
       'designation': designation,
       'shiftGroup': shiftGroup.isEmpty ? null : shiftGroup,
       'role': role,
+      'status': status.toLowerCase(),
     };
   }
 }
@@ -508,14 +509,11 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
     try {
       await EmployeeService.updateEmployee(e.docId!, {
         'name': edited.name,
-        'empid': edited.id,
-        'email': edited.email,
         'phone': edited.mobile,
         'location': edited.location,
         'dept': edited.dept,
         'designation': edited.designation,
         'shiftGroup': edited.shiftGroup,
-        'status': edited.status.toLowerCase(),
       });
 
       await _loadEmployees();
@@ -1185,8 +1183,16 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
               children: [
                 formField('Company ID', companyId),
                 formField('Employee Name', name),
-                formField('Employee ID', id),
-                formField('Email', email, type: TextInputType.emailAddress),
+                // Employee ID is read-only in edit mode (cannot be changed after creation)
+                AbsorbPointer(
+                  absorbing: isEdit,
+                  child: formField('Employee ID', id),
+                ),
+                // Email is read-only in edit mode (requires dedicated update endpoint)
+                AbsorbPointer(
+                  absorbing: isEdit,
+                  child: formField('Email', email, type: TextInputType.emailAddress),
+                ),
                 IntlPhoneField(
                   initialCountryCode: 'IN',
                   initialValue: mobile.text,
@@ -1220,31 +1226,33 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
                 formField('Location', location),
                 formField('Department', dept),
                 formField('Designation', desig),
-                Row(
-                  children: [
-                    const Text('Status: '),
-                    Radio<String>(
-                      value: 'Active',
-                      groupValue: status,
-                      onChanged: (val) {
-                        setState(() {
-                          status = val!;
-                        });
-                      },
-                    ),
-                    const Text('Active'),
-                    Radio<String>(
-                      value: 'Inactive',
-                      groupValue: status,
-                      onChanged: (val) {
-                        setState(() {
-                          status = val!;
-                        });
-                      },
-                    ),
-                    const Text('Inactive'),
-                  ],
-                ),
+                // Status is display-only in edit mode (requires dedicated lifecycle endpoint)
+                if (!isEdit)
+                  Row(
+                    children: [
+                      const Text('Status: '),
+                      Radio<String>(
+                        value: 'Active',
+                        groupValue: status,
+                        onChanged: (val) {
+                          setState(() {
+                            status = val!;
+                          });
+                        },
+                      ),
+                      const Text('Active'),
+                      Radio<String>(
+                        value: 'Inactive',
+                        groupValue: status,
+                        onChanged: (val) {
+                          setState(() {
+                            status = val!;
+                          });
+                        },
+                      ),
+                      const Text('Inactive'),
+                    ],
+                  ),
                 const SizedBox(height: 20),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
