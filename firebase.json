@@ -32,6 +32,21 @@
       "npm --prefix \"$RESOURCE_DIR\" run build"
     ]
   },
+  "hosting": {
+    "target": "platform-admin",
+    "public": "build/platform_admin_web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  },
   "emulators": {
     "functions": {
       "host": "127.0.0.1",

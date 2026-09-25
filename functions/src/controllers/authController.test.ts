@@ -1,6 +1,6 @@
 /// <reference types="jest" />
 import { Request, Response } from 'express';
-import { employeeLoginValidate, firebaseLogin } from './authController';
+import { employeeLoginValidate, firebaseLogin, registerApplicant } from './authController';
 
 jest.mock('../config/firebase', () => ({
   getDb: jest.fn(),
@@ -470,5 +470,104 @@ describe('firebaseLogin employee context', () => {
     await firebaseLogin(req as Request, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+});
+
+describe('registerApplicant (3D-C follow-up)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function makeReq(body: any): Partial<Request> {
+    return { body } as any;
+  }
+
+  test('new applicant gets org_applicant account + JWT', async () => {
+    (getAdminAuth as jest.Mock).mockReturnValue({
+      verifyIdToken: jest.fn().mockResolvedValue({
+        email: 'new.applicant@example.com',
+        uid: 'fb-uid-1',
+        name: 'New Applicant',
+      }),
+    });
+    const setSpy = jest.fn().mockResolvedValue(undefined);
+    const usersQuery = makeQuery([], {
+      doc: jest.fn(() => ({ set: setSpy })),
+    });
+    (getDb as jest.Mock).mockImplementation(makeDb(makeQuery([]), usersQuery));
+
+    const res = mockResponse();
+    await registerApplicant(makeReq({ idToken: 'tok' }) as Request, res);
+
+    expect(res.status).toHaveBeenCalledWith(201);
+    const json = (res.json as jest.Mock).mock.calls[0][0];
+    expect(json.role).toBe('org_applicant');
+    expect(json.token).toBeDefined();
+    const written = setSpy.mock.calls[0][0];
+    expect(written.role).toBe('org_applicant');
+    expect(written.companyId).toBe('platform');
+    expect(written.emailLower).toBe('new.applicant@example.com');
+  });
+
+  test('existing org_applicant gets a fresh JWT (idempotent)', async () => {
+    (getAdminAuth as jest.Mock).mockReturnValue({
+      verifyIdToken: jest.fn().mockResolvedValue({
+        email: 'existing@example.com',
+        uid: 'fb-uid-2',
+      }),
+    });
+    const usersQuery = makeQuery([
+      {
+        id: 'user-applicant',
+        data: {
+          email: 'existing@example.com',
+          role: 'org_applicant',
+          status: 'active',
+          companyId: 'platform',
+        },
+      },
+    ]);
+    (getDb as jest.Mock).mockImplementation(makeDb(makeQuery([]), usersQuery));
+
+    const res = mockResponse();
+    await registerApplicant(makeReq({ idToken: 'tok' }) as Request, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect((res.json as jest.Mock).mock.calls[0][0].role).toBe('org_applicant');
+  });
+
+  test('existing account with a different role is rejected 409', async () => {
+    (getAdminAuth as jest.Mock).mockReturnValue({
+      verifyIdToken: jest.fn().mockResolvedValue({
+        email: 'admin@example.com',
+        uid: 'fb-uid-3',
+      }),
+    });
+    const usersQuery = makeQuery([
+      { id: 'user-admin', data: { email: 'admin@example.com', role: 'admin' } },
+    ]);
+    (getDb as jest.Mock).mockImplementation(makeDb(makeQuery([]), usersQuery));
+
+    const res = mockResponse();
+    await registerApplicant(makeReq({ idToken: 'tok' }) as Request, res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+  });
+
+  test('invalid Firebase token rejected', async () => {
+    (getAdminAuth as jest.Mock).mockReturnValue({
+      verifyIdToken: jest.fn().mockRejectedValue(new Error('bad token')),
+    });
+    (getDb as jest.Mock).mockImplementation(makeDb(makeQuery([]), makeQuery([])));
+
+    const res = mockResponse();
+    await registerApplicant(makeReq({ idToken: 'bogus' }) as Request, res);
+    expect(res.status).toHaveBeenCalledWith(401);
+  });
+
+  test('missing idToken rejected', async () => {
+    const res = mockResponse();
+    await registerApplicant(makeReq({}) as Request, res);
+    expect(res.status).toHaveBeenCalledWith(400);
   });
 });

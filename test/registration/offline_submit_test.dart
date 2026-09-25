@@ -132,7 +132,7 @@ void main() {
   Future<void> tapSubmit(WidgetTester tester) async {
     await tester.tap(find.byType(CheckboxListTile));
     await tester.pump();
-    await tester.tap(find.text('Confirm & Submit'));
+    await tester.tap(find.text('Submit Application'));
     for (var i = 0; i < 8; i++) {
       await tester.pump(const Duration(milliseconds: 50));
     }
@@ -170,7 +170,7 @@ void main() {
     expect(controller.draft.applicationStatus, 'draft');
 
     // Retry while still offline → second POST attempted, same safe state.
-    await tester.tap(find.text('Confirm & Submit'));
+    await tester.tap(find.text('Submit Application'));
     for (var i = 0; i < 8; i++) {
       await tester.pump(const Duration(milliseconds: 50));
     }
@@ -228,7 +228,7 @@ void main() {
 
     // Connectivity returns → retry the same button → submit succeeds.
     online = true;
-    await tester.tap(find.text('Confirm & Submit'));
+    await tester.tap(find.text('Submit Application'));
     for (var i = 0; i < 8; i++) {
       await tester.pump(const Duration(milliseconds: 50));
     }

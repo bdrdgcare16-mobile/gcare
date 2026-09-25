@@ -89,8 +89,10 @@ class _RegistrationVerificationPageState
     if (d.registrationId.isEmpty) {
       await _controller.persist();
     }
-    final token = await _api.loadResumeToken();
-    if (d.registrationId.isEmpty || token == null || token.isEmpty) {
+    // Bound applications are authorized by the applicant JWT alone — the
+    // device-local resume token is only a fallback credential.
+    final token = await _api.applicantCredential();
+    if (d.registrationId.isEmpty || token == null) {
       setState(() {
         _loading = false;
         _error =

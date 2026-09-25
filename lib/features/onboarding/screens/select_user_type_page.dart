@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:serv_app/features/users/login_page.dart';
 import '../services/onboarding_storage_service.dart';
-import '../registration/guards/registration_resume_guard.dart';
+import '../registration/screens/org_applicant_auth_page.dart';
 import 'employee_login_page.dart';
 
 enum _UserType { employee, admin, organization }
@@ -151,10 +151,12 @@ class _SelectUserTypePageState extends State<SelectUserTypePage> {
         );
         break;
       case _UserType.organization:
-        // RegistrationResumeGuard resumes a saved draft or starts step 1.
+        // The applicant must sign in / create a restricted org_applicant
+        // account BEFORE registration data is collected. The resume guard
+        // then resolves the authoritative application server-side.
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
-            builder: (_) => const RegistrationResumeGuard(),
+            builder: (_) => const OrgApplicantAuthPage(),
           ),
         );
         break;

@@ -7,6 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:serv_app/config/api_config.dart';
+import 'package:serv_app/models/company_data.dart';
 import '../models/organization_registration_draft.dart';
 
 /// Thrown when the registration API cannot be used right now (network, 5xx).
@@ -26,12 +27,14 @@ class RegistrationCredentialException extends RegistrationApiException {
   const RegistrationCredentialException(super.message, {super.statusCode});
 }
 
-/// Client for the public organization-registration draft API.
+/// Client for the organization-registration API.
 ///
-/// These endpoints are unauthenticated (the applicant has no SERV account);
-/// access is controlled by the `x-registration-resume-token` header issued
-/// once at draft creation. The token is stored in flutter_secure_storage —
-/// never in SharedPreferences.
+/// Applications are bound to an authenticated `org_applicant` account
+/// (3D-C follow-up). Every request attaches the applicant's SERV JWT
+/// (`Authorization: Bearer`, from [CompanyData.token]) when present; the
+/// device-local resume token remains as a fallback credential. The JWT
+/// alone authorizes access for the bound applicant — across devices and
+/// without secure-storage state.
 class OrganizationRegistrationService {
   OrganizationRegistrationService._();
 
@@ -96,12 +99,25 @@ class OrganizationRegistrationService {
     }
   }
 
+  /// Applicant credential for credential-gated calls: the device-local
+  /// resume token when stored, otherwise an empty string when the applicant
+  /// JWT is present (the bound JWT alone authorizes access — the token
+  /// header is simply omitted). Null when neither exists.
+  Future<String?> applicantCredential() async {
+    final token = await loadResumeToken();
+    if (token != null && token.isNotEmpty) return token;
+    return CompanyData.token.isNotEmpty ? '' : null;
+  }
+
   // ── HTTP plumbing ────────────────────────────────────────────────────────
 
   static String get _base => ApiConfig.baseUrl;
 
+  /// Auth headers: applicant SERV JWT (when signed in) + resume token.
   Map<String, String> _headers(String? token) => {
         'Content-Type': 'application/json',
+        if (CompanyData.token.isNotEmpty)
+          'Authorization': 'Bearer ${CompanyData.token}',
         if (token != null && token.isNotEmpty)
           'x-registration-resume-token': token,
       };
@@ -232,9 +248,45 @@ class OrganizationRegistrationService {
 
   // ── API calls ────────────────────────────────────────────────────────────
 
+  /// Exchanges a Firebase ID token for a SERV applicant session.
+  ///
+  /// `POST /auth/register-applicant` — the server verifies the Firebase
+  /// token, creates (or restores) the restricted `org_applicant` users
+  /// document, and returns a SERV JWT. Returns the decoded body.
+  Future<Map<String, dynamic>> registerApplicant(String idToken) async {
+    final res = await _send(() => http.post(
+          Uri.parse('$_base/auth/register-applicant'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'idToken': idToken}),
+        ));
+    if (res.statusCode != 200 && res.statusCode != 201) _throwFor(res);
+    return _decode(res);
+  }
+
+  /// Server-side resolution of the caller's current application — the
+  /// source of truth for post-login routing. Requires the applicant JWT
+  /// (sent automatically via [_headers]).
+  ///
+  /// Returns the `application` object or `null` when none exists.
+  Future<Map<String, dynamic>?> getMyApplication() async {
+    final res = await _send(() => http.get(
+          Uri.parse('$_base/org-registration/mine'),
+          headers: _headers(null),
+        ));
+    if (res.statusCode != 200) _throwFor(res);
+    final body = _decode(res);
+    final app = body['application'];
+    if (app is Map) return Map<String, dynamic>.from(app);
+    return null;
+  }
+
   /// Creates a server draft. Returns `{registrationId, resumeToken}`.
   /// The resume token is returned ONCE — the caller must persist it via
   /// [saveResumeToken].
+  ///
+  /// When the applicant already owns an active application the server
+  /// responds 200 with `alreadyExists: true` and NO new token — the bound
+  /// JWT authorizes access. In that case `resumeToken` is empty.
   Future<({String registrationId, String resumeToken})> createDraft(
     OrganizationRegistrationDraft draft,
   ) async {
@@ -247,7 +299,10 @@ class OrganizationRegistrationService {
     final body = _decode(res);
     final id = (body['registrationId'] ?? '').toString();
     final token = (body['resumeToken'] ?? '').toString();
-    if (id.isEmpty || token.isEmpty) {
+    if (id.isEmpty) {
+      throw const RegistrationApiException('Invalid server response');
+    }
+    if (token.isEmpty && body['alreadyExists'] != true) {
       throw const RegistrationApiException('Invalid server response');
     }
     return (registrationId: id, resumeToken: token);
@@ -377,7 +432,12 @@ class OrganizationRegistrationService {
       'POST',
       Uri.parse('$_base/org-registration/documents'),
     );
-    req.headers.addAll({'x-registration-resume-token': resumeToken});
+    if (CompanyData.token.isNotEmpty) {
+      req.headers['Authorization'] = 'Bearer ${CompanyData.token}';
+    }
+    if (resumeToken.isNotEmpty) {
+      req.headers['x-registration-resume-token'] = resumeToken;
+    }
     req.fields['registrationId'] = registrationId;
     req.files.add(
       http.MultipartFile.fromBytes(field, bytes, filename: filename),

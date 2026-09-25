@@ -2,6 +2,7 @@
 
 import 'package:flutter/foundation.dart';
 
+import 'package:serv_app/models/company_data.dart';
 import '../models/organization_registration_draft.dart';
 import '../services/organization_registration_service.dart';
 import '../services/registration_draft_storage_service.dart';
@@ -51,6 +52,34 @@ class RegistrationDraftController extends ChangeNotifier {
     await _refreshFromBackend();
   }
 
+  /// Applicant credential: the device-local resume token when present,
+  /// otherwise the bound applicant JWT alone (empty token string — the
+  /// service attaches `Authorization` automatically). Null when neither
+  /// exists.
+  Future<String?> _credential() async {
+    final token = await _api.loadResumeToken();
+    if (token != null && token.isNotEmpty) return token;
+    return CompanyData.token.isNotEmpty ? '' : null;
+  }
+
+  /// Pulls the authoritative server draft for [registrationId] over the
+  /// applicant JWT — used when resuming on a device that has no local
+  /// resume token (e.g. a fresh install after sign-in).
+  Future<void> hydrateFromServer(String registrationId) async {
+    if (registrationId.isEmpty) return;
+    try {
+      final serverDraft = await _api.getDraft(registrationId, '');
+      draft.registrationId = registrationId;
+      OrganizationRegistrationService.applyServerDraft(draft, serverDraft);
+      final status = (serverDraft['status'] ?? '').toString();
+      if (status.isNotEmpty) draft.applicationStatus = status;
+      await RegistrationDraftStorageService.instance.saveDraft(draft);
+      notifyListeners();
+    } on RegistrationApiException {
+      // Keep whatever local state exists — never wipe on transient errors.
+    }
+  }
+
   /// Fetches the authoritative application status.
   ///
   /// On a backend outage the cached status is preserved — a submitted
@@ -58,8 +87,8 @@ class RegistrationDraftController extends ChangeNotifier {
   /// is never shown as submitted.
   Future<void> refreshApplicationStatus() async {
     if (draft.registrationId.isEmpty) return;
-    final token = await _api.loadResumeToken();
-    if (token == null || token.isEmpty) return;
+    final token = await _credential();
+    if (token == null) return;
     try {
       final status = await _api.getStatus(draft.registrationId, token);
       final serverStatus = (status['status'] ?? '').toString();
@@ -81,8 +110,8 @@ class RegistrationDraftController extends ChangeNotifier {
   /// newer local edits on restart.
   Future<void> _refreshFromBackend() async {
     if (draft.registrationId.isEmpty || draft.backendSyncFailed) return;
-    final token = await _api.loadResumeToken();
-    if (token == null || token.isEmpty) {
+    final token = await _credential();
+    if (token == null) {
       // Credential lost (e.g. secure storage cleared) — keep local data and
       // re-create a fresh server draft on next save.
       draft.registrationId = '';
@@ -124,8 +153,8 @@ class RegistrationDraftController extends ChangeNotifier {
       throw const RegistrationApiException(
           'The application has not been saved to the server yet.');
     }
-    final token = await _api.loadResumeToken();
-    if (token == null || token.isEmpty) {
+    final token = await _credential();
+    if (token == null) {
       throw const RegistrationApiException(
           'Registration credential is unavailable on this device.');
     }
@@ -150,10 +179,15 @@ class RegistrationDraftController extends ChangeNotifier {
       if (draft.registrationId.isEmpty) {
         final created = await _api.createDraft(draft);
         draft.registrationId = created.registrationId;
-        await _api.saveResumeToken(created.resumeToken);
+        // The server does not re-issue a resume token when it returns an
+        // existing application (`alreadyExists`) — the bound JWT already
+        // authorizes access.
+        if (created.resumeToken.isNotEmpty) {
+          await _api.saveResumeToken(created.resumeToken);
+        }
       } else {
-        final token = await _api.loadResumeToken();
-        if (token == null || token.isEmpty) {
+        final token = await _credential();
+        if (token == null) {
           draft.registrationId = '';
           await _syncToBackend();
           return;

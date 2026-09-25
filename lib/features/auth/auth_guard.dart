@@ -23,6 +23,7 @@ import 'package:serv_app/services/fcm_test_service.dart';
 
 import 'package:serv_app/features/admin/company_details_page.dart';
 import 'package:serv_app/features/supderadmin/super_admin_onboarding_page.dart';
+import 'package:serv_app/features/onboarding/registration/guards/registration_resume_guard.dart';
 
 // Same base URL you use elsewhere
 final String _apiBase = ApiConfig.baseUrl;
@@ -309,6 +310,17 @@ class _AuthGuardState extends State<AuthGuard> {
         return;
       }
 
+      if (role == 'org_applicant') {
+        // Restricted applicant role: resolve the current application
+        // server-side and route to registration/status. NEVER routed to
+        // the Admin dashboard or Role Selection.
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const RegistrationResumeGuard()),
+        );
+        return;
+      }
+
       // Unknown role -> Login
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
@@ -347,6 +359,14 @@ class _AuthGuardState extends State<AuthGuard> {
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const SuperAdminOnboardingPage()),
+        );
+        return;
+      }
+
+      if (cachedRole == 'org_applicant') {
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const RegistrationResumeGuard()),
         );
         return;
       }

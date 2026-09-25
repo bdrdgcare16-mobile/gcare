@@ -22,6 +22,18 @@ const JWT_EXPIRES = getJwtExpires();
 const USERS_COL = 'users';
 const EMPS_COL = 'employees';
 
+// Roles permitted to complete Firebase login and receive a SERV JWT.
+// 'platform_admin' is the browser Portal reviewer role (Milestone 3D-B);
+// it is intentionally absent from okRoles so it can never be assigned
+// through the user-management APIs — only seeded/provisioned server-side.
+const LOGIN_ROLES = new Set([
+  'employee',
+  'admin',
+  'super_admin',
+  'platform_admin',
+  'org_applicant',
+]);
+
 // Optional: where the Firebase hosted reset flow should land after completion
 function getResetContinueUrl(): string {
   const configured = process.env.RESET_CONTINUE_URL?.trim();
@@ -325,7 +337,7 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
       }
 
       const role = String(user.role || 'employee').toLowerCase();
-      if (role !== 'employee' && role !== 'admin' && role !== 'super_admin') {
+      if (!LOGIN_ROLES.has(role)) {
         return errorResponse(res, 'Invalid role on account', 403);
       }
 
@@ -1275,7 +1287,7 @@ export const firebaseLogin = async (
       }
 
       const role = String(user.role || 'employee').toLowerCase();
-      if (role !== 'employee' && role !== 'admin' && role !== 'super_admin') {
+      if (!LOGIN_ROLES.has(role)) {
         return errorResponse(res, 'Invalid role on account', 403);
       }
 
@@ -1463,4 +1475,154 @@ export const firebaseLogin = async (
 
 export const resetPassword = async () => {
   /* unused */
+};
+
+/**
+ * POST /auth/register-applicant — Firebase-Auth-backed self-registration
+ * for organization applicants (3D-C follow-up).
+ *
+ * The caller first signs in / creates an account via Firebase Auth on the
+ * client, then sends the Firebase ID token here. The server:
+ *   1. verifies the ID token (identity is NEVER taken from the body);
+ *   2. looks up the SERV users doc by email;
+ *      - existing org_applicant -> re-issue JWT (idempotent);
+ *      - existing other role    -> 409 (prevents account takeover);
+ *   3. creates users/{firebaseUid} with role=org_applicant and the
+ *      'platform' sentinel companyId — required non-empty by firebaseLogin,
+ *      but grants NO organization/admin access;
+ *   4. issues a SERV JWT scoped to role=org_applicant.
+ *
+ * No organization, company, or admin account is created here.
+ */
+export const registerApplicant = async (
+  req: Request,
+  res: Response
+): Promise<Response | void> => {
+  try {
+    if (!checkFirestoreAccess()) {
+      return errorResponse(res, 'Database unavailable', 503);
+    }
+    const idToken = String(req.body?.idToken || '').trim();
+    if (!idToken) {
+      return errorResponse(res, 'idToken is required', 400);
+    }
+
+    let decoded: any;
+    try {
+      decoded = await getAdminAuth().verifyIdToken(idToken);
+    } catch (err: any) {
+      console.warn('[register-applicant] invalid idToken', {
+        code: err?.code || 'unknown',
+      });
+      return errorResponse(res, 'Invalid Firebase credential', 401);
+    }
+
+    const emailLower = normEmail(decoded.email || '');
+    if (!emailLower) {
+      return errorResponse(
+        res,
+        'Email authentication is required for organization registration',
+        400
+      );
+    }
+    const firebaseUid = String(decoded.uid || '');
+
+    let snap = await getByEmail(USERS_COL, emailLower);
+    if (snap && !snap.empty) {
+      const doc = snap.docs[0];
+      const user: any = doc.data();
+      const role = String(user.role || '').toLowerCase();
+      if (role !== 'org_applicant') {
+        return errorResponse(
+          res,
+          'An account with this email already exists with a different role. Please sign in instead.',
+          409
+        );
+      }
+      if (String(user.status || '').toLowerCase() !== 'active') {
+        return errorResponse(res, 'Account is not active', 403);
+      }
+      const token = issueToken({
+        userId: doc.id,
+        email: user.email || emailLower,
+        role: 'org_applicant',
+        empid: user.empid || null,
+        companyId: String(user.companyId || 'platform'),
+      });
+      return successResponse(
+        res,
+        {
+          token,
+          tokenType: 'Bearer',
+          expiresIn: JWT_EXPIRES,
+          role: 'org_applicant',
+          uid: doc.id,
+          companyId: String(user.companyId || 'platform'),
+          name: user.name || user.fullName || '',
+          user: {
+            id: doc.id,
+            name: user.name || user.fullName || '',
+            email: user.email || emailLower,
+            role: 'org_applicant',
+            companyId: String(user.companyId || 'platform'),
+            status: user.status || 'active',
+          },
+        },
+        'Applicant session restored'
+      );
+    }
+
+    // New applicant — create the restricted users document.
+    const displayName = String(
+      decoded.name || emailLower.split('@')[0]
+    ).trim();
+    const docRef = getDb().collection(USERS_COL).doc(firebaseUid);
+    await docRef.set({
+      email: emailLower,
+      emailLower,
+      name: displayName,
+      fullName: displayName,
+      role: 'org_applicant',
+      status: 'active',
+      companyId: 'platform',
+      authSource: 'firebase',
+      applicantAuthUid: firebaseUid,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    snap = null;
+
+    const token = issueToken({
+      userId: firebaseUid,
+      email: emailLower,
+      role: 'org_applicant',
+      empid: null,
+      companyId: 'platform',
+    });
+    return successResponse(
+      res,
+      {
+        token,
+        tokenType: 'Bearer',
+        expiresIn: JWT_EXPIRES,
+        role: 'org_applicant',
+        uid: firebaseUid,
+        companyId: 'platform',
+        name: displayName,
+        user: {
+          id: firebaseUid,
+          name: displayName,
+          email: emailLower,
+          role: 'org_applicant',
+          companyId: 'platform',
+          status: 'active',
+        },
+      },
+      'Applicant account created',
+      201
+    );
+  } catch (error: any) {
+    console.error('REGISTER APPLICANT FAILED:', error?.message || error);
+    return errorResponse(res, 'Internal server error', 500);
+  }
 };

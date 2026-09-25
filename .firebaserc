@@ -1,5 +1,16 @@
 {
   "projects": {
-    "default": "serv-dev-f2557"
-  }
+    "default": "serv-dev-f2557",
+    "prod": "servappbackend"
+  },
+  "targets": {
+    "servappbackend": {
+      "hosting": {
+        "platform-admin": [
+          "serv-platform-admin"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }

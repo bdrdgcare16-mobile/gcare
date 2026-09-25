@@ -3,12 +3,35 @@
 
 import { Request, Response } from 'express';
 import {
-  createRegistrationDraft,
+  createRegistrationDraft as createRegistrationDraftImpl,
+  getMyRegistration,
   getRegistrationDraft,
   getRegistrationStatus,
   submitRegistration,
   updateRegistrationDraft,
 } from './organizationRegistrationController';
+
+// Draft creation now requires an authenticated org_applicant. Wrap the
+// impl so existing call sites behave as the default applicant; tests for
+// auth failures call createRegistrationDraftImpl directly.
+const APPLICANT = {
+  userId: 'applicant-uid-A',
+  email: 'applicant-a@example.com',
+  role: 'org_applicant',
+};
+const APPLICANT_B = {
+  userId: 'applicant-uid-B',
+  email: 'applicant-b@example.com',
+  role: 'org_applicant',
+};
+
+const createRegistrationDraft = (
+  req: Request,
+  res: Response,
+): Promise<Response> => {
+  if (!(req as any).user) (req as any).user = APPLICANT;
+  return createRegistrationDraftImpl(req, res);
+};
 
 process.env.FUNCTIONS_EMULATOR = 'true';
 process.env.STORAGE_EMULATOR_HOST = '127.0.0.1:9199';
@@ -21,6 +44,8 @@ jest.mock('../config/firebase', () => ({
 }));
 
 import { getDb, getBucket } from '../config/firebase';
+import { roleMiddleware } from '../middlewares/authMiddleware';
+import { captureChangeRequestBaseline } from '../models/organizationRegistration';
 
 // ---------- Helpers ----------
 
@@ -183,14 +208,17 @@ function makeReq({
   body = {},
   params = {},
   resumeToken,
+  user,
 }: {
   body?: any;
   params?: any;
   resumeToken?: string;
+  user?: any;
 }): Partial<Request> {
   return {
     body,
     params,
+    user,
     ip: '127.0.0.1',
     header: (name: string) =>
       name.toLowerCase() === 'x-registration-resume-token'
@@ -344,7 +372,11 @@ describe('organizationRegistrationController', () => {
     it('rejects a duplicate application by official email', async () => {
       await createDraft();
       const res = mockResponse();
-      await createRegistrationDraft(makeReq({ body: validBody() }) as Request, res);
+      // A DIFFERENT applicant with the same organization email → 409.
+      await createRegistrationDraft(
+        makeReq({ body: validBody(), user: APPLICANT_B }) as Request,
+        res,
+      );
       expect(statusCode(res)).toBe(409);
     });
 
@@ -355,6 +387,7 @@ describe('organizationRegistrationController', () => {
       const res = mockResponse();
       await createRegistrationDraft(
         makeReq({
+          user: APPLICANT_B,
           body: {
             ...validBody(),
             organization: {
@@ -474,6 +507,7 @@ describe('organizationRegistrationController', () => {
       // Second draft with a different official email.
       const second = await createRegistrationDraft(
         makeReq({
+          user: APPLICANT_B,
           body: {
             ...validBody(),
             organization: {
@@ -710,6 +744,7 @@ describe('organizationRegistrationController � verification (3C)', () => {
     const resB = mockResponse();
     await createRegistrationDraft(
       makeReq({
+        user: APPLICANT_B,
         body: {
           ...validBody(),
           organization: {
@@ -1173,6 +1208,7 @@ describe('organizationRegistrationController - submission (3D-A)', () => {
     const resB = mockResponse();
     await createRegistrationDraft(
       makeReq({
+        user: APPLICANT_B,
         body: {
           ...validBody(),
           organization: {
@@ -1295,7 +1331,7 @@ describe('organizationRegistrationController - submission (3D-A)', () => {
     expect(doc.data.status).toBe('pending_approval');
     expect(doc.data.resubmissionCount).toBe(1);
     const actions = doc.data.auditTrail.map((a: any) => a.action);
-    expect(actions).toContain('resubmitted');
+    expect(actions).toContain('application_resubmitted');
   });
 
   it('conflicts when the status is not submittable', async () => {
@@ -1303,5 +1339,641 @@ describe('organizationRegistrationController - submission (3D-A)', () => {
     doc.data.status = 'approved';
     const r = await submit(id, token);
     expect(r.status).toBe(409);
+  });
+});
+
+// ─── 3D-C follow-up: authenticated applicant binding ──────────────────────────
+
+describe('authenticated applicant flow (3D-C)', () => {
+  let collections: Record<string, MockDoc[]>;
+
+  beforeEach(() => {
+    collections = { organizationRegistrations: [] };
+    (getDb as jest.Mock).mockReturnValue(makeMockDb(collections).db);
+    (getBucket as jest.Mock).mockReturnValue({});
+  });
+
+  it('rejects draft creation without authentication', async () => {
+    const res = mockResponse();
+    await createRegistrationDraftImpl(
+      makeReq({ body: validBody() }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(401);
+  });
+
+  it('rejects draft creation for a non-applicant role', async () => {
+    const res = mockResponse();
+    await createRegistrationDraftImpl(
+      makeReq({
+        body: validBody(),
+        user: { userId: 'u1', email: 'a@b.c', role: 'admin' },
+      }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(403);
+  });
+
+  it('binds applicantUid/applicantEmail from the verified JWT', async () => {
+    const res = mockResponse();
+    await createRegistrationDraft(
+      makeReq({ body: validBody() }) as Request,
+      res,
+    );
+    const doc = collections['organizationRegistrations'][0];
+    expect(doc.data.applicantUid).toBe(APPLICANT.userId);
+    expect(doc.data.applicantEmail).toBe(APPLICANT.email);
+  });
+
+  it('rejects client-supplied applicant identity fields', async () => {
+    const res = mockResponse();
+    await createRegistrationDraft(
+      makeReq({
+        body: { ...validBody(), applicantUid: 'spoofed', applicantEmail: 'x@y.z' },
+      }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(400);
+  });
+
+  it('returns the existing active application instead of duplicating', async () => {
+    const first = mockResponse();
+    await createRegistrationDraft(makeReq({ body: validBody() }) as Request, first);
+    const id = jsonBody(first).registrationId;
+    const second = mockResponse();
+    await createRegistrationDraft(makeReq({ body: validBody() }) as Request, second);
+    expect(statusCode(second)).toBe(200);
+    expect(jsonBody(second).alreadyExists).toBe(true);
+    expect(jsonBody(second).registrationId).toBe(id);
+    expect(collections['organizationRegistrations'].length).toBe(1);
+  });
+
+  it('bound owner JWT accesses the draft without a resume token', async () => {
+    const res = mockResponse();
+    await createRegistrationDraft(makeReq({ body: validBody() }) as Request, res);
+    const id = jsonBody(res).registrationId;
+    // No x-registration-resume-token — JWT owner match authorizes.
+    const get = mockResponse();
+    await getRegistrationDraft(
+      makeReq({ params: { id }, user: APPLICANT }) as Request,
+      get,
+    );
+    expect(statusCode(get)).toBe(200);
+    expect(jsonBody(get).registrationId).toBe(id);
+  });
+
+  it('a different applicant JWT is forbidden — even with a valid token', async () => {
+    const res = mockResponse();
+    await createRegistrationDraft(makeReq({ body: validBody() }) as Request, res);
+    const id = jsonBody(res).registrationId;
+    const token = jsonBody(res).resumeToken;
+    const get = mockResponse();
+    await getRegistrationDraft(
+      makeReq({ params: { id }, resumeToken: token, user: APPLICANT_B }) as Request,
+      get,
+    );
+    expect(statusCode(get)).toBe(403);
+  });
+
+  it('a different applicant without token gets unauthorized', async () => {
+    const res = mockResponse();
+    await createRegistrationDraft(makeReq({ body: validBody() }) as Request, res);
+    const id = jsonBody(res).registrationId;
+    const get = mockResponse();
+    await getRegistrationDraft(
+      makeReq({ params: { id }, user: APPLICANT_B }) as Request,
+      get,
+    );
+    expect(statusCode(get)).toBe(403);
+  });
+
+  it('GET /mine resolves the caller application server-side', async () => {
+    const res = mockResponse();
+    await createRegistrationDraft(makeReq({ body: validBody() }) as Request, res);
+    const id = jsonBody(res).registrationId;
+    const mine = mockResponse();
+    await getMyRegistration(makeReq({ user: APPLICANT }) as Request, mine);
+    const app = jsonBody(mine).application;
+    expect(app.registrationId).toBe(id);
+    expect(app.status).toBe('draft');
+  });
+
+  it('GET /mine returns null when the applicant has no application', async () => {
+    const mine = mockResponse();
+    await getMyRegistration(makeReq({ user: APPLICANT_B }) as Request, mine);
+    expect(jsonBody(mine).application).toBeNull();
+  });
+
+  it('GET /mine never returns another applicant application', async () => {
+    await createRegistrationDraft(makeReq({ body: validBody() }) as Request, mockResponse());
+    const mine = mockResponse();
+    await getMyRegistration(makeReq({ user: APPLICANT_B }) as Request, mine);
+    expect(jsonBody(mine).application).toBeNull();
+  });
+});
+
+describe('org_applicant access control (3D-C)', () => {
+  const next = jest.fn();
+  beforeEach(() => next.mockClear());
+
+  it('org_applicant is forbidden from admin-only routes', () => {
+    const guard = roleMiddleware(['admin']);
+    const req = makeReq({}) as Request;
+    req.user = { userId: 'a1', email: 'a@b.c', role: 'org_applicant' };
+    const res = mockResponse();
+    guard(req, res, next);
+    expect(statusCode(res)).toBe(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('org_applicant is forbidden from platform_admin routes', () => {
+    const guard = roleMiddleware(['platform_admin']);
+    const req = makeReq({}) as Request;
+    req.user = { userId: 'a1', email: 'a@b.c', role: 'org_applicant' };
+    const res = mockResponse();
+    guard(req, res, next);
+    expect(statusCode(res)).toBe(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('org_applicant is allowed through its own role gate', () => {
+    const guard = roleMiddleware(['org_applicant']);
+    const req = makeReq({}) as Request;
+    req.user = { userId: 'a1', email: 'a@b.c', role: 'org_applicant' };
+    const res = mockResponse();
+    guard(req, res, next);
+    expect(next).toHaveBeenCalled();
+  });
+});
+
+// ─── 3D-C follow-up: in-place correction & resubmission ───────────────────────
+
+describe('in-place correction and resubmission (3D-C)', () => {
+  let collections: Record<string, MockDoc[]>;
+
+  const DOC_META = (field = 'registrationCertificate') => ({
+    field,
+    storagePath: `org-registrations/x/${field}/1_a.pdf`,
+    originalName: 'a.pdf',
+    contentType: 'application/pdf',
+    size: 100,
+    uploadedAt: new Date(),
+  });
+
+  beforeEach(() => {
+    collections = { organizationRegistrations: [] };
+    (getDb as jest.Mock).mockReturnValue(makeMockDb(collections).db);
+    (getBucket as jest.Mock).mockReturnValue({});
+  });
+
+  /** A submission-ready draft owned by APPLICANT, currently changes_requested. */
+  async function changesRequestedApp() {
+    const res = mockResponse();
+    await createRegistrationDraft(
+      makeReq({ body: validBody() }) as Request,
+      res,
+    );
+    const { registrationId: id, resumeToken: token } = jsonBody(res);
+    const doc = collections['organizationRegistrations'].find(
+      (d) => d.id === id,
+    )!;
+    doc.data.verification = {
+      orgEmail: { verified: true, target: 'hr@acme-test.example.com' },
+      adminEmail: { verified: true, target: 'jane@acme-test.example.com' },
+      adminMobile: { verified: true, target: '9876543210' },
+    };
+    doc.data.documents = {
+      registrationCertificate: DOC_META(),
+      authorizationLetter: DOC_META('authorizationLetter'),
+      adminIdProof: DOC_META('adminIdProof'),
+    };
+    doc.data.status = 'changes_requested';
+    doc.data.submittedAt = new Date();
+    doc.data.review = {
+      reviewerId: 'rev-1',
+      reviewerEmail: 'rev@serv.test',
+      decidedAt: new Date(),
+      decision: 'changes_requested',
+      reasons: ['Fix GST number'],
+      note: 'Fix GST number',
+    };
+    // The request-changes decision captures the sanitized baseline that
+    // the resubmission diff is computed against.
+    doc.data.changeRequestBaseline = captureChangeRequestBaseline(
+      doc.data as any,
+    );
+    return { id, token, doc };
+  }
+
+  async function doSubmit(id: string, token?: string, user?: any) {
+    const res = mockResponse();
+    await submitRegistration(
+      makeReq({
+        body: { registrationId: id, declarationAccepted: true },
+        resumeToken: token,
+        user,
+      }) as Request,
+      res,
+    );
+    return res;
+  }
+
+  it('PATCH updates the SAME registration while changes_requested', async () => {
+    const { id, doc } = await changesRequestedApp();
+    const res = mockResponse();
+    await updateRegistrationDraft(
+      makeReq({
+        params: { id },
+        user: APPLICANT,
+        body: { organization: { ...VALID_ORG, gstNumber: 'GST-NEW-1' } },
+      }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(200);
+    expect(collections['organizationRegistrations'].length).toBe(1);
+    expect(doc.id).toBe(id);
+    expect(doc.data.organization.gstNumber).toBe('GST-NEW-1');
+    expect(doc.data.status).toBe('changes_requested');
+  });
+
+  it('resubmission keeps the same id, uid and applicant binding', async () => {
+    const { id, token, doc } = await changesRequestedApp();
+    const res = await doSubmit(id, token, APPLICANT);
+    expect(statusCode(res)).toBe(200);
+    expect(jsonBody(res).registrationId).toBe(id);
+    expect(doc.data.status).toBe('pending_approval');
+    expect(doc.data.applicantUid).toBe(APPLICANT.userId);
+    expect(doc.data.resubmissionCount).toBe(1);
+    expect(doc.data.resubmittedAt).toBeTruthy();
+    expect(collections['organizationRegistrations'].length).toBe(1);
+  });
+
+  it('appends application_resubmitted exactly once with revision', async () => {
+    const { id, token, doc } = await changesRequestedApp();
+    await doSubmit(id, token, APPLICANT);
+    const events = doc.data.auditTrail.filter(
+      (a: any) => a.action === 'application_resubmitted',
+    );
+    expect(events.length).toBe(1);
+    expect(events[0].revision).toBe(1);
+    expect(events[0].actor).toBe(APPLICANT.userId);
+  });
+
+  it('archives the prior review into reviewHistory', async () => {
+    const { id, token, doc } = await changesRequestedApp();
+    await doSubmit(id, token, APPLICANT);
+    expect(doc.data.reviewHistory.length).toBe(1);
+    expect(doc.data.reviewHistory[0].decision).toBe('changes_requested');
+    expect(doc.data.reviewHistory[0].note).toBe('Fix GST number');
+    // The changes_requested decision audit event also survives.
+    const actions = doc.data.auditTrail.map((a: any) => a.action);
+    expect(actions).toContain('application_resubmitted');
+  });
+
+  it('a repeat submit is idempotent — no second resubmission event', async () => {
+    const { id, token, doc } = await changesRequestedApp();
+    await doSubmit(id, token, APPLICANT);
+    const again = await doSubmit(id, token, APPLICANT);
+    expect(statusCode(again)).toBe(200);
+    expect(jsonBody(again).alreadySubmitted).toBe(true);
+    const events = doc.data.auditTrail.filter(
+      (a: any) => a.action === 'application_resubmitted',
+    );
+    expect(events.length).toBe(1);
+  });
+
+  it('another applicant cannot PATCH the application', async () => {
+    const { id, token } = await changesRequestedApp();
+    const res = mockResponse();
+    await updateRegistrationDraft(
+      makeReq({
+        params: { id },
+        resumeToken: token,
+        user: APPLICANT_B,
+        body: { organization: { ...VALID_ORG, name: 'Hijack Org' } },
+      }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(403);
+  });
+
+  it('another applicant cannot resubmit the application', async () => {
+    const { id, token } = await changesRequestedApp();
+    const res = await doSubmit(id, token, APPLICANT_B);
+    expect(statusCode(res)).toBe(403);
+  });
+
+  it('unchanged verified contacts keep their verification', async () => {
+    const { id, doc } = await changesRequestedApp();
+    const res = mockResponse();
+    await updateRegistrationDraft(
+      makeReq({
+        params: { id },
+        user: APPLICANT,
+        body: { organization: { ...VALID_ORG, name: 'Renamed Org' } },
+      }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(200);
+    expect(doc.data.verification.orgEmail.verified).toBe(true);
+    expect(doc.data.verification.adminMobile.verified).toBe(true);
+  });
+
+  it('changing a verified contact invalidates ONLY that channel', async () => {
+    const { id, doc } = await changesRequestedApp();
+    const res = mockResponse();
+    await updateRegistrationDraft(
+      makeReq({
+        params: { id },
+        user: APPLICANT,
+        body: {
+          adminContact: { ...VALID_ADMIN, mobile: '9000000001' },
+        },
+      }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(200);
+    expect(doc.data.verification.adminMobile.verified).toBe(false);
+    expect(doc.data.verification.orgEmail.verified).toBe(true);
+    expect(doc.data.verification.adminEmail.verified).toBe(true);
+  });
+
+  it('documents are preserved through resubmission', async () => {
+    const { id, token, doc } = await changesRequestedApp();
+    await doSubmit(id, token, APPLICANT);
+    expect(Object.keys(doc.data.documents).length).toBe(3);
+    expect(doc.data.documents.registrationCertificate).toBeTruthy();
+  });
+
+  it('PATCH rejects client-supplied changeRequestBaseline/changedFields', async () => {
+    const { id } = await changesRequestedApp();
+    for (const bad of ['changeRequestBaseline', 'changedFields']) {
+      const res = mockResponse();
+      await updateRegistrationDraft(
+        makeReq({
+          params: { id },
+          user: APPLICANT,
+          body: { [bad]: { spoofed: true } },
+        }) as Request,
+        res,
+      );
+      expect(statusCode(res)).toBe(400);
+    }
+  });
+});
+
+// ─── Resubmission change diff (server-side baseline comparison) ─────────────
+
+describe('resubmission change diff', () => {
+  let collections: Record<string, MockDoc[]>;
+
+  const DOC_META = (field = 'registrationCertificate', name = 'a.pdf') => ({
+    field,
+    storagePath: `org-registrations/x/${field}/1_${name}`,
+    originalName: name,
+    contentType: 'application/pdf',
+    size: 100,
+    uploadedAt: new Date(2024, 0, 1),
+  });
+
+  beforeEach(() => {
+    collections = { organizationRegistrations: [] };
+    (getDb as jest.Mock).mockReturnValue(makeMockDb(collections).db);
+    (getBucket as jest.Mock).mockReturnValue({});
+  });
+
+  async function changesRequestedApp() {
+    const res = mockResponse();
+    await createRegistrationDraft(
+      makeReq({ body: validBody() }) as Request,
+      res,
+    );
+    const { registrationId: id, resumeToken: token } = jsonBody(res);
+    const doc = collections['organizationRegistrations'].find(
+      (d) => d.id === id,
+    )!;
+    doc.data.verification = {
+      orgEmail: { verified: true, target: 'hr@acme-test.example.com' },
+      adminEmail: { verified: true, target: 'jane@acme-test.example.com' },
+      adminMobile: { verified: true, target: '9876543210' },
+    };
+    doc.data.documents = {
+      registrationCertificate: DOC_META(),
+      authorizationLetter: DOC_META('authorizationLetter', 'auth.pdf'),
+      adminIdProof: DOC_META('adminIdProof', 'id.pdf'),
+    };
+    doc.data.status = 'changes_requested';
+    doc.data.submittedAt = new Date();
+    doc.data.review = {
+      reviewerId: 'rev-1',
+      reviewerEmail: 'rev@serv.test',
+      decidedAt: new Date(),
+      decision: 'changes_requested',
+      note: 'Correct employees and address',
+    };
+    doc.data.changeRequestBaseline = captureChangeRequestBaseline(
+      doc.data as any,
+    );
+    return { id, token, doc };
+  }
+
+  async function doSubmit(id: string, token?: string) {
+    const res = mockResponse();
+    await submitRegistration(
+      makeReq({
+        body: { registrationId: id, declarationAccepted: true },
+        resumeToken: token,
+        user: APPLICANT,
+      }) as Request,
+      res,
+    );
+    return res;
+  }
+
+  async function doPatch(id: string, body: any) {
+    const res = mockResponse();
+    await updateRegistrationDraft(
+      makeReq({ params: { id }, user: APPLICANT, body }) as Request,
+      res,
+    );
+    return res;
+  }
+
+  it('first submission produces no changedFields', async () => {
+    const res = mockResponse();
+    await createRegistrationDraft(
+      makeReq({ body: validBody() }) as Request,
+      res,
+    );
+    const { registrationId: id, resumeToken: token } = jsonBody(res);
+    const doc = collections['organizationRegistrations'].find(
+      (d) => d.id === id,
+    )!;
+    doc.data.verification = {
+      orgEmail: { verified: true, target: 'hr@acme-test.example.com' },
+      adminEmail: { verified: true, target: 'jane@acme-test.example.com' },
+      adminMobile: { verified: true, target: '9876543210' },
+    };
+    doc.data.documents = {
+      registrationCertificate: DOC_META(),
+      authorizationLetter: DOC_META('authorizationLetter'),
+      adminIdProof: DOC_META('adminIdProof'),
+    };
+    await doSubmit(id, token);
+    expect(doc.data.status).toBe('pending_approval');
+    expect(doc.data.changedFields).toBeUndefined();
+    expect(doc.data.resubmissionCount ?? 0).toBe(0);
+  });
+
+  it('resubmission emits old/new only for modified fields', async () => {
+    const { id, token, doc } = await changesRequestedApp();
+    await doPatch(id, {
+      organization: {
+        ...doc.data.organization,
+        employeeCount: 36,
+        registeredAddress: 'XYZ Street',
+      },
+    });
+    await doSubmit(id, token);
+
+    const cf = doc.data.changedFields;
+    const fields = cf.map((c: any) => c.field);
+    expect(fields).toEqual([
+      'organization.employeeCount',
+      'organization.registeredAddress',
+    ]);
+    const emp = cf.find((c: any) => c.field === 'organization.employeeCount');
+    expect(emp.label).toBe('Employees');
+    expect(emp.oldValue).toBe('25');
+    expect(emp.newValue).toBe('36');
+    const addr = cf.find(
+      (c: any) => c.field === 'organization.registeredAddress',
+    );
+    expect(addr.oldValue).toBe('1 Test Street, Test City');
+    expect(addr.newValue).toBe('XYZ Street');
+  });
+
+  it('unchanged fields never appear in the diff', async () => {
+    const { id, token, doc } = await changesRequestedApp();
+    await doPatch(id, {
+      organization: { ...doc.data.organization, employeeCount: 36 },
+    });
+    await doSubmit(id, token);
+    const fields = doc.data.changedFields.map((c: any) => c.field);
+    expect(fields).not.toContain('organization.name');
+    expect(fields).not.toContain('adminContact.email');
+    expect(fields).not.toContain('requestedFeatures');
+    expect(fields.some((f: string) => f.startsWith('documents.'))).toBe(false);
+  });
+
+  it('features diff reports added and removed ids', async () => {
+    const { id, token, doc } = await changesRequestedApp();
+    await doPatch(id, {
+      requestedFeatures: ['attendance', 'payroll'],
+    });
+    await doSubmit(id, token);
+    const feat = doc.data.changedFields.find(
+      (c: any) => c.field === 'requestedFeatures',
+    );
+    expect(feat.added).toEqual(['payroll']);
+    expect(feat.removed).toEqual(['leave_management']);
+  });
+
+  it('a replaced document is marked replaced; unchanged docs are silent', async () => {
+    const { id, token, doc } = await changesRequestedApp();
+    // Simulate a re-upload by swapping the stored metadata directly
+    // (the upload endpoint writes new meta for the same field).
+    doc.data.documents.registrationCertificate = DOC_META(
+      'registrationCertificate',
+      'new-cert.pdf',
+    );
+    await doSubmit(id, token);
+    const docDiff = doc.data.changedFields.filter((c: any) =>
+      c.field.startsWith('documents.'),
+    );
+    expect(docDiff).toHaveLength(1);
+    expect(docDiff[0].field).toBe('documents.registrationCertificate');
+    expect(docDiff[0].label).toBe('Registration Certificate');
+    expect(docDiff[0].changeType).toBe('replaced');
+  });
+
+  it('a newly added document is marked added', async () => {
+    const { id, token, doc } = await changesRequestedApp();
+    doc.data.documents.gstCertificate = DOC_META('gstCertificate', 'gst.pdf');
+    await doSubmit(id, token);
+    const d = doc.data.changedFields.find(
+      (c: any) => c.field === 'documents.gstCertificate',
+    );
+    expect(d.changeType).toBe('added');
+  });
+
+  it('a channel verified since the request shows as a verification change', async () => {
+    const { id, token, doc } = await changesRequestedApp();
+    // Baseline captured while the channel was still unverified; the
+    // applicant verified it during corrections before resubmitting.
+    doc.data.changeRequestBaseline.verification.adminMobile = {
+      verified: false,
+    };
+    await doSubmit(id, token);
+    const v = doc.data.changedFields.find(
+      (c: any) => c.field === 'verification.adminMobile',
+    );
+    expect(v).toBeTruthy();
+    expect(v.oldValue).toBe('Not verified');
+    expect(v.newValue).toBe('Verified');
+  });
+
+  it('the diff never contains storage paths or credential material', async () => {
+    const { id, token, doc } = await changesRequestedApp();
+    doc.data.documents.registrationCertificate = DOC_META(
+      'registrationCertificate',
+      'replaced.pdf',
+    );
+    await doPatch(id, {
+      organization: { ...doc.data.organization, employeeCount: 36 },
+    });
+    await doSubmit(id, token);
+    const raw = JSON.stringify(doc.data.changedFields);
+    expect(raw).not.toContain('storagePath');
+    expect(raw).not.toContain('org-registrations/');
+    expect(raw).not.toContain('resumeTokenHash');
+    expect(raw).not.toContain(doc.data.resumeTokenHash);
+  });
+
+  it('a second correction cycle increments the revision and re-diffs', async () => {
+    const { id, token, doc } = await changesRequestedApp();
+    await doPatch(id, {
+      organization: { ...doc.data.organization, employeeCount: 36 },
+    });
+    await doSubmit(id, token);
+    expect(doc.data.resubmissionCount).toBe(1);
+
+    // Cycle 2: reviewer requests changes again — new baseline, new review.
+    doc.data.status = 'changes_requested';
+    doc.data.review = {
+      reviewerId: 'rev-1',
+      reviewerEmail: 'rev@serv.test',
+      decidedAt: new Date(),
+      decision: 'changes_requested',
+      note: 'One more fix',
+    };
+    doc.data.changeRequestBaseline = captureChangeRequestBaseline(
+      doc.data as any,
+    );
+    await doPatch(id, {
+      organization: { ...doc.data.organization, branchCount: 4 },
+    });
+    await doSubmit(id, token);
+
+    expect(doc.data.resubmissionCount).toBe(2);
+    const events = doc.data.auditTrail.filter(
+      (a: any) => a.action === 'application_resubmitted',
+    );
+    expect(events).toHaveLength(2);
+    expect(events[1].revision).toBe(2);
+    expect(doc.data.reviewHistory).toHaveLength(2);
+    // The new diff only shows cycle-2 changes (baseline was refreshed).
+    const fields = doc.data.changedFields.map((c: any) => c.field);
+    expect(fields).toEqual(['organization.branchCount']);
   });
 });

@@ -12,6 +12,11 @@ router.post('/login', authController.login);
 
 router.post('/firebase-login', authController.firebaseLogin);
 
+// Self-service organization-applicant account creation / session restore.
+// The Firebase ID token is verified server-side; role is always
+// org_applicant — never taken from the request body.
+router.post('/register-applicant', authController.registerApplicant);
+
 // Legacy simple reset (direct change) — expects { email, newPassword }
 router.post('/forgot-password', authController.forgotPassword);
 

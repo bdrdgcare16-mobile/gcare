@@ -87,6 +87,7 @@ class OrganizationRegistrationDraft {
         'pending_approval',
         'approved',
         'rejected',
+        'activated',
       }.contains(applicationStatus);
 
   /// True when the reviewer sent it back for corrections (editable again).

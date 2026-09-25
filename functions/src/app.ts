@@ -176,6 +176,7 @@ import onboardingRoutes from "./routes/onboarding.routes";
 import notificationRoutes from "./routes/notificationRoutes";
 import policyRoutes from "./routes/policyRoutes";
 import organizationRegistrationRoutes from "./routes/organizationRegistrationRoutes";
+import platformAdminRegistrationRoutes from "./routes/platformAdminRegistrationRoutes";
 
 import * as authController from "./controllers/authController";
 
@@ -205,16 +206,19 @@ const corsOptions: cors.CorsOptions = {
       return callback(null, true);
     }
 
-    // Allow Flutter web localhost with any random port
+    // Allow Flutter web localhost with any random port — DEV emulator only.
+    // In production, browser origins must come from the deployed Hosting sites.
     if (
-      origin.startsWith("http://localhost:") ||
-      origin.startsWith("http://127.0.0.1:")
+      process.env.FUNCTIONS_EMULATOR === "true" &&
+      (origin.startsWith("http://localhost:") ||
+        origin.startsWith("http://127.0.0.1:"))
     ) {
       return callback(null, true);
     }
 
     const allowedOrigins = [
       "https://servappbackend.web.app",
+      "https://serv-platform-admin.web.app",
       "https://api-zmj7dqloiq-uc.a.run.app",
     ];
 
@@ -232,6 +236,8 @@ const corsOptions: cors.CorsOptions = {
     "x-empid",
     "companyid",
     "x-company-id",
+    // Applicant resume credential for the public org-registration API.
+    "x-registration-resume-token",
     "Cache-Control",
     "Pragma",
     "Expires",
@@ -312,6 +318,13 @@ app.use(
   `${apiPrefix}/org-registration`,
   authRateLimit,
   organizationRegistrationRoutes
+);
+// Platform Admin registration REVIEW endpoints — super_admin JWT required,
+// read-only (Milestone 3D-B). No approval/provisioning actions exist here.
+app.use(
+  `${apiPrefix}/platform-admin/registrations`,
+  generalRateLimit,
+  platformAdminRegistrationRoutes
 );
 
 // Log to confirm payroll routes are registered at startup

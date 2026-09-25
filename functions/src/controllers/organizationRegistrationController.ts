@@ -9,6 +9,7 @@ import { errorResponse, successResponse } from '../common/response';
 import {
   CANONICAL_FEATURES,
   CLIENT_FORBIDDEN_FIELDS,
+  computeChangedFields,
   EDITABLE_STATUSES,
   ORGANIZATION_REGISTRATIONS_COL,
   OrganizationRegistration,
@@ -235,6 +236,53 @@ function forbiddenFieldErrors(body: any): string[] {
 // ── Credential check ─────────────────────────────────────────────────────────
 
 /**
+ * Applicant credential check (3D-C follow-up).
+ *
+ * A registration bound to an authenticated applicant accepts EITHER:
+ *   - the applicant's own SERV JWT (authoritative — issued from verified
+ *     Firebase identity; works across devices without a resume token), or
+ *   - the device-local resume token (legacy fallback).
+ *
+ * An authenticated caller whose identity does NOT match the binding is
+ * rejected with 403 outright — even when they also present a valid resume
+ * token. Legacy unbound drafts remain token-only.
+ *
+ * Returns true when authorized; otherwise writes the error response.
+ */
+function checkApplicantCredential(
+  req: Request,
+  res: Response,
+  data: OrganizationRegistration,
+): boolean {
+  const boundUid = String(data.applicantUid || '');
+  const boundEmail = String(data.applicantEmail || '').toLowerCase();
+  const user = req.user;
+  if (user && boundUid) {
+    const uidMatch = String(user.userId) === boundUid;
+    const emailMatch =
+      !!boundEmail && String(user.email || '').toLowerCase() === boundEmail;
+    if (uidMatch || emailMatch) return true;
+    errorResponse(
+      res,
+      'This application belongs to a different applicant account',
+      403,
+    );
+    return false;
+  }
+  const presented = getResumeToken(req);
+  const storedHash = String(data.resumeTokenHash || '');
+  if (
+    !presented ||
+    !storedHash ||
+    !tokensEqual(hashResumeToken(presented), storedHash)
+  ) {
+    errorResponse(res, 'Invalid resume credential', 401);
+    return false;
+  }
+  return true;
+}
+
+/**
  * Loads a registration by ID and verifies the presented resume token.
  * Returns the Firestore doc on success, or null after sending the response.
  */
@@ -277,16 +325,7 @@ async function loadAuthorizedRegistration(
     return null;
   }
 
-  const presented = getResumeToken(req);
-  const storedHash = String(data.resumeTokenHash || '');
-  if (
-    !presented ||
-    !storedHash ||
-    !tokensEqual(hashResumeToken(presented), storedHash)
-  ) {
-    errorResponse(res, 'Invalid resume credential', 401);
-    return null;
-  }
+  if (!checkApplicantCredential(req, res, data)) return null;
 
   return doc;
 }
@@ -323,12 +362,30 @@ function publicDraft(doc: FirebaseFirestore.DocumentSnapshot) {
 /**
  * POST /org-registration/draft
  * Creates a new draft application. Issues the resume token ONCE.
+ *
+ * 3D-C follow-up: requires an authenticated org_applicant. The
+ * application is bound to the verified JWT identity
+ * (applicantUid/applicantEmail) — the request body can never set those.
+ * If the applicant already owns an active application, it is returned
+ * instead of creating a duplicate.
  */
 export const createRegistrationDraft = async (
   req: Request,
   res: Response,
 ): Promise<Response> => {
   try {
+    const applicant = req.user;
+    if (!applicant) {
+      return errorResponse(res, 'Applicant sign-in is required', 401);
+    }
+    if (String(applicant.role || '').toLowerCase() !== 'org_applicant') {
+      return errorResponse(
+        res,
+        'Only an organization applicant may create an application',
+        403,
+      );
+    }
+
     const forbidden = forbiddenFieldErrors(req.body);
     if (forbidden.length) return errorResponse(res, forbidden.join('; '), 400);
 
@@ -370,6 +427,33 @@ export const createRegistrationDraft = async (
     // distinct organizations can legitimately share a name, so name
     // collisions are resolved at platform-admin review, not here.
     const col = getDb().collection(ORGANIZATION_REGISTRATIONS_COL);
+
+    // One ACTIVE application per applicant — if one exists (in any
+    // non-terminal state), return it so the client can resume instead of
+    // creating a duplicate. The resume token is intentionally NOT
+    // re-issued — the bound JWT already authorizes access.
+    const owned = await col
+      .where('applicantUid', '==', String(applicant.userId))
+      .get();
+    const active = owned.docs.find((d) => {
+      const s = (d.data() as OrganizationRegistration).status;
+      return s !== 'rejected' && s !== 'approved' && s !== 'activated';
+    });
+    if (active) {
+      const ad = active.data() as OrganizationRegistration;
+      return successResponse(
+        res,
+        {
+          registrationId: active.id,
+          status: ad.status,
+          currentStep: ad.currentStep,
+          alreadyExists: true,
+        },
+        'Existing application found',
+        200,
+      );
+    }
+
     if (emailLower) {
       const dup = await col
         .where('organization.officialEmailLower', '==', emailLower)
@@ -400,6 +484,8 @@ export const createRegistrationDraft = async (
       currentStep: stepCheck.value,
       maxCompletedStep: maxStepCheck.value,
       resumeTokenHash: hashResumeToken(resumeToken),
+      applicantUid: String(applicant.userId),
+      applicantEmail: String(applicant.email || '').toLowerCase(),
       verification: {
         orgEmail: { verified: false, target: '' },
         adminEmail: { verified: false, target: '' },
@@ -627,7 +713,13 @@ export const getRegistrationStatus = async (
       organizationCode: d.organizationCode ?? null,
       submittedAt: d.submittedAt ?? null,
       review: d.review
-        ? { decision: d.review.decision, reasons: d.review.reasons ?? [] }
+        ? {
+            decision: d.review.decision,
+            reasons: d.review.reasons ?? [],
+            // The reviewer message (rejection reason / requested changes)
+            // is intended for the applicant — never reviewer identity.
+            note: d.review.note ?? null,
+          }
         : null,
     }, 'Status retrieved');
   } catch (err: any) {
@@ -640,6 +732,13 @@ export const getRegistrationStatus = async (
 class SubmissionConflictError extends Error {
   constructor(public readonly currentStatus: string) {
     super(`Application cannot be submitted from status '${currentStatus}'`);
+  }
+}
+
+/** Authenticated caller is not the bound applicant — mapped to HTTP 403. */
+class ApplicantOwnershipError extends Error {
+  constructor() {
+    super('This application belongs to a different applicant account');
   }
 }
 
@@ -679,13 +778,7 @@ export const submitRegistration = async (
     if (!doc.exists) return errorResponse(res, 'Registration not found', 404);
 
     const data = doc.data() as OrganizationRegistration;
-    const presented = getResumeToken(req);
-    if (
-      !presented ||
-      !tokensEqual(hashResumeToken(presented), String(data.resumeTokenHash || ''))
-    ) {
-      return errorResponse(res, 'Invalid resume credential', 401);
-    }
+    if (!checkApplicantCredential(req, res, data)) return res;
 
     // ── Full server-side completeness gate ──────────────────────────────
     // Stored data is revalidated in non-partial mode — the client wizard's
@@ -750,17 +843,59 @@ export const submitRegistration = async (
         throw new SubmissionConflictError(cur.status);
       }
 
+      // Identity re-verified INSIDE the transaction: a bound application
+      // can only be resubmitted by its owning applicant. Unbound legacy
+      // drafts were already authorized by the resume credential above.
+      const boundUid = String(cur.applicantUid || '');
+      if (boundUid && req.user) {
+        const uidMatch = String(req.user.userId) === boundUid;
+        const emailMatch =
+          !!cur.applicantEmail &&
+          String(req.user.email || '').toLowerCase() ===
+            cur.applicantEmail.toLowerCase();
+        if (!uidMatch && !emailMatch) throw new ApplicantOwnershipError();
+      }
+
       const resubmission = cur.status === 'changes_requested';
+      const revision = (cur.resubmissionCount ?? 0) + 1;
+      // Compare the corrected application against the baseline captured
+      // when changes were requested. Only changed entries are stored —
+      // the reviewer sees exactly what the applicant edited.
+      const changedFields = resubmission
+        ? computeChangedFields(
+            cur.changeRequestBaseline ?? {
+              organization: {},
+              requestedFeatures: [],
+              adminContact: {},
+              verification: {},
+              documents: {},
+              capturedAt: new Date(0),
+            },
+            cur,
+          )
+        : undefined;
       tx.update(docRef, {
         status: 'pending_approval',
         submittedAt: FieldValue.serverTimestamp(),
+        ...(resubmission
+          ? { resubmittedAt: FieldValue.serverTimestamp() }
+          : {}),
+        ...(changedFields !== undefined ? { changedFields } : {}),
         declarationAccepted: true,
         declarationAcceptedAt: FieldValue.serverTimestamp(),
         resubmissionCount: FieldValue.increment(resubmission ? 1 : 0),
+        // Archive the outgoing review decision — history is never lost.
+        ...(resubmission && cur.review
+          ? { reviewHistory: FieldValue.arrayUnion(cur.review) }
+          : {}),
         auditTrail: FieldValue.arrayUnion({
           at: new Date(),
-          action: resubmission ? 'resubmitted' : 'submitted',
-          actor: 'applicant',
+          action: resubmission ? 'application_resubmitted' : 'submitted',
+          actor: String(req.user?.userId || 'applicant'),
+          note: resubmission
+            ? `changes_requested -> pending_approval (revision ${revision})`
+            : 'submitted for review',
+          ...(resubmission ? { revision } : {}),
         }),
         updatedAt: FieldValue.serverTimestamp(),
       });
@@ -783,6 +918,9 @@ export const submitRegistration = async (
   } catch (err: any) {
     if (err instanceof SubmissionConflictError) {
       return errorResponse(res, err.message, 409);
+    }
+    if (err instanceof ApplicantOwnershipError) {
+      return errorResponse(res, err.message, 403);
     }
     console.error('submitRegistration error:', err);
     return errorResponse(res, err.message || 'Internal server error', 500);
@@ -815,13 +953,7 @@ export const requestRegistrationVerification = async (
     if (!doc.exists) return errorResponse(res, 'Registration not found', 404);
 
     const data = doc.data() as OrganizationRegistration;
-    const presented = getResumeToken(req);
-    if (
-      !presented ||
-      !tokensEqual(hashResumeToken(presented), String(data.resumeTokenHash || ''))
-    ) {
-      return errorResponse(res, 'Invalid resume credential', 401);
-    }
+    if (!checkApplicantCredential(req, res, data)) return res;
     if (!EDITABLE_STATUSES.has(data.status)) {
       return errorResponse(res, 'Registration no longer accepts changes', 403);
     }
@@ -898,13 +1030,7 @@ export const confirmRegistrationVerification = async (
     if (!doc.exists) return errorResponse(res, 'Registration not found', 404);
 
     const data = doc.data() as OrganizationRegistration;
-    const presented = getResumeToken(req);
-    if (
-      !presented ||
-      !tokensEqual(hashResumeToken(presented), String(data.resumeTokenHash || ''))
-    ) {
-      return errorResponse(res, 'Invalid resume credential', 401);
-    }
+    if (!checkApplicantCredential(req, res, data)) return res;
 
     const ch = channel as VerificationChannel;
     // A successfully-used OTP can never be reused — even a retry of the
@@ -977,13 +1103,7 @@ export const uploadRegistrationDocuments = async (
     if (!doc.exists) return errorResponse(res, 'Registration not found', 404);
 
     const data = doc.data() as OrganizationRegistration;
-    const presented = getResumeToken(req);
-    if (
-      !presented ||
-      !tokensEqual(hashResumeToken(presented), String(data.resumeTokenHash || ''))
-    ) {
-      return errorResponse(res, 'Invalid resume credential', 401);
-    }
+    if (!checkApplicantCredential(req, res, data)) return res;
     if (!EDITABLE_STATUSES.has(data.status)) {
       return errorResponse(res, 'Registration no longer accepts changes', 403);
     }
@@ -1133,3 +1253,65 @@ export const getRegistrationDocument = async (
     return errorResponse(res, err.message || 'Internal server error', 500);
   }
 };
+
+/**
+ * GET /org-registration/mine
+ * authMiddleware + roleMiddleware(['org_applicant'])
+ *
+ * Server-side resolution of the caller's current application — the source
+ * of truth for post-login routing (replaces local resume-token state).
+ * Returns the NEWEST application when more than one exists (a superseded
+ * rejected application never hides an active one).
+ */
+export const getMyRegistration = async (
+  req: Request,
+  res: Response,
+): Promise<Response> => {
+  try {
+    const uid = String(req.user?.userId || '');
+    const email = String(req.user?.email || '').toLowerCase();
+    const col = getDb().collection(ORGANIZATION_REGISTRATIONS_COL);
+    const snap = await col.where('applicantUid', '==', uid).get();
+    const docs = [...snap.docs];
+    if (!docs.length && email) {
+      const byEmail = await col.where('applicantEmail', '==', email).get();
+      docs.push(...byEmail.docs);
+    }
+    if (!docs.length) {
+      return successResponse(res, { application: null }, 'No application found');
+    }
+    docs.sort((a, b) => createdAtMillis(b) - createdAtMillis(a));
+    const doc = docs[0];
+    const d = doc.data() as OrganizationRegistration;
+    return successResponse(
+      res,
+      {
+        application: {
+          registrationId: doc.id,
+          status: d.status,
+          currentStep: d.currentStep,
+          maxCompletedStep: d.maxCompletedStep,
+          organizationName: d.organization?.name ?? '',
+          submittedAt: d.submittedAt ?? null,
+          review: d.review
+            ? {
+                decision: d.review.decision,
+                reasons: d.review.reasons ?? [],
+                note: d.review.note ?? null,
+              }
+            : null,
+        },
+      },
+      'Application resolved',
+    );
+  } catch (err: any) {
+    console.error('getMyRegistration error:', err);
+    return errorResponse(res, err.message || 'Internal server error', 500);
+  }
+};
+
+function createdAtMillis(doc: FirebaseFirestore.DocumentSnapshot): number {
+  const c = (doc.data() as any)?.createdAt;
+  if (c instanceof Date) return c.getTime();
+  return c?.toDate?.()?.getTime?.() ?? 0;
+}

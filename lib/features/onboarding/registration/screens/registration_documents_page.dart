@@ -99,8 +99,9 @@ class _RegistrationDocumentsPageState
     if (d.registrationId.isEmpty) {
       await _controller.persist();
     }
-    final token = await _api.loadResumeToken();
-    if (d.registrationId.isEmpty || token == null || token.isEmpty) {
+    // Bound applications are authorized by the applicant JWT alone.
+    final token = await _api.applicantCredential();
+    if (d.registrationId.isEmpty || token == null) {
       setState(() {
         _loading = false;
         _error = 'Could not connect to the registration server.';

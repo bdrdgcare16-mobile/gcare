@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:serv_app/features/onboarding/screens/select_user_type_page.dart';
+import 'package:serv_app/models/company_data.dart';
 import '../controllers/registration_draft_controller.dart';
 import '../services/organization_registration_service.dart';
 import 'organization_information_page.dart';
@@ -38,11 +39,50 @@ class _RegistrationStatusPageState extends State<RegistrationStatusPage> {
 
   Future<void> _load() async {
     final d = _controller.draft;
+
+    // Authenticated applicant: resolve the application server-side first —
+    // this works on any device without the local resume credential and is
+    // the authoritative routing source.
+    if (CompanyData.token.isNotEmpty) {
+      try {
+        final app = await _api.getMyApplication();
+        if (app != null) {
+          d.registrationId = (app['registrationId'] ?? '').toString();
+          final s = (app['status'] ?? '').toString();
+          if (s.isNotEmpty) d.applicationStatus = s;
+          if (!mounted) return;
+          setState(() {
+            _status = app;
+            _loading = false;
+          });
+          return;
+        }
+      } on RegistrationApiException catch (e) {
+        _error = e.message;
+        // Fall through to the device-local credential path.
+      }
+    }
+
     final token = await _api.loadResumeToken();
     if (d.registrationId.isEmpty || token == null || token.isEmpty) {
+      // Bound applications can still be fetched by JWT alone.
+      if (d.registrationId.isNotEmpty && CompanyData.token.isNotEmpty) {
+        try {
+          final body = await _api.getStatus(d.registrationId, '');
+          if (!mounted) return;
+          setState(() {
+            _status = body;
+            _loading = false;
+          });
+          await _controller.refreshApplicationStatus();
+          return;
+        } on RegistrationApiException catch (e) {
+          _error = e.message;
+        }
+      }
       setState(() {
         _loading = false;
-        _error = 'Registration details are not available on this device.';
+        _error ??= 'Registration details are not available on this device.';
       });
       return;
     }
@@ -181,6 +221,7 @@ class _RegistrationStatusPageState extends State<RegistrationStatusPage> {
                       const SizedBox(height: 16),
                       _stageCard(status),
                       const SizedBox(height: 16),
+                      if (status == 'rejected') _rejectionCard(),
                       if (status == 'changes_requested') _changesCard(),
                       OutlinedButton.icon(
                         onPressed: _loading ? null : _load,
@@ -386,11 +427,55 @@ class _RegistrationStatusPageState extends State<RegistrationStatusPage> {
         ),
       );
 
-  Widget _changesCard() {
+  /// Reviewer-facing messages only — decision, reasons and the reviewer
+  /// note. Internal reviewer identity is never sent by the backend.
+  List<String> _reviewMessages() {
     final review = _status['review'];
-    final reasons = (review is Map && review['reasons'] is List)
-        ? (review['reasons'] as List).map((e) => e.toString()).toList()
-        : const <String>[];
+    if (review is! Map) return const [];
+    final out = <String>[
+      if (review['reasons'] is List)
+        ...(review['reasons'] as List).map((e) => e.toString()),
+      if ((review['note'] ?? '').toString().trim().isNotEmpty &&
+          !(review['reasons'] is List &&
+              (review['reasons'] as List)
+                  .map((e) => e.toString())
+                  .contains(review['note'].toString())))
+        review['note'].toString(),
+    ];
+    return out;
+  }
+
+  Widget _rejectionCard() {
+    final messages = _reviewMessages();
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.red.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.red.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Reason provided by the reviewer',
+              style: TextStyle(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          if (messages.isEmpty)
+            const Text('No reason was recorded.',
+                style: TextStyle(fontSize: 12.5))
+          else
+            ...messages.map((r) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text('• $r', style: const TextStyle(fontSize: 12.5)),
+                )),
+        ],
+      ),
+    );
+  }
+
+  Widget _changesCard() {
+    final reasons = _reviewMessages();
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -417,6 +502,12 @@ class _RegistrationStatusPageState extends State<RegistrationStatusPage> {
           const SizedBox(height: 12),
           OutlinedButton(
             onPressed: () async {
+              // Pull the authoritative server draft first — existing data,
+              // verification state and documents are preserved and the
+              // applicant edits from the reviewed snapshot, not a stale
+              // local copy.
+              await _controller
+                  .hydrateFromServer(_controller.draft.registrationId);
               await _controller
                   .goToStep(RegistrationDraftController.stepOrganization);
               if (!mounted) return;

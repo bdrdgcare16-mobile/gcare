@@ -1,6 +1,7 @@
 // lib/features/onboarding/onboarding_guard.dart
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:serv_app/features/auth/auth_guard.dart';
 import 'registration/guards/registration_resume_guard.dart';
 import 'screens/serv_policies_page.dart';
@@ -49,6 +50,14 @@ class _OnboardingGuardState extends State<OnboardingGuard> {
       final orgRegistrationComplete =
           await OnboardingStorageService.instance
               .isOrganizationRegistrationCompleted();
+      // A persisted org_applicant session always resolves its application
+      // server-side — Role Selection is never shown again, even if the
+      // local user-type flag is absent or stale.
+      String persistedRole = '';
+      try {
+        persistedRole =
+            (await SharedPreferences.getInstance()).getString('role') ?? '';
+      } catch (_) {}
 
       Widget destination;
 
@@ -58,6 +67,9 @@ class _OnboardingGuardState extends State<OnboardingGuard> {
       } else if (policyUpdate) {
         // Returning user with an outdated policy version: show policies only.
         destination = const ServPoliciesPage();
+      } else if (persistedRole == 'org_applicant') {
+        // Authenticated applicant: server-side application resolution.
+        destination = const RegistrationResumeGuard();
       } else if (userType == OnboardingUserType.registerOrganization &&
           !orgRegistrationComplete) {
         // Organization applicant whose registration is not yet complete:

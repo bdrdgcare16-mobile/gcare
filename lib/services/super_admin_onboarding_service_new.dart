@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
+import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/models/onboarding_model.dart';
 
 class SuperAdminOnboardingService {
-  static const String _baseUrl =
-      'https://api-zmj7dqloiq-uc.a.run.app/api/onboarding';
+  // Resolved via ApiConfig — debug/DEV builds hit the local Functions
+  // emulator; only release builds reach the production API.
+  static String get _baseUrl => '${ApiConfig.baseUrl}/onboarding';
 
   static Future<List<OnboardingModel>> getAllOnboardings({
     String? search,

@@ -355,6 +355,41 @@ export const authMiddleware = async (
 
 
 
+/**
+ * Attaches req.user when a valid SERV JWT Bearer token is present, but
+ * NEVER rejects the request. Used on credential-gated public routes
+ * (org-registration) so an authenticated applicant's identity is bound
+ * alongside — or instead of — the resume token. Invalid/absent tokens
+ * simply leave req.user unset; the route's own credential check decides.
+ */
+export const optionalAuthMiddleware = (
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+): void => {
+  const token = getToken(req);
+  if (!token) return next();
+  try {
+    const decoded = jwt.verify(token, getJwtSecret()) as JwtPayload;
+    const role = String(
+      decoded.role || decoded.userRole || decoded.type ||
+        (decoded.isAdmin === true ? 'admin' : 'employee'),
+    ).toLowerCase();
+    req.user = {
+      userId: String(decoded.userId || decoded.uid || 'unknown'),
+      email: String(decoded.email || ''),
+      role,
+      empid: decoded.empid ?? null,
+      companyId: decoded.companyId ?? null,
+      companyName: null,
+      plan: null,
+    };
+  } catch (_) {
+    // Invalid/expired JWT — treated as unauthenticated for optional auth.
+  }
+  next();
+};
+
 export const roleMiddleware = (roles: string[]) => {
 
   return (req: Request, res: Response, next: NextFunction): Response | void => {

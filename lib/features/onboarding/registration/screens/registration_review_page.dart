@@ -52,8 +52,9 @@ class _RegistrationReviewPageState extends State<RegistrationReviewPage> {
 
   Future<void> _load() async {
     final d = _controller.draft;
-    final token = await _api.loadResumeToken();
-    if (d.registrationId.isEmpty || token == null || token.isEmpty) {
+    // Bound applications are authorized by the applicant JWT alone.
+    final token = await _api.applicantCredential();
+    if (d.registrationId.isEmpty || token == null) {
       setState(() {
         _loading = false;
         _error = 'Could not reach the registration server. Save your draft '
@@ -257,7 +258,10 @@ class _RegistrationReviewPageState extends State<RegistrationReviewPage> {
                                       strokeWidth: 2.5,
                                       color: Colors.white),
                                 )
-                              : const Text('Confirm & Submit'),
+                              : Text(
+                                  _controller.draft.needsChanges
+                                      ? 'Update & Send for Review'
+                                      : 'Submit Application'),
                         ),
                       ),
                       const SizedBox(height: 10),
