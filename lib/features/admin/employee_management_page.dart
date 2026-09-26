@@ -241,7 +241,7 @@ class EmployeeService {
     );
 
     if (res.statusCode != 200) {
-      throw Exception('Delete failed (${res.statusCode}): ${res.body}');
+      throw Exception('Remove failed (${res.statusCode}): ${res.body}');
     }
   }
 
@@ -453,8 +453,10 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          title: const Text('Delete employee?'),
-          content: Text('This will permanently delete ${e.name}.'),
+          title: const Text('Remove employee?'),
+          content: const Text(
+            'This employee will be removed from Employee Management. Historical records will be preserved.',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -462,7 +464,7 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
             ),
             ElevatedButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Delete'),
+              child: const Text('Remove'),
             ),
           ],
         );
@@ -478,13 +480,13 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Employee deleted')),
+        const SnackBar(content: Text('Employee removed successfully')),
       );
     } catch (err) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Delete failed: $err')),
+        SnackBar(content: Text('Remove failed: $err')),
       );
     }
   }
@@ -566,7 +568,7 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
             flex: 5,
             child: Center(
               child: Text(
-                'Delete',
+                'Remove',
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
             ),

@@ -30,6 +30,9 @@ interface Employee {
   updatedAt: Timestamp;
   createdBy?: string;
   updatedBy?: string;
+  isDeleted?: boolean;
+  deletedAt?: Timestamp;
+  deletedBy?: string;
 };
 
 /* ============================== Usage Tracking Helper ============================== */
@@ -148,6 +151,7 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
       shiftGroup: shiftGroup ?? null,
       role,
       status: status as 'active' | 'inactive',
+      isDeleted: false,
 
       createdAt: now,
       updatedAt: now,
@@ -181,8 +185,7 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
 
 export const getEmployees = async (req: Request, res: Response): Promise<Response> => {
   try {
-
-    const companyId = (req as any).user?.companyId;
+    const companyId = String((req as any).user?.companyId ?? '').trim();
 
     if (!companyId) {
       return res.status(401).json({ error: 'Unauthorized' });
@@ -190,13 +193,15 @@ export const getEmployees = async (req: Request, res: Response): Promise<Respons
 
     const snap = await getDb()
       .collection(EMPLOYEES)
-      .where('companyId', '==', companyId) // 
+      .where('companyId', '==', companyId)
       .get();
 
-    const data = snap.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    const data = snap.docs
+      .filter(doc => doc.data().isDeleted !== true)
+      .map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
 
     // Track usage after successful employees read
     await trackEmployeeUsage(req, {
@@ -205,7 +210,6 @@ export const getEmployees = async (req: Request, res: Response): Promise<Respons
     });
 
     return res.status(200).json(data);
-
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: 'Failed to fetch employees' });
@@ -215,8 +219,12 @@ export const getEmployees = async (req: Request, res: Response): Promise<Respons
 export const getEmployeeById = async (req: Request, res: Response): Promise<Response> => {
   try {
 
-    const companyId = (req as any).user?.companyId;
+    const companyId = String((req as any).user?.companyId ?? '').trim();
     const { id } = req.params;
+
+    if (!companyId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
 
     const doc = await getDb().collection(EMPLOYEES).doc(id).get();
 
@@ -228,6 +236,10 @@ export const getEmployeeById = async (req: Request, res: Response): Promise<Resp
 
     if (data?.companyId !== companyId) {
       return res.status(403).json({ error: 'Access denied' });
+    }
+
+    if (data?.isDeleted === true) {
+      return res.status(404).json({ error: 'Employee not found' });
     }
 
     // Track usage after successful employee read
@@ -265,7 +277,9 @@ export const updateEmployee = async (req: Request, res: Response): Promise<Respo
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const empid = doc.data()?.empid;
+    if (doc.data()?.isDeleted === true) {
+      return res.status(409).json({ error: 'Removed employees cannot be updated' });
+    }
 
     // Field whitelist to prevent mass assignment
     // Status changes must use a dedicated status lifecycle endpoint (not general profile update)
@@ -302,7 +316,37 @@ export const updateEmployee = async (req: Request, res: Response): Promise<Respo
     updates.updatedAt = Timestamp.now();
     updates.updatedBy = currentUserId;
 
-    await ref.update(updates);
+    const outcome = await getDb().runTransaction(async transaction => {
+      const currentDoc = await transaction.get(ref);
+
+      if (!currentDoc.exists) {
+        return 'not_found';
+      }
+
+      const currentEmployee = currentDoc.data();
+      if (currentEmployee?.companyId !== companyId) {
+        return 'forbidden';
+      }
+
+      if (currentEmployee?.isDeleted === true) {
+        return 'removed';
+      }
+
+      transaction.update(ref, updates);
+      return 'updated';
+    });
+
+    if (outcome === 'not_found') {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+
+    if (outcome === 'forbidden') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    if (outcome === 'removed') {
+      return res.status(409).json({ error: 'Removed employees cannot be updated' });
+    }
 
     // Track usage after successful employee update
     await trackEmployeeUsage(req, {
@@ -317,36 +361,64 @@ export const updateEmployee = async (req: Request, res: Response): Promise<Respo
     return res.status(500).json({ error: 'Failed' });
   }
 };
-// Delete employee (Admin only) — hard delete; switch to soft delete if needed
+// Soft remove employee from Employee Management (Admin only)
 export const deleteEmployee = async (req: Request, res: Response): Promise<Response> => {
   try {
-
-    const companyId = (req as any).user?.companyId;
+    const user = (req as any).user;
+    const companyId = String(user?.companyId ?? '').trim();
+    const actorId = String(user?.userId ?? '').trim();
     const { id } = req.params;
 
-    const ref = getDb().collection(EMPLOYEES).doc(id);
-    const doc = await ref.get();
+    if (!companyId || !actorId || actorId === 'unknown') {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
 
-    if (!doc.exists) {
+    const ref = getDb().collection(EMPLOYEES).doc(id);
+    const outcome = await getDb().runTransaction(async transaction => {
+      const doc = await transaction.get(ref);
+
+      if (!doc.exists) {
+        return 'not_found';
+      }
+
+      const employee = doc.data();
+      if (employee?.companyId !== companyId) {
+        return 'forbidden';
+      }
+
+      if (employee.isDeleted === true) {
+        return 'already_removed';
+      }
+
+      transaction.update(ref, {
+        isDeleted: true,
+        deletedAt: Timestamp.now(),
+        deletedBy: actorId,
+      });
+      return 'removed';
+    });
+
+    if (outcome === 'not_found') {
       return res.status(404).json({ error: 'Employee not found' });
     }
 
-    if (doc.data()?.companyId !== companyId) {
+    if (outcome === 'forbidden') {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    await ref.delete();
+    if (outcome === 'already_removed') {
+      return res.status(409).json({ error: 'Employee is already removed' });
+    }
 
-    // Track usage after successful employee deletion
+    // Track usage only after the first successful soft delete.
     await trackEmployeeUsage(req, {
       deleteCount: 1,
       apiCalls: 1,
     });
 
-    return res.status(200).json({ message: 'Deleted successfully' });
-
+    return res.status(200).json({ message: 'Employee removed successfully' });
   } catch (error) {
     console.error(error);
-    return res.status(500).json({ error: 'Failed' });
+    return res.status(500).json({ error: 'Failed to remove employee' });
   }
 };
