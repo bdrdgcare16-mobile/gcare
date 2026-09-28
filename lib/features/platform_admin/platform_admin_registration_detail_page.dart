@@ -4,12 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:serv_app/services/platform_admin_registration_service.dart';
 
 /// Detail view of one organization registration application in the
-/// browser Platform Admin portal (Milestones 3D-B/C). Requested features
+/// browser Platform Admin portal (Milestones 3D-B/C/D). Requested features
 /// are labelled REQUESTED — never approved or enabled. When the
 /// application is pending_approval the Platform Admin can record a
 /// review decision (Approve / Reject / Request Changes). Approval means
 /// REVIEW APPROVED ONLY — it does not create an organization, org code,
-/// Admin account, or enable features.
+/// Admin account, or enable features. Provisioning happens exclusively
+/// through Activate Organization (3D-D) on an approved application.
 class PlatformAdminRegistrationDetailPage extends StatefulWidget {
   final String registrationId;
 
@@ -140,6 +141,8 @@ class _PlatformAdminRegistrationDetailPageState
         return Colors.blue;
       case 'pending_verification':
         return Colors.teal;
+      case 'activated':
+        return const Color(0xFF6A1B9A);
       default:
         return Colors.grey;
     }
@@ -787,6 +790,192 @@ class _PlatformAdminRegistrationDetailPageState
     }
   }
 
+  /// Activation panel (3D-D). Approved applications show the
+  /// Activate Organization action; activated applications show the
+  /// provisioning summary. Every other status renders nothing — the
+  /// button can never appear outside the approved state.
+  Widget _activationPanel(String status, Map<String, dynamic>? reg) {
+    if (status == 'approved') {
+      final busy = _runningAction != null;
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFD9D0EA)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Provisioning',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF4B3B73),
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Provisioning Status: Awaiting Activation',
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF795548),
+              ),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              onPressed: busy ? null : _onActivate,
+              icon: _runningAction == 'activate'
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.rocket_launch_outlined, size: 18),
+              label: const Text('Activate Organization'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF6A1B9A),
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (status == 'activated') {
+      final p = reg?['provisioning'] is Map
+          ? reg!['provisioning'] as Map
+          : const <String, dynamic>{};
+      final admin = p['admin'] is Map ? p['admin'] as Map : null;
+      final enabled = (p['enabledFeatures'] as List? ?? const []);
+      return _section('Provisioning', [
+        _detailRow('Status', 'ACTIVATED'),
+        _detailRow('Organization Code', p['organizationCode']),
+        _detailRow('Activated At', _fmtDate(p['activatedAt'])),
+        if ((p['activatedByEmail'] ?? '').toString().isNotEmpty)
+          _detailRow('Activated By', p['activatedByEmail']),
+        if ((p['companyId'] ?? '').toString().isNotEmpty)
+          _detailRow('Company ID', p['companyId']),
+        if (admin != null) ...[
+          _detailRow('Provisioned Admin', admin['name']),
+          _detailRow('Admin Email', admin['email']),
+        ],
+        const Padding(
+          padding: EdgeInsets.only(bottom: 8),
+          child: Text(
+            'Enabled Modules',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: Colors.grey,
+            ),
+          ),
+        ),
+        Wrap(
+          children: enabled
+              .map(
+                (f) => Container(
+                  margin: const EdgeInsets.only(right: 8, bottom: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEDE7F6),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFF7E57C2)),
+                  ),
+                  child: Text(
+                    '${_featureLabels[f.toString()] ?? f} — ENABLED',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF4527A0),
+                    ),
+                  ),
+                ),
+              )
+              .toList(),
+        ),
+        if (enabled.isEmpty)
+          const Text(
+            'No modules enabled',
+            style: TextStyle(color: Colors.grey),
+          ),
+      ]);
+    }
+
+    return const SizedBox.shrink();
+  }
+
+  /// Activate confirmation dialog → POST activate. The button is
+  /// disabled for the duration of the request to prevent double-tap.
+  Future<void> _onActivate() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Activate this organization?'),
+        scrollable: true,
+        content: const SizedBox(
+          width: 440,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'This will:',
+                style: TextStyle(fontSize: 13, color: Colors.black54),
+              ),
+              SizedBox(height: 8),
+              Text('• Generate organization code'),
+              Text('• Create organization/company records'),
+              Text('• Provision organization Admin access'),
+              Text('• Link the Admin user to the organization'),
+              Text('• Enable the approved HRMS modules'),
+              Text('• Mark the organization as Activated'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Activate Organization'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _runningAction = 'activate');
+    try {
+      await PlatformAdminRegistrationService.instance
+          .activateRegistration(widget.registrationId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Organization activated')),
+      );
+      await _fetch();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Activation failed: $e')),
+      );
+      await _fetch();
+    } finally {
+      if (mounted) setState(() => _runningAction = null);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final reg = _registration;
@@ -877,6 +1066,8 @@ class _PlatformAdminRegistrationDetailPageState
 
                             _reviewActions(status),
 
+                            _activationPanel(status, reg),
+
                             if (reg != null) _changesSection(reg),
 
                             _section('Organization Information', [
@@ -901,9 +1092,8 @@ class _PlatformAdminRegistrationDetailPageState
                                 padding: EdgeInsets.only(bottom: 8),
                                 child: Text(
                                   'These features were REQUESTED by the '
-                                  'applicant. Nothing is approved or '
-                                  'enabled until platform admin approval '
-                                  '(a later milestone).',
+                                  'applicant. They become enabled only '
+                                  'when the organization is activated.',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: Colors.black54,

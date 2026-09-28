@@ -700,4 +700,285 @@ void main() {
       expect(find.text('Approve'), findsOneWidget);
     });
   });
+
+  // ── Milestone 3D-D: organization provisioning & activation ────────────
+
+  Map<String, dynamic> activatedDetail(String id) => _detail(
+        id,
+        status: 'activated',
+        extra: {
+          'organizationCode': 'SERV001',
+          'provisioning': {
+            'companyId': 'founder@novacare.example.com',
+            'organizationCode': 'SERV001',
+            'activatedAt': '2024-06-10T12:00:00.000Z',
+            'activatedByEmail': 'pa@serv.test',
+            'approvedFeatures': ['attendance', 'payroll'],
+            'enabledFeatures': ['attendance', 'payroll'],
+            'admin': {
+              'email': 'founder@novacare.example.com',
+              'name': 'Nova HR',
+            },
+          },
+        },
+      );
+
+  group('PlatformAdminRegistrationsPage — 3D-D activation', () {
+    testWidgets('Approved tab sends status=approved and shows the badge',
+        (tester) async {
+      tester.view.physicalSize = const Size(1400, 1000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final client = _StubHttpClient((method, url) async {
+        if (url.queryParameters['status'] == 'approved') {
+          return _json(200, {
+            'registrations': [_listItem('r9', 'ApprovedOrg', 'approved')],
+            'page': 1,
+            'pageSize': 10,
+            'hasMore': false,
+          });
+        }
+        return _json(200, {
+          'registrations': <Map<String, dynamic>>[],
+          'page': 1,
+          'pageSize': 10,
+          'hasMore': false,
+        });
+      });
+      HttpOverrides.global = _StubOverrides(client);
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(body: PlatformAdminRegistrationsPage()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Approved'));
+      await tester.pumpAndSettle();
+
+      expect(client.requests.last, contains('status=approved'));
+      expect(find.text('ApprovedOrg'), findsOneWidget);
+      expect(find.text('APPROVED'), findsOneWidget);
+      // An approved (not yet activated) card shows no org code line.
+      expect(find.textContaining('Code:'), findsNothing);
+    });
+
+    testWidgets(
+        'Activated tab shows ACTIVATED badge, org code and activated date',
+        (tester) async {
+      tester.view.physicalSize = const Size(1400, 1000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final client = _StubHttpClient((method, url) async {
+        if (url.queryParameters['status'] == 'activated') {
+          return _json(200, {
+            'registrations': [
+              _listItem('r8', 'ActiveOrg', 'activated', extra: {
+                'organizationCode': 'SERV001',
+                'activatedAt': '2024-06-10T12:00:00.000Z',
+              }),
+            ],
+            'page': 1,
+            'pageSize': 10,
+            'hasMore': false,
+          });
+        }
+        return _json(200, {
+          'registrations': <Map<String, dynamic>>[],
+          'page': 1,
+          'pageSize': 10,
+          'hasMore': false,
+        });
+      });
+      HttpOverrides.global = _StubOverrides(client);
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(body: PlatformAdminRegistrationsPage()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Activated'));
+      await tester.pumpAndSettle();
+
+      expect(client.requests.last, contains('status=activated'));
+      expect(find.text('ActiveOrg'), findsOneWidget);
+      expect(find.text('ACTIVATED'), findsOneWidget);
+      expect(find.text('Code: SERV001'), findsOneWidget);
+      expect(find.text('Activated: 2024-06-10'), findsOneWidget);
+    });
+  });
+
+  group('PlatformAdminRegistrationDetailPage — 3D-D activation', () {
+    Future<void> pumpDetail(
+      WidgetTester tester,
+      _StubHttpClient client,
+    ) async {
+      tester.view.physicalSize = const Size(1400, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      HttpOverrides.global = _StubOverrides(client);
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: PlatformAdminRegistrationDetailPage(registrationId: 'r1'),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+        'approved shows Activate Organization — not for other statuses',
+        (tester) async {
+      // approved → awaiting activation + the button.
+      var client = _StubHttpClient((method, url) async =>
+          _json(200, {'registration': _detail('r1', status: 'approved')}));
+      await pumpDetail(tester, client);
+      expect(find.text('Provisioning Status: Awaiting Activation'),
+          findsOneWidget);
+      expect(find.text('Activate Organization'), findsOneWidget);
+      // Review actions are gone — approval was already recorded.
+      expect(find.text('Approve'), findsNothing);
+      expect(find.text('Reject'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+
+      // activated → provisioning summary, no button.
+      client = _StubHttpClient((method, url) async =>
+          _json(200, {'registration': activatedDetail('r1')}));
+      await pumpDetail(tester, client);
+      expect(find.text('Activate Organization'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+
+      // pending_approval → review actions, no activate.
+      client = _StubHttpClient((method, url) async =>
+          _json(200, {'registration': _detail('r1')}));
+      await pumpDetail(tester, client);
+      expect(find.text('Activate Organization'), findsNothing);
+      expect(find.text('Approve'), findsOneWidget);
+    });
+
+    testWidgets('confirm dialog lists the provisioning effects; Cancel sends '
+        'no request', (tester) async {
+      final client = _StubHttpClient((method, url) async =>
+          _json(200, {'registration': _detail('r1', status: 'approved')}));
+      await pumpDetail(tester, client);
+
+      await tester.tap(find.text('Activate Organization'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Activate this organization?'), findsOneWidget);
+      expect(find.text('• Generate organization code'), findsOneWidget);
+      expect(find.text('• Provision organization Admin access'),
+          findsOneWidget);
+      expect(find.text('• Mark the organization as Activated'),
+          findsOneWidget);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(client.requests.any((r) => r.startsWith('POST')), isFalse);
+      // Still approved — button remains available.
+      expect(find.text('Activate Organization'), findsOneWidget);
+    });
+
+    testWidgets(
+        'successful activation refetches, shows provisioning summary and '
+        'hides the button', (tester) async {
+      var status = 'approved';
+      final client = _StubHttpClient((method, url) async {
+        if (method == 'POST' && url.path.endsWith('/activate')) {
+          status = 'activated';
+          return _json(200, {
+            'status': 'activated',
+            'alreadyActivated': false,
+            'companyId': 'founder@novacare.example.com',
+            'organizationCode': 'SERV001',
+            'enabledFeatures': ['attendance', 'payroll'],
+          });
+        }
+        return _json(200, {
+          'registration':
+              status == 'activated' ? activatedDetail('r1') : _detail('r1', status: status),
+        });
+      });
+      await pumpDetail(tester, client);
+
+      await tester.tap(find.text('Activate Organization'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+          find.widgetWithText(FilledButton, 'Activate Organization'));
+      await tester.pumpAndSettle();
+
+      expect(
+        client.requests.any(
+            (r) => r.startsWith('POST') && r.contains('/activate')),
+        isTrue,
+      );
+      // The activation request carries NO provisioning fields.
+      final postBody = client.bodies.isNotEmpty ? client.bodies.first : '';
+      expect(postBody, isNot(contains('companyId')));
+      expect(postBody, isNot(contains('organizationCode')));
+      expect(postBody, isNot(contains('enabledFeatures')));
+
+      // After refresh: ACTIVATED status + summary, button hidden.
+      expect(find.textContaining('ACTIVATED'), findsWidgets);
+      expect(find.text('Activate Organization'), findsNothing);
+      expect(find.text('SERV001'), findsWidgets);
+      expect(find.text('Attendance — ENABLED'), findsOneWidget);
+      expect(find.text('Payroll — ENABLED'), findsOneWidget);
+      expect(find.text('founder@novacare.example.com'), findsWidgets);
+      expect(find.text('Nova HR'), findsWidgets);
+    });
+
+    testWidgets('the button is disabled while the activation request runs',
+        (tester) async {
+      final gate = Completer<HttpClientResponse>();
+      final client = _StubHttpClient((method, url) async {
+        if (method == 'POST') return gate.future;
+        return _json(
+            200, {'registration': _detail('r1', status: 'approved')});
+      });
+      await pumpDetail(tester, client);
+
+      await tester.tap(find.text('Activate Organization'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+          find.widgetWithText(FilledButton, 'Activate Organization'));
+      await tester.pump();
+
+      final btn = tester.widget<ElevatedButton>(
+          find.widgetWithText(ElevatedButton, 'Activate Organization'));
+      expect(btn.onPressed, isNull);
+      expect(client.requests.where((r) => r.startsWith('POST')).length, 1);
+
+      gate.complete(_json(200, {'status': 'activated'}));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('an activation error is shown and the button returns',
+        (tester) async {
+      final client = _StubHttpClient((method, url) async {
+        if (method == 'POST') {
+          return _json(409, {
+            'error':
+                "Application cannot be activated from status 'pending_approval'",
+          });
+        }
+        return _json(
+            200, {'registration': _detail('r1', status: 'approved')});
+      });
+      await pumpDetail(tester, client);
+
+      await tester.tap(find.text('Activate Organization'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+          find.widgetWithText(FilledButton, 'Activate Organization'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Activation failed'), findsOneWidget);
+      expect(find.text('Activate Organization'), findsOneWidget);
+    });
+  });
 }

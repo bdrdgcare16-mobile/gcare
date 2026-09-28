@@ -34,7 +34,7 @@ const createRegistrationDraft = (
 };
 
 process.env.FUNCTIONS_EMULATOR = 'true';
-process.env.STORAGE_EMULATOR_HOST = '127.0.0.1:9199';
+process.env.STORAGE_EMULATOR_HOST = 'http://127.0.0.1:9199';
 
 jest.mock('../config/firebase', () => ({
   getDb: jest.fn(),

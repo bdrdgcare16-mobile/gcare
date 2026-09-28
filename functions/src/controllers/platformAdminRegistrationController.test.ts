@@ -4,7 +4,7 @@
 import { Request, Response, NextFunction } from 'express';
 
 process.env.FUNCTIONS_EMULATOR = 'true';
-process.env.STORAGE_EMULATOR_HOST = '127.0.0.1:9199';
+process.env.STORAGE_EMULATOR_HOST = 'http://127.0.0.1:9199';
 process.env.JWT_SECRET = 'test-jwt-secret-for-3db';
 
 jest.mock('../config/firebase', () => ({
@@ -16,6 +16,7 @@ jest.mock('../config/firebase', () => ({
 
 import { getDb, getBucket } from '../config/firebase';
 import {
+  activateRegistration,
   approveRegistration,
   getRegistrationDocumentForReview,
   getRegistrationForReview,
@@ -88,6 +89,8 @@ function makeMockDb(collections: Record<string, MockDoc[]>) {
     }
   }
 
+  let autoSeq = 0;
+
   function makeDocRef(col: MockDoc[], id: string) {
     return {
       id,
@@ -104,16 +107,29 @@ function makeMockDb(collections: Record<string, MockDoc[]>) {
         if (!doc) throw new Error('No document to update');
         applyUpdate(doc.data, updates);
       }),
+      set: jest.fn(async (data: Record<string, any>, _opts?: any) => {
+        let doc = col.find((d) => d.id === id);
+        if (!doc) {
+          doc = { id, data: {} };
+          col.push(doc);
+        }
+        applyUpdate(doc.data, data);
+      }),
     };
   }
 
-  // Transaction mock: tx.get/tx.update operate on the same in-memory doc
-  // so the controller's re-read-inside-transaction sees current state.
+  // Transaction mock: tx.get/tx.update/tx.set operate on the same
+  // in-memory docs so the controller's re-read-inside-transaction sees
+  // current state. tx.get accepts both doc refs and queries — the query
+  // object's get() already returns {empty, docs}.
   function makeTx() {
     return {
       get: jest.fn(async (ref: any) => ref.get()),
       update: jest.fn((ref: any, updates: Record<string, any>) =>
         ref.update(updates),
+      ),
+      set: jest.fn((ref: any, data: Record<string, any>, opts?: any) =>
+        ref.set(data, opts),
       ),
     };
   }
@@ -164,7 +180,8 @@ function makeMockDb(collections: Record<string, MockDoc[]>) {
           })),
         };
       }),
-      doc: jest.fn((id: string) => makeDocRef(col, id)),
+      doc: jest.fn((id?: string) =>
+        makeDocRef(col, id ?? `auto-${++autoSeq}`)),
     };
     return q;
   }
@@ -924,5 +941,486 @@ describe('resubmission review context (change diff)', () => {
     expect(raw).not.toContain('resumeTokenHash');
     expect(raw).not.toContain('storagePath');
     expect(raw).not.toContain('reviewerId');
+  });
+});
+
+// ─── Organization provisioning & activation (3D-D) ──────────────────────────
+
+describe('POST /:id/activate (3D-D)', () => {
+  let collections: Record<string, MockDoc[]>;
+
+  const APPLICANT_UID = 'applicant-uid-1';
+  const APPLICANT_EMAIL = 'founder@neworg.example.com';
+
+  beforeEach(() => {
+    collections = {};
+    regSeq = 0;
+    (getDb as jest.Mock).mockReturnValue(makeMockDb(collections));
+    (getBucket as jest.Mock).mockReturnValue({});
+  });
+
+  /** Seeds an approved registration + the bound org_applicant user doc. */
+  function seedActivatable(overrides: any = {}): string {
+    collections['users'] = collections['users'] || [];
+    collections['users'].push({
+      id: APPLICANT_UID,
+      data: {
+        email: APPLICANT_EMAIL,
+        emailLower: APPLICANT_EMAIL,
+        name: 'Founder One',
+        role: 'org_applicant',
+        status: 'active',
+        companyId: '',
+        createdAt: new Date(2024, 0, 1),
+      },
+    });
+    return seedRegistration(collections, {
+      status: 'approved',
+      applicantUid: APPLICANT_UID,
+      applicantEmail: APPLICANT_EMAIL,
+      ...overrides,
+    });
+  }
+
+  function docsOf(name: string): MockDoc[] {
+    return collections[name] ?? [];
+  }
+
+  it('activates an approved application and provisions the organization', async () => {
+    const id = seedActivatable();
+    const res = mockResponse();
+    await activateRegistration(
+      makeReq({ params: { id }, user: PA_USER }) as Request,
+      res,
+    );
+
+    expect(statusCode(res)).toBe(200);
+    const body = jsonBody(res);
+    expect(body.status).toBe('activated');
+    expect(body.alreadyActivated).toBe(false);
+    expect(body.organizationCode).toBe('SERV001');
+    expect(body.companyId).toBe(APPLICANT_EMAIL);
+    expect(body.enabledFeatures).toEqual([
+      'attendance',
+      'leave_management',
+    ]);
+
+    // Registration — same document, activation fields stamped.
+    const d = docData(collections, id);
+    expect(d.status).toBe('activated');
+    expect(d.approvedCompanyId).toBe(APPLICANT_EMAIL);
+    expect(d.organizationCode).toBe('SERV001');
+    expect(d.activatedBy).toBe('pa1');
+    expect(d.activatedByEmail).toBe('pa@x.com');
+    expect(d.activatedAt).toBeTruthy();
+    expect(d.approvedFeatures).toEqual(['attendance', 'leave_management']);
+    expect(d.enabledFeatures).toEqual(['attendance', 'leave_management']);
+    expect(d.provisionedAdmin).toEqual({
+      uid: APPLICANT_UID,
+      email: APPLICANT_EMAIL,
+      name: 'Admin 1',
+    });
+
+    // companyProfile — canonical operational store, exactly one doc.
+    const profiles = docsOf('companyProfile');
+    expect(profiles).toHaveLength(1);
+    const profile = profiles[0];
+    expect(profile.id).toBe(APPLICANT_EMAIL);
+    expect(profile.data.code).toBe('SERV001');
+    expect(profile.data.companyName).toBe('Org 1');
+    expect(profile.data.adminEmailLower).toBe(APPLICANT_EMAIL);
+    expect(profile.data.adminName).toBe('Admin 1');
+    expect(profile.data.designation).toBe('HR Manager');
+    expect(profile.data.status).toBe('active');
+    expect(profile.data.filled).toBe(true);
+    expect(profile.data.registrationId).toBe(id);
+    expect(profile.data.enabledFeatures).toEqual([
+      'attendance',
+      'leave_management',
+    ]);
+
+    // Same applicant user promoted — no new account.
+    const users = docsOf('users');
+    expect(users).toHaveLength(1);
+    expect(users[0].id).toBe(APPLICANT_UID);
+    expect(users[0].data.role).toBe('admin');
+    expect(users[0].data.status).toBe('active');
+    expect(users[0].data.companyId).toBe(APPLICANT_EMAIL);
+    expect(users[0].data.organizationCode).toBe('SERV001');
+
+    // Admin membership mirror in employees (seed convention).
+    const employees = docsOf('employees');
+    expect(employees).toHaveLength(1);
+    expect(employees[0].data.role).toBe('admin');
+    expect(employees[0].data.companyId).toBe(APPLICANT_EMAIL);
+    expect(employees[0].data.emailLower).toBe(APPLICANT_EMAIL);
+    // Canonical membership contract: empid must be present and non-null —
+    // /attendance/live emits `empid: pickEmpId(emp) || null`, and the
+    // Flutter Admin dashboard parses it as a non-nullable String.
+    expect(employees[0].data.empid).toBe('ADMIN001');
+    expect(employees[0].data.employeeId).toBe('ADMIN001');
+    expect(users[0].data.empid).toBe('ADMIN001');
+    expect(users[0].data.empId).toBe('ADMIN001');
+    expect(users[0].data.employeeId).toBe('ADMIN001');
+
+    // Audit — exactly one activation event appended after prior entries.
+    expect(d.auditTrail).toHaveLength(3);
+    const evt = d.auditTrail[2];
+    expect(evt.action).toBe('organization_activated');
+    expect(evt.actor).toBe('pa1');
+    expect(evt.note).toContain('SERV001');
+    expect(evt.note).toContain('approved -> activated');
+  });
+
+  it.each([
+    ['draft'],
+    ['submitted'],
+    ['pending_verification'],
+    ['pending_approval'],
+    ['changes_requested'],
+    ['rejected'],
+  ])('rejects activation from status %s (409)', async (status) => {
+    const id = seedActivatable({ status });
+    const res = mockResponse();
+    await activateRegistration(
+      makeReq({ params: { id }, user: PA_USER }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(409);
+    expect(docData(collections, id).status).toBe(status);
+    expect(docsOf('companyProfile')).toHaveLength(0);
+    expect(docsOf('employees')).toHaveLength(0);
+    expect(docsOf('users')[0].data.role).toBe('org_applicant');
+  });
+
+  it('returns 404 for an unknown registration', async () => {
+    const res = mockResponse();
+    await activateRegistration(
+      makeReq({ params: { id: 'missing' }, user: PA_USER }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(404);
+  });
+
+  it.each([
+    ['super_admin', { userId: 's1', email: 's@x.com', role: 'super_admin' }],
+    ['employee', { userId: 'e1', email: 'e@x.com', role: 'employee' }],
+    ['org_admin', { userId: 'a1', email: 'a@x.com', role: 'admin' }],
+    ['org_applicant', { userId: 'o1', email: 'o@x.com', role: 'org_applicant' }],
+  ])('%s caller is forbidden from activate (403)', async (_l, user) => {
+    const id = seedActivatable();
+    const res = mockResponse();
+    await activateRegistration(
+      makeReq({ params: { id }, user }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(403);
+    expect(docData(collections, id).status).toBe('approved');
+    expect(docsOf('companyProfile')).toHaveLength(0);
+  });
+
+  it('caller with no authenticated identity is rejected (403)', async () => {
+    const id = seedActivatable();
+    const res = mockResponse();
+    await activateRegistration(
+      makeReq({ params: { id } }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(403);
+    expect(docData(collections, id).status).toBe('approved');
+  });
+
+  it('is idempotent — a repeated activation returns the same result without duplicates', async () => {
+    const id = seedActivatable();
+    const res1 = mockResponse();
+    await activateRegistration(
+      makeReq({ params: { id }, user: PA_USER }) as Request,
+      res1,
+    );
+    expect(statusCode(res1)).toBe(200);
+    expect(jsonBody(res1).alreadyActivated).toBe(false);
+
+    const res2 = mockResponse();
+    await activateRegistration(
+      makeReq({
+        params: { id },
+        user: { userId: 'pa2', email: 'pb@x.com', role: 'platform_admin' },
+      }) as Request,
+      res2,
+    );
+    expect(statusCode(res2)).toBe(200);
+    expect(jsonBody(res2).alreadyActivated).toBe(true);
+    expect(jsonBody(res2).organizationCode).toBe('SERV001');
+    expect(jsonBody(res2).companyId).toBe(APPLICANT_EMAIL);
+
+    expect(docsOf('companyProfile')).toHaveLength(1);
+    expect(docsOf('employees')).toHaveLength(1);
+    expect(docsOf('users')).toHaveLength(1);
+    const d = docData(collections, id);
+    expect(
+      d.auditTrail.filter((e: any) => e.action === 'organization_activated'),
+    ).toHaveLength(1);
+    // The second activator never overwrites the recorded actor.
+    expect(d.activatedBy).toBe('pa1');
+  });
+
+  it('ignores request-body spoofing — all provisioning values are server-derived', async () => {
+    const id = seedActivatable();
+    const res = mockResponse();
+    await activateRegistration(
+      makeReq({
+        params: { id },
+        user: PA_USER,
+        body: {
+          companyId: 'evil-company',
+          organizationCode: 'HACKED1',
+          activatedBy: 'spoofed-uid',
+          adminUid: 'other-user',
+          role: 'super_admin',
+          enabledFeatures: ['payroll', 'recruitment'],
+        },
+      }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(200);
+    const body = jsonBody(res);
+    expect(body.companyId).toBe(APPLICANT_EMAIL);
+    expect(body.organizationCode).toBe('SERV001');
+    expect(body.enabledFeatures).toEqual(['attendance', 'leave_management']);
+    const d = docData(collections, id);
+    expect(d.approvedCompanyId).toBe(APPLICANT_EMAIL);
+    expect(d.organizationCode).toBe('SERV001');
+    expect(d.activatedBy).toBe('pa1');
+    expect(d.provisionedAdmin.uid).toBe(APPLICANT_UID);
+    expect(docsOf('users').find((u) => u.id === 'other-user')).toBeUndefined();
+    expect(docsOf('companyProfile')[0].id).toBe(APPLICANT_EMAIL);
+  });
+
+  it('skips organization codes already claimed by existing company profiles', async () => {
+    // Legacy/migrated profile already holding SERV001.
+    collections['companyProfile'] = [
+      {
+        id: 'legacy@org.example.com',
+        data: {
+          companyName: 'Legacy Org',
+          code: 'SERV001',
+          adminEmailLower: 'legacy@org.example.com',
+          status: 'active',
+        },
+      },
+    ];
+    const id = seedActivatable();
+    const res = mockResponse();
+    await activateRegistration(
+      makeReq({ params: { id }, user: PA_USER }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(200);
+    expect(jsonBody(res).organizationCode).toBe('SERV002');
+    expect(docsOf('companyProfile')).toHaveLength(2);
+    expect(docsOf('companyProfile')[1].data.code).toBe('SERV002');
+  });
+
+  it('falls back to a registration-scoped company id when the admin-email id is taken', async () => {
+    collections['companyProfile'] = [
+      {
+        id: APPLICANT_EMAIL,
+        data: {
+          companyName: 'Someone Else',
+          code: 'SERV900',
+          adminEmailLower: APPLICANT_EMAIL,
+          registrationId: 'other-registration',
+          status: 'active',
+        },
+      },
+    ];
+    const id = seedActivatable();
+    const res = mockResponse();
+    await activateRegistration(
+      makeReq({ params: { id }, user: PA_USER }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(200);
+    expect(jsonBody(res).companyId).toBe(`org-${id}`);
+    const other = docsOf('companyProfile')[0];
+    expect(other.data.companyName).toBe('Someone Else');
+    expect(docsOf('companyProfile')).toHaveLength(2);
+  });
+
+  it('returns 409 when the approved application has no bound applicant', async () => {
+    const id = seedRegistration(collections, { status: 'approved' });
+    const res = mockResponse();
+    await activateRegistration(
+      makeReq({ params: { id }, user: PA_USER }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(409);
+    expect(docData(collections, id).status).toBe('approved');
+    expect(docsOf('companyProfile')).toHaveLength(0);
+  });
+
+  it('returns 409 when the bound applicant account is missing', async () => {
+    const id = seedRegistration(collections, {
+      status: 'approved',
+      applicantUid: 'ghost-user',
+    });
+    const res = mockResponse();
+    await activateRegistration(
+      makeReq({ params: { id }, user: PA_USER }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(409);
+    expect(docsOf('companyProfile')).toHaveLength(0);
+  });
+
+  it('preserves prior review/audit history and resubmission context', async () => {
+    const id = seedActivatable({
+      resubmissionCount: 1,
+      resubmittedAt: new Date(),
+      changedFields: [
+        {
+          field: 'organization.employeeCount',
+          label: 'Employees',
+          changeType: 'modified',
+          oldValue: '10',
+          newValue: '25',
+        },
+      ],
+      changeRequestBaseline: { capturedAt: new Date() },
+      reviewHistory: [
+        {
+          reviewerId: 'pa9',
+          reviewerEmail: 'pa9@x.com',
+          decidedAt: new Date(2024, 0, 2),
+          decision: 'changes_requested',
+          note: 'Fix it',
+        },
+      ],
+    });
+    const res = mockResponse();
+    await activateRegistration(
+      makeReq({ params: { id }, user: PA_USER }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(200);
+    const d = docData(collections, id);
+    expect(d.resubmissionCount).toBe(1);
+    expect(d.changeRequestBaseline).toBeTruthy();
+    expect(d.changedFields).toHaveLength(1);
+    expect(d.reviewHistory[0].decision).toBe('changes_requested');
+    expect(d.auditTrail[0].action).toBe('draft_created');
+    expect(d.auditTrail[1].action).toBe('submitted');
+    expect(
+      d.auditTrail.filter((e: any) => e.action === 'organization_activated'),
+    ).toHaveLength(1);
+  });
+
+  it('activation response carries no sensitive fields', async () => {
+    const id = seedActivatable();
+    const res = mockResponse();
+    await activateRegistration(
+      makeReq({ params: { id }, user: PA_USER }) as Request,
+      res,
+    );
+    const body = JSON.stringify(jsonBody(res));
+    expect(body).not.toContain('resumeTokenHash');
+    expect(body).not.toContain('storagePath');
+    expect(body).not.toContain('applicantUid');
+  });
+
+  it('list exposes the Activated filter and card fields', async () => {
+    const id = seedActivatable();
+    await activateRegistration(
+      makeReq({ params: { id }, user: PA_USER }) as Request,
+      mockResponse(),
+    );
+    const res = mockResponse();
+    await listRegistrations(
+      makeReq({
+        user: PA_USER,
+        query: { status: 'activated' },
+      }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(200);
+    const items = jsonBody(res).registrations;
+    expect(items).toHaveLength(1);
+    expect(items[0].status).toBe('activated');
+    expect(items[0].organizationCode).toBe('SERV001');
+    expect(items[0].activatedAt).toBeTruthy();
+  });
+
+  it('approved (not yet activated) still appears under the Approved filter', async () => {
+    seedActivatable();
+    const res = mockResponse();
+    await listRegistrations(
+      makeReq({ user: PA_USER, query: { status: 'approved' } }) as Request,
+      res,
+    );
+    const items = jsonBody(res).registrations;
+    expect(items).toHaveLength(1);
+    expect(items[0].status).toBe('approved');
+    expect(items[0].organizationCode).toBeNull();
+  });
+
+  it('detail exposes the provisioning summary only after activation', async () => {
+    const id = seedActivatable();
+
+    const before = mockResponse();
+    await getRegistrationForReview(
+      makeReq({ params: { id }, user: PA_USER }) as Request,
+      before,
+    );
+    expect(jsonBody(before).registration.provisioning).toBeNull();
+
+    await activateRegistration(
+      makeReq({ params: { id }, user: PA_USER }) as Request,
+      mockResponse(),
+    );
+
+    const after = mockResponse();
+    await getRegistrationForReview(
+      makeReq({ params: { id }, user: PA_USER }) as Request,
+      after,
+    );
+    const reg = jsonBody(after).registration;
+    expect(reg.status).toBe('activated');
+    expect(reg.provisioning.organizationCode).toBe('SERV001');
+    expect(reg.provisioning.companyId).toBe(APPLICANT_EMAIL);
+    expect(reg.provisioning.enabledFeatures).toEqual([
+      'attendance',
+      'leave_management',
+    ]);
+    expect(reg.provisioning.admin).toEqual({
+      email: APPLICANT_EMAIL,
+      name: 'Admin 1',
+    });
+    expect(reg.provisioning.activatedByEmail).toBe('pa@x.com');
+    // The admin uid is withheld from the projection.
+    expect(JSON.stringify(reg.provisioning)).not.toContain(APPLICANT_UID);
+  });
+
+  it('produces the canonical Admin/employee contract the dashboard requires (empid non-null)', async () => {
+    const id = seedActivatable();
+    const res = mockResponse();
+    await activateRegistration(
+      makeReq({ params: { id }, user: PA_USER }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(200);
+
+    // The Admin dashboard's live-attendance feed maps every employees row
+    // to {empid, name, status, ...} and Flutter parses empid/name/status
+    // as non-nullable Strings — all three must be populated strings.
+    const emp = docsOf('employees')[0].data;
+    for (const f of ['empid', 'employeeId', 'name', 'status', 'companyId']) {
+      expect(typeof emp[f]).toBe('string');
+      expect(String(emp[f]).length).toBeGreaterThan(0);
+    }
+    const u = docsOf('users')[0].data;
+    for (const f of ['empid', 'empId', 'employeeId', 'companyId']) {
+      expect(typeof u[f]).toBe('string');
+      expect(String(u[f]).length).toBeGreaterThan(0);
+    }
   });
 });

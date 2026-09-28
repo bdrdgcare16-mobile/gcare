@@ -2,6 +2,7 @@
 
 import { Router } from 'express';
 import {
+  activateRegistration,
   approveRegistration,
   getRegistrationDocumentForReview,
   getRegistrationForReview,
@@ -17,7 +18,8 @@ import { authMiddleware, roleMiddleware } from '../middlewares/authMiddleware';
  * 3D-B added read-only list/detail/document endpoints; 3D-C adds the three
  * review decisions (approve / reject / request-changes). Approval is
  * REVIEW-ONLY — no organization, org code, Admin account, or feature
- * enablement is created here.
+ * enablement is created there. 3D-D adds POST /:id/activate, the single
+ * endpoint where approved applications are provisioned.
  *
  * Every route requires a valid SERV JWT with role 'platform_admin' — a
  * distinct browser-portal role. employee, org admin, super_admin and
@@ -35,5 +37,6 @@ router.get('/:id/documents/:field', getRegistrationDocumentForReview);
 router.post('/:id/approve', approveRegistration);
 router.post('/:id/reject', rejectRegistration);
 router.post('/:id/request-changes', requestRegistrationChanges);
+router.post('/:id/activate', activateRegistration);
 
 export default router;

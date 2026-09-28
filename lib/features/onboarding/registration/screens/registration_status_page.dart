@@ -1,8 +1,12 @@
 // lib/features/onboarding/registration/screens/registration_status_page.dart
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:serv_app/features/auth/auth_guard.dart';
 import 'package:serv_app/features/onboarding/screens/select_user_type_page.dart';
+import 'package:serv_app/features/users/login_page.dart';
 import 'package:serv_app/models/company_data.dart';
 import '../controllers/registration_draft_controller.dart';
 import '../services/organization_registration_service.dart';
@@ -10,9 +14,13 @@ import 'organization_information_page.dart';
 
 /// Post-submission Application Status screen.
 ///
-/// Deliberately does NOT claim that an organization account exists. Approval
-/// and activation are separate, later stages owned by the SERV Platform
-/// Admin; this screen only reports the authoritative application status.
+/// Reports the authoritative application status — Submitted, Approved and
+/// Activated are distinct stages. Once the Platform Admin activates the
+/// organization (3D-D), this screen offers "Continue to Admin Dashboard",
+/// which re-exchanges the applicant's Firebase session for an `admin` SERV
+/// JWT via the existing /auth/firebase-login exchange — no new auth
+/// mechanism. Without a live Firebase session the applicant signs in
+/// again through the normal Admin login.
 class RegistrationStatusPage extends StatefulWidget {
   const RegistrationStatusPage({super.key});
 
@@ -29,6 +37,7 @@ class _RegistrationStatusPageState extends State<RegistrationStatusPage> {
   Map<String, dynamic> _status = {};
   bool _loading = true;
   bool _startingNew = false;
+  bool _refreshingSession = false;
   String? _error;
 
   @override
@@ -223,6 +232,7 @@ class _RegistrationStatusPageState extends State<RegistrationStatusPage> {
                       const SizedBox(height: 16),
                       if (status == 'rejected') _rejectionCard(),
                       if (status == 'changes_requested') _changesCard(),
+                      if (status == 'activated') _activatedCard(),
                       OutlinedButton.icon(
                         onPressed: _loading ? null : _load,
                         icon: const Icon(Icons.refresh, size: 18),
@@ -287,6 +297,13 @@ class _RegistrationStatusPageState extends State<RegistrationStatusPage> {
             'the review can continue.';
         icon = Icons.edit_note_outlined;
         color = Colors.orange.shade800;
+        break;
+      case 'activated':
+        title = 'Organization activated';
+        body = 'Your organization has been activated. Admin access is '
+            'now available for this account.';
+        icon = Icons.rocket_launch_outlined;
+        color = const Color(0xFF6A1B9A);
         break;
       default:
         title = 'Application submitted for review';
@@ -358,6 +375,8 @@ class _RegistrationStatusPageState extends State<RegistrationStatusPage> {
         return 'Changes requested';
       case 'approved':
         return 'Approved — not yet activated';
+      case 'activated':
+        return 'Activated';
       case 'rejected':
         return 'Not accepted';
       default:
@@ -367,11 +386,11 @@ class _RegistrationStatusPageState extends State<RegistrationStatusPage> {
 
   /// Makes the Submitted → Approved → Activated distinction explicit so the
   /// applicant cannot mistake submission for an operational organization.
+  /// Approved and Activated remain separate stages (3D-D).
   Widget _stageCard(String status) {
     final submitted = status.isNotEmpty && status != 'draft';
-    final approved = status == 'approved';
-    // 3D-A never activates an organization.
-    const activated = false;
+    final approved = status == 'approved' || status == 'activated';
+    final activated = status == 'activated';
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -471,6 +490,164 @@ class _RegistrationStatusPageState extends State<RegistrationStatusPage> {
                 )),
         ],
       ),
+    );
+  }
+
+  /// Activated card (3D-D): organization code + Admin access. The old
+  /// org_applicant JWT does not change on its own — "Continue" performs
+  /// the existing Firebase Auth → SERV JWT exchange so the new session
+  /// carries role 'admin' and the provisioned companyId.
+  Widget _activatedCard() {
+    final orgCode = (_status['organizationCode'] ?? '').toString();
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEDE7F6),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF7E57C2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Organization activated successfully.',
+              style: TextStyle(
+                  fontWeight: FontWeight.w700, color: Color(0xFF4527A0))),
+          const SizedBox(height: 10),
+          _row('Organization Code',
+              orgCode.isEmpty ? '—' : orgCode),
+          const SizedBox(height: 4),
+          const Text(
+            'Admin access is now available for this account.',
+            style: TextStyle(fontSize: 12.5, color: Colors.black87),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _refreshingSession ? null : _continueToAdmin,
+              icon: _refreshingSession
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.dashboard_outlined, size: 18),
+              label: const Text('Continue to Admin Dashboard'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF6A1B9A),
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Re-exchanges the live Firebase session for a fresh SERV JWT. The
+  /// promoted account comes back as role 'admin' + companyId; the
+  /// session is persisted and AuthGuard performs the standard routing
+  /// (admin → profile check → Admin Dashboard).
+  Future<void> _continueToAdmin() async {
+    if (_refreshingSession) return;
+    setState(() => _refreshingSession = true);
+    try {
+      String? idToken;
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        idToken = await user?.getIdToken(true);
+      } catch (_) {
+        idToken = null;
+      }
+      if (idToken == null || idToken.isEmpty) {
+        // No live Firebase session on this device — safe re-login path:
+        // the normal Admin login performs the same firebase-login
+        // exchange and returns the admin role.
+        if (!mounted) return;
+        _goToAdminLogin();
+        return;
+      }
+
+      final session = await _api.exchangeFirebaseToken(idToken);
+      final token =
+          (session['token'] ?? session['data']?['token'] ?? '').toString();
+      final role =
+          (session['role'] ?? session['data']?['role'] ?? '').toString();
+      if (token.isEmpty || role.isEmpty) {
+        throw const RegistrationApiException(
+            'Session refresh failed. Please sign in again.');
+      }
+      if (role != 'admin') {
+        throw const RegistrationApiException(
+            'The organization is activated but this account is not yet '
+            'recognized as Admin. Please sign in again.');
+      }
+
+      final companyId = (session['companyId'] ??
+              session['data']?['companyId'] ??
+              session['user']?['companyId'] ??
+              '')
+          .toString();
+      final name = (session['name'] ??
+              session['data']?['name'] ??
+              session['user']?['name'] ??
+              '')
+          .toString();
+      final email = (FirebaseAuth.instance.currentUser?.email ??
+              session['email'] ??
+              session['data']?['email'] ??
+              '')
+          .toString();
+      final uid = (session['uid'] ??
+              session['data']?['uid'] ??
+              FirebaseAuth.instance.currentUser?.uid ??
+              '')
+          .toString();
+
+      CompanyData.token = token;
+      CompanyData.role = role;
+      CompanyData.companyId = companyId;
+      if (email.isNotEmpty) CompanyData.email = email;
+
+      final sp = await SharedPreferences.getInstance();
+      await sp.setString('token', token);
+      await sp.setString('role', role);
+      await sp.setString('companyId', companyId);
+      await sp.setString('status', 'active');
+      if (name.isNotEmpty) await sp.setString('name', name);
+      if (email.isNotEmpty) await sp.setString('email', email);
+      if (uid.isNotEmpty) await sp.setString('userDocId', uid);
+
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AuthGuard()),
+        (route) => false,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e is RegistrationApiException
+                ? e.message
+                : 'Could not open the Admin Dashboard. Please sign in '
+                    'again.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _refreshingSession = false);
+    }
+  }
+
+  void _goToAdminLogin() {
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginPage()),
+      (route) => false,
     );
   }
 

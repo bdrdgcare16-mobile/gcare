@@ -26,6 +26,7 @@ import 'package:serv_app/features/onboarding/registration/screens/registration_r
 import 'package:serv_app/features/onboarding/registration/screens/registration_status_page.dart';
 import 'package:serv_app/features/onboarding/registration/services/organization_registration_service.dart';
 import 'package:serv_app/features/onboarding/screens/select_user_type_page.dart';
+import 'package:serv_app/features/users/login_page.dart';
 import 'package:serv_app/models/company_data.dart';
 
 // ── Minimal HttpClient stubs (same pattern as test/platform_admin) ──────────
@@ -157,6 +158,8 @@ void main() {
     Map<String, dynamic>? application,
     bool noApplication = false,
     String status = '',
+    String meRole = 'org_applicant',
+    String meCompanyId = 'platform',
   }) {
     httpClient = _StubHttpClient((method, url, headers, body) async {
       final path = url.path;
@@ -217,9 +220,33 @@ void main() {
             200,
             utf8.encode(jsonEncode({
               'email': 'applicant@example.com',
-              'role': 'org_applicant',
+              'role': meRole,
               'status': 'active',
-              'companyId': 'platform',
+              'companyId': meCompanyId,
+            })));
+      }
+      if (path.endsWith('/company/profile/check')) {
+        return _StubResponse(
+            200,
+            utf8.encode(jsonEncode({
+              'exists': true,
+              'filled': true,
+              'data': {
+                'companyName': 'Acme Org',
+                'adminName': 'J',
+              },
+            })));
+      }
+      if (path.endsWith('/auth/firebase-login')) {
+        return _StubResponse(
+            200,
+            utf8.encode(jsonEncode({
+              'token': 'new-admin-jwt',
+              'role': 'admin',
+              'companyId': 'founder@acme.example.com',
+              'status': 'active',
+              'name': 'J',
+              'uid': 'uid-1',
             })));
       }
       return _StubResponse(404, utf8.encode('{"error":"not found"}'));
@@ -517,6 +544,115 @@ void main() {
           'pending_approval');
       expect(
           RegistrationDraftController.instance.draft.registrationId, 'reg-1');
+    });
+  });
+
+  // ── Milestone 3D-D: activation status, session refresh, admin routing ──
+
+  group('activation (3D-D)', () {
+    Future<void> pumpStatus(WidgetTester tester) async {
+      // Tall surface — the activation card sits below the fold at the
+      // default 800×600 test viewport.
+      tester.view.physicalSize = const Size(900, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues({
+        'role': 'org_applicant',
+        'token': _fakeJwt('org_applicant'),
+        'companyId': 'platform',
+        'email': 'applicant@example.com',
+        'status': 'active',
+      });
+      CompanyData.token = _fakeJwt('org_applicant');
+      CompanyData.role = 'org_applicant';
+      await tester.pumpWidget(
+          const MaterialApp(home: RegistrationStatusPage()));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('approved keeps the Activated stage incomplete',
+        (tester) async {
+      stub(application: _app('approved'));
+      await pumpStatus(tester);
+      expect(find.textContaining('not yet activated'), findsWidgets);
+      expect(find.byIcon(Icons.radio_button_unchecked), findsOneWidget);
+      expect(find.text('Continue to Admin Dashboard'), findsNothing);
+      expect(find.text('Organization activated successfully.'),
+          findsNothing);
+    });
+
+    testWidgets('activated completes all stages and shows the org code',
+        (tester) async {
+      stub(
+          application: _app('activated')
+            ..['organizationCode'] = 'SERV001');
+      await pumpStatus(tester);
+      expect(find.byIcon(Icons.check_circle), findsNWidgets(3));
+      expect(find.byIcon(Icons.radio_button_unchecked), findsNothing);
+      expect(find.text('Organization activated successfully.'),
+          findsOneWidget);
+      expect(find.text('SERV001'), findsWidgets);
+      expect(find.text('Continue to Admin Dashboard'), findsOneWidget);
+      expect(find.byType(AdminDashboard), findsNothing);
+    });
+
+    testWidgets('Continue to Admin Dashboard falls back to Admin sign-in '
+        'when no Firebase session exists', (tester) async {
+      stub(
+          application: _app('activated')
+            ..['organizationCode'] = 'SERV001');
+      await pumpStatus(tester);
+
+      await tester.ensureVisible(find.text('Continue to Admin Dashboard'));
+      await tester.tap(find.text('Continue to Admin Dashboard'));
+      await tester.pumpAndSettle();
+
+      // Firebase is not initialized in tests → no live session → the safe
+      // re-login path navigates to the normal login page.
+      expect(find.byType(LoginPage), findsOneWidget);
+      expect(find.byType(RegistrationStatusPage), findsNothing);
+    });
+
+    testWidgets('exchangeFirebaseToken hits /auth/firebase-login with the '
+        'Firebase ID token as Bearer', (tester) async {
+      stub(application: _app('activated'));
+      final session = await OrganizationRegistrationService.instance
+          .exchangeFirebaseToken('firebase-id-token-123');
+
+      expect(session['role'], 'admin');
+      expect(session['companyId'], 'founder@acme.example.com');
+      expect(session['token'], 'new-admin-jwt');
+      expect(
+        httpClient.requests.any(
+            (r) => r.startsWith('POST') && r.contains('/auth/firebase-login')),
+        isTrue,
+      );
+      expect(httpClient.lastHeaders['authorization'],
+          'Bearer firebase-id-token-123');
+    });
+
+    testWidgets('admin session routes AuthGuard to the Admin Dashboard',
+        (tester) async {
+      // Simulates the persisted session right after a successful
+      // activation + token exchange: role admin + provisioned companyId.
+      stub(
+        meRole: 'admin',
+        meCompanyId: 'founder@acme.example.com',
+        application: _app('activated'),
+      );
+      SharedPreferences.setMockInitialValues({
+        'role': 'admin',
+        'token': _fakeJwt('admin'),
+        'companyId': 'founder@acme.example.com',
+        'email': 'applicant@example.com',
+        'status': 'active',
+      });
+      await tester.pumpWidget(const MaterialApp(home: AuthGuard()));
+      await tester.pumpAndSettle(const Duration(seconds: 5));
+
+      expect(find.byType(AdminDashboard), findsOneWidget);
+      expect(find.byType(RegistrationStatusPage), findsNothing);
+      expect(find.byType(SelectUserTypePage), findsNothing);
     });
   });
 }

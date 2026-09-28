@@ -4,6 +4,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { Request, Response } from 'express';
 import { getDb, getBucket } from '../config/firebase';
 import { errorResponse, successResponse } from '../common/response';
+import { normEmail } from '../common/utils';
 import {
   captureChangeRequestBaseline,
   ORGANIZATION_REGISTRATIONS_COL,
@@ -35,6 +36,7 @@ const VALID_STATUSES: ReadonlySet<string> = new Set<RegistrationStatus>([
   'changes_requested',
   'approved',
   'rejected',
+  'activated',
 ]);
 
 const MAX_PAGE_SIZE = 50;
@@ -42,6 +44,41 @@ const DEFAULT_PAGE_SIZE = 10;
 
 /** The only status from which a review decision may be made (3D-C). */
 const REVIEWABLE_STATUS: RegistrationStatus = 'pending_approval';
+
+/** The only status from which activation may proceed (3D-D). */
+const ACTIVATABLE_STATUS: RegistrationStatus = 'approved';
+
+/** Canonical operational organization store — see companyController.ts.
+ *  `users.companyId` equals this collection's doc id. The doc-id
+ *  convention is the owning admin's emailLower (same as the self-serve
+ *  profile path) so the existing `findProfileDoc` fast path
+ *  (`doc(adminEmailLower)`) resolves activation-provisioned profiles
+ *  without any changes. */
+const COMPANY_PROFILE_COL = 'companyProfile';
+const USERS_COL = 'users';
+const EMPLOYEES_COL = 'employees';
+/**
+ * Founding organization admin's employee id. Empids are free-form and
+ * unique per company (employeeController scopes the check by companyId);
+ * 'ADMIN001' matches the established EMP###/ADMIN### convention and is
+ * guaranteed free on a freshly provisioned organization.
+ */
+const ORG_ADMIN_EMPID = 'ADMIN001';
+
+/** Organization codes follow the existing `SERV###` convention
+ *  (functions/src/scripts/migrateOrganizationCodes.ts). A dedicated
+ *  counter document under a backend-only collection is incremented
+ *  inside the provisioning transaction, and each candidate is
+ *  collision-checked against existing `companyProfile.code` values so
+ *  codes written before the counter existed are skipped safely. */
+const ORG_CODE_COUNTER_COL = 'meta';
+const ORG_CODE_COUNTER_DOC = 'organizationCodeCounter';
+const ORG_CODE_PREFIX = 'SERV';
+const ORG_CODE_PAD = 3;
+const MAX_CODE_ATTEMPTS = 32;
+
+const formatOrgCode = (seq: number): string =>
+  `${ORG_CODE_PREFIX}${String(seq).padStart(ORG_CODE_PAD, '0')}`;
 
 /** Thrown inside the review transaction when the doc has vanished. */
 class ReviewNotFoundError extends Error {
@@ -60,6 +97,17 @@ class ReviewConflictError extends Error {
     );
   }
 }
+
+/** Thrown inside the activation transaction when the doc has vanished. */
+class ActivationNotFoundError extends Error {
+  constructor() {
+    super('Registration not found');
+  }
+}
+
+/** Thrown inside the activation transaction on an invalid transition or
+ *  a missing provisioning prerequisite — mapped to HTTP 409. */
+class ActivationConflictError extends Error {}
 
 interface ReviewDecisionSpec {
   action: 'approve' | 'reject' | 'request-changes';
@@ -236,6 +284,303 @@ export const requestRegistrationChanges = async (
 ): Promise<Response> =>
   applyReviewDecision(req, res, REVIEW_DECISIONS['request-changes']);
 
+/**
+ * POST /platform-admin/registrations/:id/activate  (3D-D)
+ *
+ * approved → activated. This is the FIRST and ONLY point where
+ * organization resources are provisioned:
+ *
+ *   1. organization code (SERV###, transaction-safe counter + collision
+ *      probe against existing companyProfile.code values)
+ *   2. canonical companyProfile document (doc id = admin emailLower,
+ *      matching the self-serve convention; falls back to `org-<id>` on
+ *      collision)
+ *   3. employees membership record for the admin (seed convention:
+ *      admins appear in both `users` and `employees`)
+ *   4. the SAME applicant users/<applicantUid> doc promoted to role
+ *      'admin' with companyId/organizationCode — no new Firebase user
+ *   5. enabledFeatures = requestedFeatures (approval approves exactly
+ *      the requested set; nothing outside it is ever enabled)
+ *   6. registration → activated + organization_activated audit event
+ *
+ * Everything runs in ONE Firestore transaction, so a failure leaves no
+ * partial state, concurrent activations serialize (the loser sees
+ * 'activated' and returns idempotently), and all reads happen before
+ * all writes. Request body fields (companyId, organizationCode, role,
+ * adminUid, enabledFeatures, ...) are never read.
+ */
+export const activateRegistration = async (
+  req: Request,
+  res: Response,
+): Promise<Response> => {
+  try {
+    const id = String(req.params.id || '').trim();
+    if (!id) return errorResponse(res, 'Registration ID is required', 400);
+
+    // Identity is server-derived only — never from the request body.
+    const adminId = String(req.user?.userId ?? '');
+    const adminEmail = String(req.user?.email ?? '');
+    const adminRole = String(req.user?.role ?? '');
+    if (!adminId || adminRole !== 'platform_admin') {
+      return errorResponse(res, 'Forbidden', 403);
+    }
+
+    const db = getDb();
+    const regRef = db.collection(ORGANIZATION_REGISTRATIONS_COL).doc(id);
+
+    const outcome = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(regRef);
+      if (!snap.exists) throw new ActivationNotFoundError();
+      const cur = snap.data() as OrganizationRegistration;
+
+      // Idempotent re-entry: the same call after a successful activation
+      // returns the existing provisioning result without new writes.
+      if (cur.status === 'activated') {
+        return {
+          alreadyActivated: true,
+          companyId: String(cur.approvedCompanyId ?? ''),
+          organizationCode: String(cur.organizationCode ?? ''),
+          enabledFeatures: (cur.enabledFeatures ?? []).filter(
+            (f) => typeof f === 'string',
+          ) as string[],
+        };
+      }
+      if (cur.status !== ACTIVATABLE_STATUS) {
+        throw new ActivationConflictError(
+          `Application cannot be activated from status '${cur.status}'`,
+        );
+      }
+
+      const applicantUid = String(cur.applicantUid || '');
+      if (!applicantUid) {
+        throw new ActivationConflictError(
+          'Approved application has no bound applicant account',
+        );
+      }
+      const userRef = db.collection(USERS_COL).doc(applicantUid);
+      const userSnap = await tx.get(userRef);
+      if (!userSnap.exists) {
+        throw new ActivationConflictError(
+          'Bound applicant account is missing',
+        );
+      }
+      const userData = (userSnap.data() ?? {}) as Record<string, unknown>;
+      const applicantEmail = normEmail(
+        String(userData.email || cur.applicantEmail || ''),
+      );
+
+      // Feature policy: approval approves the requested set, so
+      // activation enables exactly it — deduplicated, never client-set.
+      const enabledFeatures = [...new Set(cur.requestedFeatures ?? [])];
+
+      // ── Reads (all Firestore transaction reads precede writes) ──
+      let organizationCode = String(cur.organizationCode || '').trim();
+      let companyId = String(cur.approvedCompanyId || '').trim();
+      let counterNext: number | null = null;
+      const counterRef = db
+        .collection(ORG_CODE_COUNTER_COL)
+        .doc(ORG_CODE_COUNTER_DOC);
+
+      if (!organizationCode) {
+        const counterSnap = await tx.get(counterRef);
+        let seq = Number((counterSnap.data() as any)?.next ?? 1);
+        for (let i = 0; i < MAX_CODE_ATTEMPTS; i++) {
+          const candidate = formatOrgCode(seq);
+          const clash = await tx.get(
+            db
+              .collection(COMPANY_PROFILE_COL)
+              .where('code', '==', candidate)
+              .limit(1),
+          );
+          if (clash.empty) {
+            organizationCode = candidate;
+            counterNext = seq + 1;
+            break;
+          }
+          seq += 1;
+        }
+        if (!organizationCode) {
+          throw new Error('Unable to allocate a unique organization code');
+        }
+      }
+
+      if (!companyId) {
+        companyId = applicantEmail || `org-${id}`;
+      }
+      let profileRef = db.collection(COMPANY_PROFILE_COL).doc(companyId);
+      let profileSnap = await tx.get(profileRef);
+      if (
+        profileSnap.exists &&
+        String((profileSnap.data() as any)?.registrationId || '') !== id
+      ) {
+        // The canonical admin-email doc id is already owned by a
+        // different organization — fall back to a registration-scoped
+        // id so we never overwrite another company's profile.
+        companyId = `org-${id}`;
+        profileRef = db.collection(COMPANY_PROFILE_COL).doc(companyId);
+        profileSnap = await tx.get(profileRef);
+      }
+      const profileAlreadyProvisioned =
+        profileSnap.exists &&
+        String((profileSnap.data() as any)?.registrationId || '') === id;
+
+      // ── Writes ──
+      const adminDisplayName = String(
+        cur.adminContact?.fullName || userData.name || '',
+      ).trim();
+      const companyName = String(cur.organization?.name || '').trim();
+      const officialEmail =
+        normEmail(String(cur.organization?.officialEmail || '')) ||
+        applicantEmail;
+      const phone = String(cur.organization?.contactNumber || '').trim();
+      const designation = String(cur.adminContact?.designation || '').trim();
+
+      if (!profileAlreadyProvisioned) {
+        tx.set(profileRef, {
+          id: companyId,
+          adminEmail: applicantEmail,
+          adminEmailLower: applicantEmail,
+          companyName,
+          email: officialEmail,
+          emailLower: officialEmail,
+          phone,
+          website: String(cur.organization?.website || '').trim(),
+          adminName: adminDisplayName,
+          designation,
+          code: organizationCode,
+          status: 'active',
+          filled: Boolean(
+            companyName &&
+              officialEmail &&
+              phone &&
+              adminDisplayName &&
+              designation,
+          ),
+          enabledFeatures,
+          registrationId: id,
+          activatedBy: adminId,
+          activatedAt: FieldValue.serverTimestamp(),
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+
+        // Membership mirror — admins appear in `employees` too (see
+        // seedMilestone2A.ts). Auto id; the transaction keeps this
+        // write atomic with the rest, so retries cannot duplicate it.
+        // empid/employeeId are REQUIRED by the canonical membership
+        // contract: /attendance/live and pickEmpId() read them, and a
+        // missing empid reaches Flutter as JSON null and crashes the
+        // Admin dashboard record parser. Per-company uniqueness is all
+        // that is required (employeeController scopes empid by
+        // companyId), so the founding admin always takes ADMIN001.
+        const employeeRef = db.collection(EMPLOYEES_COL).doc();
+        tx.set(employeeRef, {
+          email: applicantEmail,
+          emailLower: applicantEmail,
+          name: adminDisplayName,
+          fullName: adminDisplayName,
+          companyId,
+          role: 'admin',
+          status: 'active',
+          empid: ORG_ADMIN_EMPID,
+          employeeId: ORG_ADMIN_EMPID,
+          organizationCode,
+          registrationId: id,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+
+      if (counterNext !== null) {
+        tx.set(
+          counterRef,
+          {
+            next: counterNext,
+            lastIssuedCode: organizationCode,
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+      }
+
+      // Promote the SAME applicant account — same Firebase UID, email,
+      // and user doc; only the role/company linkage changes. The empid
+      // fields mirror the canonical users-doc shape (firebaseLogin
+      // backfills them from employees by emailLower; we set them here so
+      // the first login is already complete).
+      tx.update(userRef, {
+        role: 'admin',
+        status: 'active',
+        companyId,
+        organizationCode,
+        empid: ORG_ADMIN_EMPID,
+        empId: ORG_ADMIN_EMPID,
+        employeeId: ORG_ADMIN_EMPID,
+        activatedRegistrationId: id,
+        activatedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      tx.update(regRef, {
+        status: 'activated',
+        approvedCompanyId: companyId,
+        organizationCode,
+        approvedFeatures: enabledFeatures,
+        enabledFeatures,
+        activatedAt: FieldValue.serverTimestamp(),
+        activatedBy: adminId,
+        activatedByEmail: adminEmail,
+        provisionedAdmin: {
+          uid: applicantUid,
+          email: applicantEmail,
+          name: adminDisplayName,
+        },
+        auditTrail: FieldValue.arrayUnion({
+          at: new Date(),
+          action: 'organization_activated',
+          actor: adminId,
+          note:
+            `approved -> activated by platform_admin; ` +
+            `organizationCode=${organizationCode}; companyId=${companyId}; ` +
+            `admin=${applicantEmail || applicantUid}`,
+        }),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      return {
+        alreadyActivated: false,
+        companyId,
+        organizationCode,
+        enabledFeatures,
+      };
+    });
+
+    return successResponse(
+      res,
+      {
+        registrationId: id,
+        status: 'activated',
+        alreadyActivated: outcome.alreadyActivated,
+        companyId: outcome.companyId,
+        organizationCode: outcome.organizationCode,
+        enabledFeatures: outcome.enabledFeatures,
+      },
+      outcome.alreadyActivated
+        ? 'Organization already activated'
+        : 'Organization activated',
+    );
+  } catch (err: any) {
+    if (err instanceof ActivationNotFoundError) {
+      return errorResponse(res, err.message, 404);
+    }
+    if (err instanceof ActivationConflictError) {
+      return errorResponse(res, err.message, 409);
+    }
+    console.error('activate registration error:', err);
+    return errorResponse(res, err.message || 'Internal server error', 500);
+  }
+};
+
 function storageGuardError(): string | null {
   // Never let a DEV/emulator request fall through to the real bucket.
   if (
@@ -269,6 +614,9 @@ function listItem(d: FirebaseFirestore.DocumentSnapshot) {
     resubmissionCount: r.resubmissionCount ?? 0,
     resubmittedAt: r.resubmittedAt ?? null,
     changedFieldsCount: (r.changedFields ?? []).length,
+    // Activation context for the Activated tab card.
+    organizationCode: r.organizationCode ?? null,
+    activatedAt: r.activatedAt ?? null,
     createdAt: r.createdAt ?? null,
   };
 }
@@ -334,6 +682,25 @@ function detailProjection(d: FirebaseFirestore.DocumentSnapshot) {
       reviewerEmail: h.reviewerEmail ?? '',
     })),
     organizationCode: r.organizationCode ?? null,
+    // Provisioning record (3D-D) — null until activation. The applicant
+    // uid is intentionally omitted; reviewers see safe identity only.
+    provisioning:
+      r.status === 'activated'
+        ? {
+            companyId: r.approvedCompanyId ?? null,
+            organizationCode: r.organizationCode ?? null,
+            activatedAt: r.activatedAt ?? null,
+            activatedByEmail: r.activatedByEmail ?? null,
+            approvedFeatures: r.approvedFeatures ?? [],
+            enabledFeatures: r.enabledFeatures ?? [],
+            admin: r.provisionedAdmin
+              ? {
+                  email: r.provisionedAdmin.email,
+                  name: r.provisionedAdmin.name,
+                }
+              : null,
+          }
+        : null,
     auditTrail: (r.auditTrail ?? []).map((e) => ({
       at: e.at,
       action: e.action,

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:serv_app/shared/app_theme.dart';
 import 'package:serv_app/features/users/login_page.dart';
 import 'live_attendance_page.dart';
 import 'leave_approval_screen.dart';
@@ -10,11 +9,40 @@ import 'employee_onboarding_form_page.dart';
 import 'others_page.dart';
 import 'settings_page.dart'; // ✅ Added
 import 'package:serv_app/models/company_profile.dart';
+import 'package:serv_app/models/organization_context.dart';
+import 'package:serv_app/services/organization_context_service.dart';
+import 'admin_feature_gate.dart';
+
+/// One drawer/module entry. `feature` == null → universal (always shown);
+/// otherwise the entry exists only when the organization's
+/// enabledFeatures contains it.
+class _NavEntry {
+  final String title;
+  final IconData icon;
+  final String? feature;
+  final Widget Function() page;
+  const _NavEntry({
+    required this.title,
+    required this.icon,
+    required this.page,
+    this.feature,
+  });
+}
 
 class AdminDashboard extends StatefulWidget {
   final CompanyProfile companyProfile;
 
-  const AdminDashboard({super.key, required this.companyProfile});
+  /// Server-authoritative org context (companyId/code/enabledFeatures).
+  /// When null the dashboard loads it itself via
+  /// [OrganizationContextService] — every existing construction site keeps
+  /// working unchanged.
+  final OrganizationContext? organization;
+
+  const AdminDashboard({
+    super.key,
+    required this.companyProfile,
+    this.organization,
+  });
 
   @override
   State<AdminDashboard> createState() => _AdminDashboardState();
@@ -22,23 +50,121 @@ class AdminDashboard extends StatefulWidget {
 
 class _AdminDashboardState extends State<AdminDashboard> {
   int selectedIndex = 0;
+  OrganizationContext? _org;
 
-  final List<String> pageTitles = [
-    "Live Attendance",
-    "Request and Leave Approvals",
-    "Employee Management",
-    "Attendance Reports",
-    "Payroll Management",
-    "Employee Onboarding",
-    "Others",
-    "Settings",
+  /// Ordered module menu — features map 1:1 to CANONICAL_FEATURES on the
+  /// backend. Home/Settings/Others/Logout are universal, never gated.
+  late final List<_NavEntry> _allEntries = [
+    _NavEntry(
+      title: "Home",
+      icon: Icons.home_outlined,
+      page: () => _AdminHomeTab(
+        org: _org,
+        companyProfile: widget.companyProfile,
+      ),
+    ),
+    _NavEntry(
+      title: "Live Attendance",
+      icon: Icons.check_circle,
+      feature: 'attendance',
+      page: () => FeatureGate(
+        feature: 'attendance',
+        child: LiveAttendancePage(companyProfile: widget.companyProfile),
+      ),
+    ),
+    _NavEntry(
+      title: "Request and Leave Approvals",
+      icon: Icons.calendar_today,
+      feature: 'leave_management',
+      page: () => const FeatureGate(
+        feature: 'leave_management',
+        child: LeaveApprovalsScreen(),
+      ),
+    ),
+    _NavEntry(
+      title: "Employee Management",
+      icon: Icons.group,
+      feature: 'employee_master',
+      page: () => const FeatureGate(
+        feature: 'employee_master',
+        child: EmployeeListScreen(),
+      ),
+    ),
+    _NavEntry(
+      title: "Attendance Reports",
+      icon: Icons.bar_chart,
+      feature: 'attendance',
+      page: () => const FeatureGate(
+        feature: 'attendance',
+        child: AttendanceReportScreen(initialFilter: ''),
+      ),
+    ),
+    _NavEntry(
+      title: "Payroll Management",
+      icon: Icons.payments_outlined,
+      feature: 'payroll',
+      page: () => const FeatureGate(
+        feature: 'payroll',
+        child: PayrollAdminPage(),
+      ),
+    ),
+    _NavEntry(
+      title: "Employee Onboarding",
+      icon: Icons.person_add_alt_1,
+      feature: 'employee_master',
+      page: () => const FeatureGate(
+        feature: 'employee_master',
+        child: EmployeeOnboardingFormPage(),
+      ),
+    ),
+    _NavEntry(
+      title: "Others",
+      icon: Icons.chat,
+      page: () => const OthersPage(),
+    ),
+    _NavEntry(
+      title: "Settings",
+      icon: Icons.settings,
+      page: () => const SettingsPage(),
+    ),
   ];
+
+  /// Menu actually shown — gated by the loaded org's enabledFeatures.
+  /// When no context is loaded (legacy/unknown session) everything stays
+  /// visible; backend requireFeature still enforces authorization.
+  List<_NavEntry> get _entries {
+    final org = _org;
+    if (org == null) return _allEntries;
+    return _allEntries
+        .where((e) => e.feature == null || org.isFeatureEnabled(e.feature!))
+        .toList();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _org = widget.organization ?? OrganizationContext.current;
+    if (_org == null) _loadOrgContext();
+  }
+
+  Future<void> _loadOrgContext() async {
+    final loaded = await OrganizationContextService.load();
+    if (!mounted || loaded == null) return;
+    setState(() => _org = loaded);
+  }
 
   @override
   Widget build(BuildContext context) {
+    final entries = _entries;
+    if (selectedIndex >= entries.length) selectedIndex = 0;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Admin Dashboard"),
+        title: Text(
+          _org?.organizationName.isNotEmpty == true
+              ? _org!.organizationName
+              : "Admin Dashboard",
+        ),
         backgroundColor: const Color(0xFF6A1B9A),
         actions: [
           // IconButton(
@@ -74,27 +200,34 @@ class _AdminDashboardState extends State<AdminDashboard> {
         child: ListView(
           children: [
             _buildDrawerHeader(),
-            _buildDrawerItem(Icons.check_circle, "Live Attendance", 0),
-            _buildDrawerItem(
-                Icons.calendar_today, "Request and Leave Approvals", 1),
-            _buildDrawerItem(Icons.group, "Employee Management", 2),
-            _buildDrawerItem(Icons.bar_chart, "Attendance Reports", 3),
-            _buildDrawerItem(Icons.payments_outlined, "Payroll Management", 4),
-            _buildDrawerItem(Icons.person_add_alt_1, "Employee Onboarding", 5),
-            _buildDrawerItem(Icons.chat, "Others", 6),
-            _buildDrawerItem(Icons.settings, "Settings", 7),
+            if (_org != null && _org!.companyId.isNotEmpty)
+              ListTile(
+                dense: true,
+                title: Text("Org ID: ${_org!.companyId}"),
+              ),
+            for (var i = 0; i < entries.length; i++)
+              _buildDrawerItem(entries[i], i),
           ],
         ),
       ),
-      body: _buildPageContent(),
+      body: entries[selectedIndex].page(),
     );
   }
 
   Widget _buildDrawerHeader() {
+    final org = _org;
     return UserAccountsDrawerHeader(
       decoration: const BoxDecoration(color: Color(0xFF6A1B9A)),
-      accountName: Text(widget.companyProfile.name),
-      accountEmail: Text("Admin: ${widget.companyProfile.adminName}"),
+      accountName: Text(
+        org?.organizationName.isNotEmpty == true
+            ? org!.organizationName
+            : widget.companyProfile.name,
+      ),
+      accountEmail: Text(
+        org != null && org.organizationCode.isNotEmpty
+            ? "${org.organizationCode}  •  Admin: ${widget.companyProfile.adminName}"
+            : "Admin: ${widget.companyProfile.adminName}",
+      ),
       currentAccountPicture: widget.companyProfile.hasLogo
           ? CircleAvatar(
               backgroundImage: NetworkImage(widget.companyProfile.logoUrl!),
@@ -113,14 +246,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 
-  Widget _buildDrawerItem(IconData icon, String title, int index) {
+  Widget _buildDrawerItem(_NavEntry entry, int index) {
     return ListTile(
       leading: Icon(
-        icon,
+        entry.icon,
         color: selectedIndex == index ? Colors.deepPurple : Colors.black54,
       ),
       title: Text(
-        title,
+        entry.title,
         style: TextStyle(
           fontWeight:
               selectedIndex == index ? FontWeight.bold : FontWeight.normal,
@@ -136,29 +269,123 @@ class _AdminDashboardState extends State<AdminDashboard> {
       },
     );
   }
+}
 
-  Widget _buildPageContent() {
-    switch (selectedIndex) {
-      case 0:
-        return LiveAttendancePage(companyProfile: widget.companyProfile);
-      case 1:
-        return const LeaveApprovalsScreen();
-      case 2:
-        return const EmployeeListScreen();
-      case 3:
-        return const AttendanceReportScreen(
-          initialFilter: '',
-        );
-      case 4:
-        return const PayrollAdminPage();
-      case 5:
-        return const EmployeeOnboardingFormPage();
-      case 6:
-        return const OthersPage();
-      case 7:
-        return const SettingsPage(); // ✅ Navigate to settings
-      default:
-        return const Center(child: Text("Unknown page"));
-    }
+/// Generic Admin home — organization identity + enabled modules.
+/// Deliberately loads NO module data: an org without the attendance
+/// feature must never trigger GET /attendance/live on open.
+class _AdminHomeTab extends StatelessWidget {
+  final OrganizationContext? org;
+  final CompanyProfile companyProfile;
+
+  const _AdminHomeTab({required this.org, required this.companyProfile});
+
+  static const _featureLabels = {
+    'employee_master': 'Employee Master',
+    'organization_structure': 'Organization Structure',
+    'users_and_roles': 'Users and Roles',
+    'attendance': 'Attendance',
+    'location_tracking': 'Location Tracking',
+    'tasks': 'Tasks',
+    'shifts': 'Shifts',
+    'leave_management': 'Leave Management',
+    'payroll': 'Payroll',
+    'recruitment': 'Recruitment',
+    'performance': 'Performance',
+    'reporting': 'Reporting',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final orgName = org?.organizationName.isNotEmpty == true
+        ? org!.organizationName
+        : companyProfile.name;
+    final features = org?.enabledFeatures;
+
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Organization',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                _row('Organization Name', orgName.isEmpty ? '—' : orgName),
+                _row(
+                  'Organization Code',
+                  org?.organizationCode.isNotEmpty == true
+                      ? org!.organizationCode
+                      : '—',
+                ),
+                _row(
+                  'Organization ID',
+                  org?.companyId.isNotEmpty == true ? org!.companyId : '—',
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Enabled Modules',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                if (features == null)
+                  const Text('All modules')
+                else if (features.isEmpty)
+                  const Text('No modules enabled')
+                else
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: features
+                        .map(
+                          (f) => Chip(
+                            label: Text(_featureLabels[f] ?? f),
+                          ),
+                        )
+                        .toList(),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _row(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 140,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Colors.black54,
+              ),
+            ),
+          ),
+          Expanded(child: Text(value)),
+        ],
+      ),
+    );
   }
 }

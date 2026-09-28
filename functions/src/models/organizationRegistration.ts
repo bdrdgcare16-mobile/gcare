@@ -468,6 +468,19 @@ export interface OrganizationRegistration {
   };
   organizationCode?: string;
   approvedCompanyId?: string;
+  /** Feature sets recorded at activation (3D-D). Approval of an
+   *  application approves exactly the requested set; activation copies
+   *  it onto the operational companyProfile. Server-written only. */
+  approvedFeatures?: string[];
+  enabledFeatures?: string[];
+  /** Activation bookkeeping (3D-D) — written inside the provisioning
+   *  transaction by the platform-admin activate endpoint only. */
+  activatedAt?: FirebaseFirestore.FieldValue | Date;
+  activatedBy?: string;
+  activatedByEmail?: string;
+  /** Safe identity snapshot of the promoted organization Admin —
+   *  email/name only, never credentials. */
+  provisionedAdmin?: { uid: string; email: string; name: string };
   createdAt: FirebaseFirestore.FieldValue | Date;
   updatedAt: FirebaseFirestore.FieldValue | Date;
   expiresAt: Date;

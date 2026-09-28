@@ -116,6 +116,32 @@ class PlatformAdminRegistrationService {
   ) =>
       _decide(registrationId, 'request-changes', {'message': message.trim()});
 
+  /// Activate an approved application (3D-D) — provisions the
+  /// organization code, companyProfile, and Admin promotion in one
+  /// server transaction. The request body is empty: every provisioning
+  /// value is server-derived. Repeated calls are idempotent.
+  Future<Map<String, dynamic>> activateRegistration(
+    String registrationId,
+  ) async {
+    final response = await http
+        .post(
+          Uri.parse('$_base/$registrationId/activate'),
+          headers: _headers,
+          body: json.encode(const {}),
+        )
+        .timeout(_timeout);
+    debugPrint('[AdminReg] activate status=${response.statusCode}');
+    final decoded = json.decode(response.body);
+    if (response.statusCode == 200) {
+      return Map<String, dynamic>.from(decoded as Map);
+    }
+    throw Exception(
+      decoded is Map && decoded['error'] != null
+          ? decoded['error']
+          : 'Activation failed (${response.statusCode})',
+    );
+  }
+
   /// Fetches one full application for review.
   Future<Map<String, dynamic>> getRegistration(String registrationId) async {
     final response = await http

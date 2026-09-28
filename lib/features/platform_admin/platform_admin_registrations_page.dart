@@ -4,10 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:serv_app/services/platform_admin_registration_service.dart';
 
 /// Platform Admin review list for organization registration
-/// applications (Milestones 3D-B/C). Tabs map to application statuses:
-/// Pending → pending_approval, Approved → approved, Rejected → rejected,
-/// Changes Requested → changes_requested, All Applications → no filter.
-/// Decisions are made on the detail page (3D-C).
+/// applications (Milestones 3D-B/C/D). Tabs map to application statuses:
+/// Pending → pending_approval, Approved → approved (not yet activated),
+/// Rejected → rejected, Changes Requested → changes_requested,
+/// Activated → activated, All Applications → no filter.
+/// Decisions and activation are made on the detail page.
 class PlatformAdminRegistrationsPage extends StatefulWidget {
   const PlatformAdminRegistrationsPage({super.key});
 
@@ -23,6 +24,7 @@ class _PlatformAdminRegistrationsPageState
     ('Approved', 'approved'),
     ('Rejected', 'rejected'),
     ('Changes Requested', 'changes_requested'),
+    ('Activated', 'activated'),
     ('All Applications', null),
   ];
 
@@ -118,6 +120,8 @@ class _PlatformAdminRegistrationsPageState
         return Colors.blue;
       case 'pending_verification':
         return Colors.teal;
+      case 'activated':
+        return const Color(0xFF6A1B9A);
       default:
         return Colors.grey;
     }
@@ -131,6 +135,7 @@ class _PlatformAdminRegistrationsPageState
     'changes_requested': 'Changes Requested',
     'approved': 'Approved',
     'rejected': 'Rejected',
+    'activated': 'Activated',
   };
 
   Widget _statusBadge(String status) {
@@ -234,6 +239,24 @@ class _PlatformAdminRegistrationsPageState
                   style:
                       const TextStyle(fontSize: 11, color: Colors.black45),
                 ),
+                if (item['status'] == 'activated') ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    'Code: ${item['organizationCode'] ?? '—'}',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF6A1B9A),
+                    ),
+                  ),
+                  Text(
+                    'Activated: ${_fmtDate(item['activatedAt'])}',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Colors.black45,
+                    ),
+                  ),
+                ],
                 _resubmissionBadge(item),
               ],
             ),

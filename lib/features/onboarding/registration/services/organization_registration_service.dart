@@ -263,6 +263,26 @@ class OrganizationRegistrationService {
     return _decode(res);
   }
 
+  /// Re-exchanges a Firebase ID token for a fresh SERV session via
+  /// `POST /auth/firebase-login` (the same endpoint as the Admin login
+  /// page — the token travels in the Authorization header). After
+  /// activation the promoted applicant calls this to pick up the new
+  /// `admin` role and `companyId`; no new authentication mechanism is
+  /// introduced. Returns the decoded body.
+  Future<Map<String, dynamic>> exchangeFirebaseToken(String idToken) async {
+    final res = await _send(() => http.post(
+          Uri.parse('$_base/auth/firebase-login'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': 'Bearer $idToken',
+          },
+          body: jsonEncode(const {}),
+        ));
+    if (res.statusCode != 200) _throwFor(res);
+    return _decode(res);
+  }
+
   /// Server-side resolution of the caller's current application — the
   /// source of truth for post-login routing. Requires the applicant JWT
   /// (sent automatically via [_headers]).

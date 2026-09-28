@@ -711,6 +711,7 @@ export const getRegistrationStatus = async (
       currentStep: d.currentStep,
       organizationName: d.organization?.name ?? '',
       organizationCode: d.organizationCode ?? null,
+      activatedAt: d.activatedAt ?? null,
       submittedAt: d.submittedAt ?? null,
       review: d.review
         ? {
@@ -1292,6 +1293,8 @@ export const getMyRegistration = async (
           currentStep: d.currentStep,
           maxCompletedStep: d.maxCompletedStep,
           organizationName: d.organization?.name ?? '',
+          organizationCode: d.organizationCode ?? null,
+          activatedAt: d.activatedAt ?? null,
           submittedAt: d.submittedAt ?? null,
           review: d.review
             ? {

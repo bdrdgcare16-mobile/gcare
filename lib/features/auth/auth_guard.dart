@@ -6,6 +6,7 @@ import 'package:jwt_decoder/jwt_decoder.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:serv_app/models/company_profile.dart';
+import 'package:serv_app/models/organization_context.dart';
 
 // Web localStorage shim
 import 'package:serv_app/html_stub.dart'
@@ -255,10 +256,17 @@ class _AuthGuardState extends State<AuthGuard> {
                 adminName: (companyData['adminName'] ?? '').toString(),
                 logoUrl: companyData['logoUrl']?.toString(),
               );
+              // Server-authoritative org context (companyId, code,
+              // enabledFeatures) — drives feature gating on the dashboard.
+              final org = OrganizationContext.fromProfileJson(companyData);
+              OrganizationContext.current = org;
 
               Navigator.of(context).pushReplacement(
                 MaterialPageRoute(
-                  builder: (_) => AdminDashboard(companyProfile: profile),
+                  builder: (_) => AdminDashboard(
+                    companyProfile: profile,
+                    organization: org,
+                  ),
                 ),
               );
             } else {

@@ -179,6 +179,8 @@ import organizationRegistrationRoutes from "./routes/organizationRegistrationRou
 import platformAdminRegistrationRoutes from "./routes/platformAdminRegistrationRoutes";
 
 import * as authController from "./controllers/authController";
+import { authMiddleware } from "./middlewares/authMiddleware";
+import { requireFeature } from "./middlewares/featureMiddleware";
 
 const app = express();
 
@@ -284,32 +286,108 @@ app.use(generalRateLimit);
 // to be requested as `/api/api/<resource>`. Use an empty prefix in emulator.
 const apiPrefix = process.env.FUNCTIONS_EMULATOR === 'true' ? '' : '/api';
 
+// Feature gating (post-activation organization modules): mount-level
+// authMiddleware + requireFeature runs before each router's own auth —
+// idempotent, and guarantees req.user/companyId is populated regardless
+// of the router's internal auth style. Only routers that map 1:1 to
+// canonical registration features are gated; universal surfaces (auth,
+// company profile, uploads, policies, onboarding, notifications, admin,
+// billing, office locations, reasons, rewards, events, feedback) stay
+// open.
 app.use(`${apiPrefix}/auth`, authRateLimit, authRoutes);
 app.use(`${apiPrefix}/company`, generalRateLimit, companyRoutes);
-app.use(`${apiPrefix}/employees`, generalRateLimit, employeeRoutes);
-app.use(`${apiPrefix}/attendance`, attendanceRateLimit, attendanceRoutes);
-app.use(`${apiPrefix}/employee-details`, generalRateLimit, employeeDetailsRoutes);
-app.use(`${apiPrefix}/leaves`, generalRateLimit, leaveRoutes);
-app.use(`${apiPrefix}/leave-types`, generalRateLimit, leaveTypeRoutes);
+app.use(
+  `${apiPrefix}/employees`,
+  generalRateLimit,
+  authMiddleware,
+  requireFeature("employee_master"),
+  employeeRoutes,
+);
+app.use(
+  `${apiPrefix}/attendance`,
+  attendanceRateLimit,
+  authMiddleware,
+  requireFeature("attendance"),
+  attendanceRoutes,
+);
+app.use(
+  `${apiPrefix}/employee-details`,
+  generalRateLimit,
+  authMiddleware,
+  requireFeature("employee_master"),
+  employeeDetailsRoutes,
+);
+app.use(
+  `${apiPrefix}/leaves`,
+  generalRateLimit,
+  authMiddleware,
+  requireFeature("leave_management"),
+  leaveRoutes,
+);
+app.use(
+  `${apiPrefix}/leave-types`,
+  generalRateLimit,
+  authMiddleware,
+  requireFeature("leave_management"),
+  leaveTypeRoutes,
+);
 app.use(`${apiPrefix}/office`, generalRateLimit, officeLocationRoutes);
 app.use(`${apiPrefix}/uploads`, uploadRateLimit, uploadRoutes);
-app.use(`${apiPrefix}/reports`, generalRateLimit, reportRoutes);
+app.use(
+  `${apiPrefix}/reports`,
+  generalRateLimit,
+  authMiddleware,
+  requireFeature("reporting"),
+  reportRoutes,
+);
 app.use(`${apiPrefix}/rewards`, generalRateLimit, rewardRoutes);
 app.use(`${apiPrefix}/events`, generalRateLimit, eventRoutes());
 app.use(`${apiPrefix}/feedback`, generalRateLimit, feedbackRoutes());
-app.use(`${apiPrefix}/shifts`, generalRateLimit, shiftRoutes);
-app.use(`${apiPrefix}/tasks`, generalRateLimit, taskRoutes);
-app.use(`${apiPrefix}/tracking`, trackingRateLimit, trackingRoutes);
+app.use(
+  `${apiPrefix}/shifts`,
+  generalRateLimit,
+  authMiddleware,
+  requireFeature("shifts"),
+  shiftRoutes,
+);
+app.use(
+  `${apiPrefix}/tasks`,
+  generalRateLimit,
+  authMiddleware,
+  requireFeature("tasks"),
+  taskRoutes,
+);
+app.use(
+  `${apiPrefix}/tracking`,
+  trackingRateLimit,
+  authMiddleware,
+  requireFeature("location_tracking"),
+  trackingRoutes,
+);
 app.use(
   `${apiPrefix}/liveEmployeeDetails`,
   generalRateLimit,
+  authMiddleware,
+  requireFeature("employee_master"),
   liveEmployeeDetailsRouter,
 );
 app.use(`${apiPrefix}/reasons`, generalRateLimit, reasonsRouter);
-app.use(`${apiPrefix}/overtime`, generalRateLimit, overtimeRoutes);
+app.use(
+  `${apiPrefix}/overtime`,
+  generalRateLimit,
+  authMiddleware,
+  requireFeature("attendance"),
+  overtimeRoutes,
+);
 app.use(`${apiPrefix}/admin`, generalRateLimit, adminRoutes);
 app.use(`${apiPrefix}/billing`, generalRateLimit, billingRoutes);
-app.use(`${apiPrefix}/payroll`, payrollRoutes);
+app.use(
+  `${apiPrefix}/payroll`,
+  generalRateLimit,
+  authMiddleware,
+  requireFeature("payroll"),
+  payrollRoutes,
+);
 app.use(`${apiPrefix}/onboarding`, onboardingRoutes);
 app.use(`${apiPrefix}/notifications`, generalRateLimit, notificationRoutes);
 app.use(`${apiPrefix}/organization`, generalRateLimit, policyRoutes);

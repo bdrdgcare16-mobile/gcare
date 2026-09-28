@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:jwt_decoder/jwt_decoder.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:serv_app/models/company_profile.dart';
+import 'package:serv_app/models/organization_context.dart';
 import 'package:serv_app/utils/location_permission_dialog.dart';
 
 // Web localStorage shim
@@ -377,6 +378,9 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           if (!mounted) return;
 
           if (exists) {
+            // Server-authoritative org context for feature gating.
+            final org = OrganizationContext.fromProfileJson(companyData);
+            OrganizationContext.current = org;
             Navigator.of(context).pushAndRemoveUntil(
               MaterialPageRoute(
                 builder: (_) => AdminDashboard(
@@ -385,6 +389,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                     adminName: (companyData['adminName'] ?? '').toString(),
                     logoUrl: companyData['logoUrl']?.toString(),
                   ),
+                  organization: org,
                 ),
               ),
               (route) => false,

@@ -3,6 +3,8 @@ import 'my_task_page.dart';
 import 'rewards_page.dart';
 import 'feedback_page.dart';
 import 'event_update_page.dart';
+import '../../models/organization_context.dart';
+import 'admin_feature_gate.dart';
 
 // ✅ Color constants (unchanged)
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -24,6 +26,10 @@ const Color _kIconBg4 = Color(0xFFD1C4E9);
 class OthersPage extends StatelessWidget {
   const OthersPage({super.key});
 
+  /// `feature` maps the entry to a canonical feature id — hidden and
+  /// blocked when the organization's enabledFeatures doesn't contain it.
+  /// `null` = universal entry (feedback/events are account-level, not
+  /// modules).
   static const _items = [
     _MenuItem(
       title: 'My Tasks',
@@ -31,6 +37,7 @@ class OthersPage extends StatelessWidget {
       icon: Icons.checklist_rounded,
       iconBg: _kIconBg1,
       iconColor: Color(0xFF7B5EA7),
+      feature: 'tasks',
     ),
     _MenuItem(
       title: 'Rewards',
@@ -38,6 +45,7 @@ class OthersPage extends StatelessWidget {
       icon: Icons.emoji_events_rounded,
       iconBg: _kIconBg2,
       iconColor: Color(0xFF8C6EAF),
+      feature: 'performance',
     ),
     _MenuItem(
       title: 'Feedback',
@@ -55,16 +63,30 @@ class OthersPage extends StatelessWidget {
     ),
   ];
 
-  void _navigate(BuildContext context, int index) {
-    final pages = <Widget>[
-      const MyTasksPage(),
-      const RewardsPage(),
-      const FeedbackPage(employeeName: '', employeeId: ''),
-      const EventUpdatesPage(),
-    ];
+  List<_MenuItem> get _visibleItems {
+    final org = OrganizationContext.current;
+    if (org == null) return _items;
+    return _items
+        .where((i) => i.feature == null || org.isFeatureEnabled(i.feature!))
+        .toList();
+  }
+
+  void _navigate(BuildContext context, _MenuItem item) {
+    final pages = <String, Widget>{
+      'My Tasks': const FeatureGate(
+        feature: 'tasks',
+        child: MyTasksPage(),
+      ),
+      'Rewards': const FeatureGate(
+        feature: 'performance',
+        child: RewardsPage(),
+      ),
+      'Feedback': const FeedbackPage(employeeName: '', employeeId: ''),
+      'Event Updates': const EventUpdatesPage(),
+    };
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => pages[index]),
+      MaterialPageRoute(builder: (_) => pages[item.title]!),
     );
   }
 
@@ -150,13 +172,13 @@ class OthersPage extends StatelessWidget {
                 Expanded(
                   child: ListView.separated(
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                    itemCount: _items.length,
+                    itemCount: _visibleItems.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 14),
                     itemBuilder: (context, i) {
-                      final item = _items[i];
+                      final item = _visibleItems[i];
                       return _FeatureCard(
                         item: item,
-                        onTap: () => _navigate(context, i),
+                        onTap: () => _navigate(context, item),
                         index: i,
                       );
                     },
@@ -178,12 +200,14 @@ class _MenuItem {
   final IconData icon;
   final Color iconBg;
   final Color iconColor;
+  final String? feature;
   const _MenuItem({
     required this.title,
     required this.subtitle,
     required this.icon,
     required this.iconBg,
     required this.iconColor,
+    this.feature,
   });
 }
 

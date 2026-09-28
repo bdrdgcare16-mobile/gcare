@@ -43,11 +43,13 @@ const router = Router();
 router.use(optionalAuthMiddleware);
 
 // Server-side resolution of the caller's current application — the
-// source of truth for post-login routing.
+// source of truth for post-login routing. 'admin' is allowed so the
+// freshly activated applicant (promoted in place, same uid) can still
+// resolve their application during the session refresh window.
 router.get(
   '/mine',
   authMiddleware,
-  roleMiddleware(['org_applicant']),
+  roleMiddleware(['org_applicant', 'admin']),
   getMyRegistration,
 );
 
