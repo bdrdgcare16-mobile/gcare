@@ -1000,7 +1000,11 @@ describe('POST /:id/activate (3D-D)', () => {
     expect(body.status).toBe('activated');
     expect(body.alreadyActivated).toBe(false);
     expect(body.organizationCode).toBe('SERV001');
-    expect(body.companyId).toBe(APPLICANT_EMAIL);
+    // Internal companyId is backend-generated (org-<registrationId>) —
+    // never the applicant email and never the organizationCode.
+    expect(body.companyId).toBe(`org-${id}`);
+    expect(body.companyId).not.toBe(APPLICANT_EMAIL);
+    expect(body.companyId).not.toBe('SERV001');
     expect(body.enabledFeatures).toEqual([
       'attendance',
       'employee_master',
@@ -1012,7 +1016,7 @@ describe('POST /:id/activate (3D-D)', () => {
     // Registration — same document, activation fields stamped.
     const d = docData(collections, id);
     expect(d.status).toBe('activated');
-    expect(d.approvedCompanyId).toBe(APPLICANT_EMAIL);
+    expect(d.approvedCompanyId).toBe(`org-${id}`);
     expect(d.organizationCode).toBe('SERV001');
     expect(d.activatedBy).toBe('pa1');
     expect(d.activatedByEmail).toBe('pa@x.com');
@@ -1029,7 +1033,7 @@ describe('POST /:id/activate (3D-D)', () => {
     const profiles = docsOf('companyProfile');
     expect(profiles).toHaveLength(1);
     const profile = profiles[0];
-    expect(profile.id).toBe(APPLICANT_EMAIL);
+    expect(profile.id).toBe(`org-${id}`);
     expect(profile.data.code).toBe('SERV001');
     expect(profile.data.companyName).toBe('Org 1');
     expect(profile.data.adminEmailLower).toBe(APPLICANT_EMAIL);
@@ -1052,14 +1056,14 @@ describe('POST /:id/activate (3D-D)', () => {
     expect(users[0].id).toBe(APPLICANT_UID);
     expect(users[0].data.role).toBe('admin');
     expect(users[0].data.status).toBe('active');
-    expect(users[0].data.companyId).toBe(APPLICANT_EMAIL);
+    expect(users[0].data.companyId).toBe(`org-${id}`);
     expect(users[0].data.organizationCode).toBe('SERV001');
 
     // Admin membership mirror in employees (seed convention).
     const employees = docsOf('employees');
     expect(employees).toHaveLength(1);
     expect(employees[0].data.role).toBe('admin');
-    expect(employees[0].data.companyId).toBe(APPLICANT_EMAIL);
+    expect(employees[0].data.companyId).toBe(`org-${id}`);
     expect(employees[0].data.emailLower).toBe(APPLICANT_EMAIL);
     // Canonical membership contract: empid must be present and non-null —
     // /attendance/live emits `empid: pickEmpId(emp) || null`, and the
@@ -1158,7 +1162,7 @@ describe('POST /:id/activate (3D-D)', () => {
     expect(statusCode(res2)).toBe(200);
     expect(jsonBody(res2).alreadyActivated).toBe(true);
     expect(jsonBody(res2).organizationCode).toBe('SERV001');
-    expect(jsonBody(res2).companyId).toBe(APPLICANT_EMAIL);
+    expect(jsonBody(res2).companyId).toBe(`org-${id}`);
 
     expect(docsOf('companyProfile')).toHaveLength(1);
     expect(docsOf('employees')).toHaveLength(1);
@@ -1191,16 +1195,16 @@ describe('POST /:id/activate (3D-D)', () => {
     );
     expect(statusCode(res)).toBe(200);
     const body = jsonBody(res);
-    expect(body.companyId).toBe(APPLICANT_EMAIL);
+    expect(body.companyId).toBe(`org-${id}`);
     expect(body.organizationCode).toBe('SERV001');
     expect(body.enabledFeatures).toEqual(['attendance', 'employee_master', 'feedback', 'shifts', 'leave_management']);
     const d = docData(collections, id);
-    expect(d.approvedCompanyId).toBe(APPLICANT_EMAIL);
+    expect(d.approvedCompanyId).toBe(`org-${id}`);
     expect(d.organizationCode).toBe('SERV001');
     expect(d.activatedBy).toBe('pa1');
     expect(d.provisionedAdmin.uid).toBe(APPLICANT_UID);
     expect(docsOf('users').find((u) => u.id === 'other-user')).toBeUndefined();
-    expect(docsOf('companyProfile')[0].id).toBe(APPLICANT_EMAIL);
+    expect(docsOf('companyProfile')[0].id).toBe(`org-${id}`);
   });
 
   it('skips organization codes already claimed by existing company profiles', async () => {
@@ -1228,7 +1232,10 @@ describe('POST /:id/activate (3D-D)', () => {
     expect(docsOf('companyProfile')[1].data.code).toBe('SERV002');
   });
 
-  it('falls back to a registration-scoped company id when the admin-email id is taken', async () => {
+  it('generates the internal companyId even when an email-keyed profile exists for the applicant', async () => {
+    // Another organization already owns a companyProfile keyed by this
+    // applicant's email — activation must NOT reuse the email as
+    // companyId nor overwrite the foreign profile.
     collections['companyProfile'] = [
       {
         id: APPLICANT_EMAIL,
@@ -1251,6 +1258,58 @@ describe('POST /:id/activate (3D-D)', () => {
     expect(jsonBody(res).companyId).toBe(`org-${id}`);
     const other = docsOf('companyProfile')[0];
     expect(other.data.companyName).toBe('Someone Else');
+    expect(docsOf('companyProfile')).toHaveLength(2);
+  });
+
+  it('reuses a persisted approvedCompanyId instead of regenerating', async () => {
+    const id = seedActivatable({ approvedCompanyId: 'org-pre-existing' });
+    const res = mockResponse();
+    await activateRegistration(
+      makeReq({ params: { id }, user: PA_USER }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(200);
+    expect(jsonBody(res).companyId).toBe('org-pre-existing');
+    expect(docsOf('companyProfile')[0].id).toBe('org-pre-existing');
+    expect(docData(collections, id).approvedCompanyId).toBe(
+      'org-pre-existing',
+    );
+  });
+
+  it('gives different organizations different generated companyIds', async () => {
+    const id1 = seedActivatable();
+    const res1 = mockResponse();
+    await activateRegistration(
+      makeReq({ params: { id: id1 }, user: PA_USER }) as Request,
+      res1,
+    );
+
+    // Second organization — its own applicant + registration.
+    collections['users'].push({
+      id: 'applicant-uid-2',
+      data: {
+        email: 'founder2@otherorg.example.com',
+        emailLower: 'founder2@otherorg.example.com',
+        role: 'org_applicant',
+        status: 'active',
+      },
+    });
+    const id2 = seedRegistration(collections, {
+      status: 'approved',
+      applicantUid: 'applicant-uid-2',
+      applicantEmail: 'founder2@otherorg.example.com',
+    });
+    const res2 = mockResponse();
+    await activateRegistration(
+      makeReq({ params: { id: id2 }, user: PA_USER }) as Request,
+      res2,
+    );
+
+    const cid1 = jsonBody(res1).companyId;
+    const cid2 = jsonBody(res2).companyId;
+    expect(cid1).toBe(`org-${id1}`);
+    expect(cid2).toBe(`org-${id2}`);
+    expect(cid1).not.toBe(cid2);
     expect(docsOf('companyProfile')).toHaveLength(2);
   });
 
@@ -1393,7 +1452,7 @@ describe('POST /:id/activate (3D-D)', () => {
     const reg = jsonBody(after).registration;
     expect(reg.status).toBe('activated');
     expect(reg.provisioning.organizationCode).toBe('SERV001');
-    expect(reg.provisioning.companyId).toBe(APPLICANT_EMAIL);
+    expect(reg.provisioning.companyId).toBe(`org-${id}`);
     expect(reg.provisioning.enabledFeatures).toEqual([
       'attendance',
       'employee_master',

@@ -172,6 +172,18 @@ export const saveCompanyProfile = async (req: Request, res: Response): Promise<R
       });
     }
 
+    // The profile doc is keyed by the internal companyId from the JWT.
+    // For legacy/self-serve orgs companyId IS the admin email, so this is
+    // identical to the old email-keyed path; for orgs activated with a
+    // generated internal id it writes the same canonical doc activation
+    // provisioned instead of creating a divergent email-keyed profile.
+    // 'platform' (platform admin tokens) keeps the email convention.
+    const tokenCompanyId = String(tokenUser?.companyId || '').trim();
+    const profileDocId =
+      tokenCompanyId && tokenCompanyId !== 'platform'
+        ? tokenCompanyId
+        : adminEmailFromToken;
+
     const normalizedCode = normalizeOrgCode(code);
     if (normalizedCode && !/^[A-Z0-9_-]{3,32}$/.test(normalizedCode)) {
       return res.status(400).json({
@@ -181,7 +193,7 @@ export const saveCompanyProfile = async (req: Request, res: Response): Promise<R
     }
 
     if (normalizedCode) {
-      const codeInUse = await isOrgCodeInUse(normalizedCode, adminEmailFromToken);
+      const codeInUse = await isOrgCodeInUse(normalizedCode, profileDocId);
       if (codeInUse) {
         return res.status(409).json({
           success: false,
@@ -191,10 +203,10 @@ export const saveCompanyProfile = async (req: Request, res: Response): Promise<R
     }
 
     const now =Timestamp.now();
-    const docRef = getDb().collection(COMPANY_COLLECTION).doc(adminEmailFromToken);
+    const docRef = getDb().collection(COMPANY_COLLECTION).doc(profileDocId);
 
     const data: Partial<CompanyProfile> = {
-      id: adminEmailFromToken,
+      id: profileDocId,
       adminEmail: adminEmailFromToken,
       adminEmailLower: adminEmailFromToken,
       companyName: String(companyName),

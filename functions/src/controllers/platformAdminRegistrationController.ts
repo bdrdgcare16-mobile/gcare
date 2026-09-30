@@ -292,9 +292,9 @@ export const requestRegistrationChanges = async (
  *
  *   1. organization code (SERV###, transaction-safe counter + collision
  *      probe against existing companyProfile.code values)
- *   2. canonical companyProfile document (doc id = admin emailLower,
- *      matching the self-serve convention; falls back to `org-<id>` on
- *      collision)
+ *   2. canonical companyProfile document (doc id = the generated
+ *      internal companyId `org-<registrationId>`; reuses a persisted
+ *      approvedCompanyId on retry)
  *   3. employees membership record for the admin (seed convention:
  *      admins appear in both `users` and `employees`)
  *   4. the SAME applicant users/<applicantUid> doc promoted to role
@@ -405,7 +405,13 @@ export const activateRegistration = async (
       }
 
       if (!companyId) {
-        companyId = applicantEmail || `org-${id}`;
+        // Backend-generated internal companyId for new organizations:
+        // `org-<registrationId>` is deterministic per registration (an
+        // activation retry produces the same value even before
+        // approvedCompanyId is persisted), collision-free (registration
+        // doc ids are unique), and never the admin email nor the
+        // human-readable organizationCode.
+        companyId = `org-${id}`;
       }
       let profileRef = db.collection(COMPANY_PROFILE_COL).doc(companyId);
       let profileSnap = await tx.get(profileRef);
@@ -413,12 +419,29 @@ export const activateRegistration = async (
         profileSnap.exists &&
         String((profileSnap.data() as any)?.registrationId || '') !== id
       ) {
-        // The canonical admin-email doc id is already owned by a
-        // different organization — fall back to a registration-scoped
-        // id so we never overwrite another company's profile.
-        companyId = `org-${id}`;
-        profileRef = db.collection(COMPANY_PROFILE_COL).doc(companyId);
-        profileSnap = await tx.get(profileRef);
+        // Defensive: the candidate doc id is already owned by a
+        // different organization — walk deterministic suffixed variants
+        // so we never overwrite another company's profile. Unreachable
+        // in practice for `org-<registrationId>` (registration ids are
+        // unique); only relevant if approvedCompanyId was seeded
+        // externally.
+        let suffix = 2;
+        for (;;) {
+          const candidate = `org-${id}-${suffix++}`;
+          const candidateRef = db
+            .collection(COMPANY_PROFILE_COL)
+            .doc(candidate);
+          const candidateSnap = await tx.get(candidateRef);
+          const sameReg =
+            String((candidateSnap.data() as any)?.registrationId || '') ===
+            id;
+          if (!candidateSnap.exists || sameReg) {
+            companyId = candidate;
+            profileRef = candidateRef;
+            profileSnap = candidateSnap;
+            break;
+          }
+        }
       }
       const profileAlreadyProvisioned =
         profileSnap.exists &&
