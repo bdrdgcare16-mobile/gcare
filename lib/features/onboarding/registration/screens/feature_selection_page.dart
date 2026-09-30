@@ -29,7 +29,21 @@ const List<RegistrationFeature> kBasicFeatures = [
 ///
 /// These are REQUESTED modules only — approval and enablement happen on the
 /// platform side (Milestone 3D). Selecting here never activates a feature.
-const List<RegistrationFeature> kOptionalFeatures = [
+///
+/// Only modules with a genuine usable implementation (backend routes +
+/// reachable UI) are offered — see kImplementedOptionalFeatures. Keys such
+/// as organization_structure, users_and_roles, recruitment and reporting
+/// remain canonical and stay readable in existing data, but are not
+/// selectable by new registrations.
+final List<RegistrationFeature> kOptionalFeatures =
+    kSelectableOptionalCatalogue
+        .where((f) => kImplementedOptionalFeatures.contains(f.id))
+        .toList();
+
+/// Full optional catalogue — every canonical optional key with its display
+/// metadata. Filtered down to [kOptionalFeatures] for the selection UI and
+/// used by review surfaces to label historical selections safely.
+const List<RegistrationFeature> kSelectableOptionalCatalogue = [
   RegistrationFeature('organization_structure', 'Organization Structure',
       'Branches, departments and designations.'),
   RegistrationFeature('users_and_roles', 'Users and Roles',
@@ -45,17 +59,19 @@ const List<RegistrationFeature> kOptionalFeatures = [
   RegistrationFeature('recruitment', 'Recruitment',
       'Candidate pipeline and onboarding.'),
   RegistrationFeature('performance', 'Performance',
-      'Reviews, goals and appraisals.'),
+      'Employee rewards and recognition.'),
   RegistrationFeature('reporting', 'Reporting',
       'Analytics and management reports.'),
   RegistrationFeature('events', 'Events',
       'Organization events and announcements.'),
 ];
 
-/// Full catalogue (basic + optional) — used by review surfaces.
-const List<RegistrationFeature> kSelectableFeatures = [
+/// Full catalogue (basic + all canonical optionals) — used by review
+/// surfaces so historical selections still render a friendly label even
+/// when the module is no longer selectable.
+final List<RegistrationFeature> kSelectableFeatures = [
   ...kBasicFeatures,
-  ...kOptionalFeatures,
+  ...kSelectableOptionalCatalogue,
 ];
 
 class RegistrationFeature {
@@ -228,8 +244,10 @@ class _FeatureSelectionPageState extends State<FeatureSelectionPage> {
                 locked: false,
               )),
           const SizedBox(height: 8),
+          // Count only modules selectable in the current flow — legacy
+          // keys already in the draft are preserved but not counted here.
           Text(
-            '${selected.where((id) => !isBasicHrmsFeature(id)).length + kBasicFeatures.length} feature(s) requested',
+            '${selected.where(kImplementedOptionalFeatures.contains).length + kBasicFeatures.length} feature(s) requested',
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 12.5, color: Colors.black54),
           ),

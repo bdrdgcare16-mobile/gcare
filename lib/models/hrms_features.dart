@@ -19,6 +19,10 @@ const List<String> kBasicHrmsFeatures = [
 ];
 
 /// Optional modules the applicant may select.
+///
+/// Canonical catalogue — mirrors the backend CANONICAL_FEATURES. Historical
+/// registrations and enabledFeatures may contain any of these keys; every
+/// consumer must tolerate all of them even when they are not selectable.
 const List<String> kOptionalHrmsFeatures = [
   'organization_structure',
   'users_and_roles',
@@ -31,6 +35,19 @@ const List<String> kOptionalHrmsFeatures = [
   'reporting',
   'events',
 ];
+
+/// Optional modules with a genuine usable implementation in the current
+/// product (backend routes + reachable UI) — the only ones offered as
+/// selectable during registration. Keys excluded here are NOT deleted
+/// from stored data; older registrations simply cannot select them anew.
+const Set<String> kImplementedOptionalFeatures = {
+  'location_tracking',
+  'tasks',
+  'leave_management',
+  'payroll',
+  'performance',
+  'events',
+};
 
 /// Human-readable labels for feature chips / review surfaces.
 const Map<String, String> kFeatureLabels = {

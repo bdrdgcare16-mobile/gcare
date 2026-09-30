@@ -162,6 +162,68 @@ void main() {
     });
 
     testWidgets(
+        'shows only implemented optional modules — unimplemented keys absent',
+        (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: FeatureSelectionPage()),
+      );
+      await tester.pumpAndSettle();
+
+      // Implemented optional modules are offered.
+      for (final title in [
+        'Location Tracking',
+        'Tasks',
+        'Leave Management',
+        'Payroll',
+        'Performance',
+        'Events',
+      ]) {
+        expect(
+          find.text(title),
+          findsOneWidget,
+          reason: '$title should be selectable',
+        );
+      }
+
+      // Modules with no working implementation are never offered.
+      for (final title in [
+        'Organization Structure',
+        'Users and Roles',
+        'Recruitment',
+        'Reporting',
+      ]) {
+        expect(
+          find.text(title),
+          findsNothing,
+          reason: '$title must not be selectable',
+        );
+      }
+    });
+
+    testWidgets(
+        'draft containing legacy unselectable keys does not crash or '
+        'inflate the requested count', (tester) async {
+      // Simulate an older draft that already contains a canonical key no
+      // longer offered in the UI.
+      RegistrationDraftController.instance.draft.requestedFeatures
+          .addAll(['recruitment', 'payroll']);
+
+      await tester.pumpWidget(
+        const MaterialApp(home: FeatureSelectionPage()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Recruitment'), findsNothing);
+      // 4 locked basics + 1 selectable optional (payroll) — 'recruitment'
+      // is preserved in the draft but not counted as a UI selection.
+      expect(find.text('5 feature(s) requested'), findsOneWidget);
+      expect(
+        RegistrationDraftController.instance.draft.requestedFeatures,
+        containsAll(<String>['recruitment', 'payroll']),
+      );
+    });
+
+    testWidgets(
         'basic tiles cannot be deselected; optionals toggle the draft',
         (tester) async {
       await tester.pumpWidget(

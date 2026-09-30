@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../controllers/registration_draft_controller.dart';
 import '../widgets/registration_form_section.dart';
+import '../widgets/registration_phone_field.dart';
 import 'organization_information_page.dart';
 import 'feature_selection_page.dart';
 import 'registration_verification_page.dart';
@@ -28,7 +29,11 @@ class _AdminInformationPageState extends State<AdminInformationPage> {
   late final TextEditingController _name;
   late final TextEditingController _designation;
   late final TextEditingController _email;
-  late final TextEditingController _mobile;
+
+  /// Normalized international mobile (`+<dial><national>`).
+  String _mobileComplete = '';
+  String _mobileIso = 'IN';
+  String _mobileNational = '';
 
   @override
   void initState() {
@@ -37,12 +42,17 @@ class _AdminInformationPageState extends State<AdminInformationPage> {
     _name = TextEditingController(text: d.adminFullName);
     _designation = TextEditingController(text: d.adminDesignation);
     _email = TextEditingController(text: d.adminEmail);
-    _mobile = TextEditingController(text: d.adminMobile);
+    // Restore the stored mobile into country selector + national input.
+    // Legacy drafts hold a bare 10-digit Indian number → restored as IN.
+    final split = splitStoredPhone(d.adminMobile);
+    _mobileIso = split.isoCode;
+    _mobileNational = split.nationalNumber;
+    _mobileComplete = d.adminMobile.trim();
   }
 
   @override
   void dispose() {
-    for (final c in [_name, _designation, _email, _mobile]) {
+    for (final c in [_name, _designation, _email]) {
       c.dispose();
     }
     super.dispose();
@@ -53,7 +63,7 @@ class _AdminInformationPageState extends State<AdminInformationPage> {
     d.adminFullName = _name.text.trim();
     d.adminDesignation = _designation.text.trim();
     d.adminEmail = _email.text.trim();
-    d.adminMobile = _mobile.text.trim();
+    d.adminMobile = _mobileComplete;
   }
 
   Future<void> _saveDraft() async {
@@ -102,30 +112,6 @@ class _AdminInformationPageState extends State<AdminInformationPage> {
     if (value.isEmpty) return 'Official email is required';
     final ok = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value);
     return ok ? null : 'Enter a valid email address';
-  }
-
-  /// Indian 10-digit mobile format check.
-  ///
-  /// This validates FORMAT ONLY — it does not prove the number exists or
-  /// belongs to the applicant. Ownership is verified by OTP in a later
-  /// milestone.
-  String? _mobileValidator(String? v) {
-    final value = (v ?? '').trim();
-    if (value.isEmpty) return 'Mobile number is required';
-    if (!RegExp(r'^[0-9]+$').hasMatch(value)) {
-      return 'Mobile number must contain digits only';
-    }
-    if (value.length != 10) {
-      return 'Enter a 10-digit mobile number';
-    }
-    if (!RegExp(r'^[6-9]').hasMatch(value)) {
-      return 'Mobile number must start with 6, 7, 8 or 9';
-    }
-    // Reject a single repeated digit (1111111111, 0000000000, …).
-    if (RegExp(r'^(\d)\1{9}$').hasMatch(value)) {
-      return 'Enter a valid mobile number';
-    }
-    return null;
   }
 
   InputDecoration _decoration(String label) {
@@ -203,11 +189,17 @@ class _AdminInformationPageState extends State<AdminInformationPage> {
               validator: _emailValidator,
             ),
             const SizedBox(height: 14),
-            TextFormField(
-              controller: _mobile,
-              decoration: _decoration('Mobile Number *'),
-              keyboardType: TextInputType.phone,
-              validator: _mobileValidator,
+            RegistrationPhoneField(
+              label: 'Mobile Number *',
+              requiredMessage: 'Mobile number is required',
+              invalidMessage: 'Enter a valid mobile number',
+              initialIsoCode: _mobileIso,
+              initialNationalNumber: _mobileNational,
+              onChanged: (phone) {
+                // Never persist a bare dial code ('+91') as the number.
+                _mobileComplete =
+                    phone.number.isEmpty ? '' : phone.completeNumber;
+              },
             ),
           ],
         ),

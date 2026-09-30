@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:serv_app/features/onboarding/screens/select_user_type_page.dart';
 import '../controllers/registration_draft_controller.dart';
 import '../widgets/registration_form_section.dart';
+import '../widgets/registration_phone_field.dart';
 import 'feature_selection_page.dart';
 
 const List<String> kRegistrationStepLabels = [
@@ -62,10 +63,14 @@ class _OrganizationInformationPageState
   late final TextEditingController _branchCount;
   late final TextEditingController _address;
   late final TextEditingController _email;
-  late final TextEditingController _phone;
   late final TextEditingController _website;
   late final TextEditingController _gst;
   late final TextEditingController _cin;
+
+  /// Normalized international contact number (`+<dial><national>`).
+  String _phoneComplete = '';
+  String _phoneIso = 'IN';
+  String _phoneNational = '';
 
   String? _orgType;
   String? _industry;
@@ -79,7 +84,13 @@ class _OrganizationInformationPageState
     _branchCount = TextEditingController(text: d.branchCount);
     _address = TextEditingController(text: d.registeredAddress);
     _email = TextEditingController(text: d.officialEmail);
-    _phone = TextEditingController(text: d.contactNumber);
+    // Restore the stored phone into country selector + national input.
+    // Legacy drafts may hold a bare national number or a spaced '+91 …'
+    // variant — splitStoredPhone normalizes both.
+    final split = splitStoredPhone(d.contactNumber);
+    _phoneIso = split.isoCode;
+    _phoneNational = split.nationalNumber;
+    _phoneComplete = d.contactNumber.trim();
     _website = TextEditingController(text: d.website);
     _gst = TextEditingController(text: d.gstNumber);
     _cin = TextEditingController(text: d.cinNumber);
@@ -90,7 +101,7 @@ class _OrganizationInformationPageState
   @override
   void dispose() {
     for (final c in [
-      _name, _employeeCount, _branchCount, _address, _email, _phone,
+      _name, _employeeCount, _branchCount, _address, _email,
       _website, _gst, _cin,
     ]) {
       c.dispose();
@@ -107,7 +118,7 @@ class _OrganizationInformationPageState
     d.branchCount = _branchCount.text.trim();
     d.registeredAddress = _address.text.trim();
     d.officialEmail = _email.text.trim();
-    d.contactNumber = _phone.text.trim();
+    d.contactNumber = _phoneComplete;
     d.website = _website.text.trim();
     d.gstNumber = _gst.text.trim();
     d.cinNumber = _cin.text.trim();
@@ -157,13 +168,6 @@ class _OrganizationInformationPageState
     if (value.isEmpty) return 'Official email is required';
     final ok = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value);
     return ok ? null : 'Enter a valid email address';
-  }
-
-  String? _phoneValidator(String? v) {
-    final value = v?.trim() ?? '';
-    if (value.isEmpty) return 'Contact number is required';
-    final ok = RegExp(r'^[+0-9][0-9\s\-()]{6,19}$').hasMatch(value);
-    return ok ? null : 'Enter a valid contact number';
   }
 
   String? _websiteValidator(String? v) {
@@ -289,11 +293,17 @@ class _OrganizationInformationPageState
               validator: _emailValidator,
             ),
             const SizedBox(height: 14),
-            TextFormField(
-              controller: _phone,
-              decoration: _decoration('Contact Number *'),
-              keyboardType: TextInputType.phone,
-              validator: _phoneValidator,
+            RegistrationPhoneField(
+              label: 'Contact Number *',
+              requiredMessage: 'Contact number is required',
+              invalidMessage: 'Enter a valid contact number',
+              initialIsoCode: _phoneIso,
+              initialNationalNumber: _phoneNational,
+              onChanged: (phone) {
+                // Never persist a bare dial code ('+91') as the number.
+                _phoneComplete =
+                    phone.number.isEmpty ? '' : phone.completeNumber;
+              },
             ),
             const SizedBox(height: 14),
             TextFormField(
