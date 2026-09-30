@@ -357,6 +357,56 @@ describe('organizationRegistrationController', () => {
       expect(statusCode(res)).toBe(400);
     });
 
+    it('accepts a normalized E.164 international mobile', async () => {
+      const { res, body } = await createDraft();
+      expect(statusCode(res)).toBe(201);
+      expect(body.registrationId).toBeTruthy();
+    });
+
+    it('accepts a +91 international mobile satisfying Indian rules',
+        async () => {
+      const res = mockResponse();
+      await createRegistrationDraft(
+        makeReq({
+          body: {
+            ...validBody(),
+            adminContact: { ...VALID_ADMIN, mobile: '+919876543210' },
+          },
+        }) as Request,
+        res,
+      );
+      expect(statusCode(res)).toBe(201);
+    });
+
+    it('accepts a non-India international mobile', async () => {
+      const res = mockResponse();
+      await createRegistrationDraft(
+        makeReq({
+          body: {
+            ...validBody(),
+            adminContact: { ...VALID_ADMIN, mobile: '+60123456789' },
+          },
+        }) as Request,
+        res,
+      );
+      expect(statusCode(res)).toBe(201);
+    });
+
+    it('still rejects an invalid +91 international mobile', async () => {
+      const res = mockResponse();
+      await createRegistrationDraft(
+        makeReq({
+          body: {
+            ...validBody(),
+            // National part violates the Indian mobile rules.
+            adminContact: { ...VALID_ADMIN, mobile: '+911234567890' },
+          },
+        }) as Request,
+        res,
+      );
+      expect(statusCode(res)).toBe(400);
+    });
+
     it('rejects an unknown requested feature', async () => {
       const res = mockResponse();
       await createRegistrationDraft(

@@ -67,9 +67,26 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const WEBSITE_RE = /^(https?:\/\/)?[\w-]+(\.[\w-]+)+(\/.*)?$/;
 // Organization contact numbers may be landlines (STD codes, punctuation).
 const CONTACT_RE = /^[+0-9][0-9\s\-()]{6,19}$/;
-// Authorized HR/Admin mobile: Indian 10-digit mobile format.
+// Authorized HR/Admin mobile: either the legacy Indian 10-digit national
+// format or a normalized E.164 international number (+<dial><national>)
+// now that the registration UI offers a country-code selector.
 const MOBILE_RE = /^[6-9][0-9]{9}$/;
+const MOBILE_E164_RE = /^\+[1-9][0-9]{6,14}$/;
 const REPEATED_DIGIT_RE = /^(\d)\1{9}$/;
+
+function isValidAdminMobile(mobile: string): boolean {
+  if (MOBILE_E164_RE.test(mobile)) {
+    // +91 numbers must still satisfy the Indian mobile rules on the
+    // national part (10 digits, starts 6-9, no single repeated digit).
+    if (mobile.startsWith('+91')) {
+      const national = mobile.slice(3);
+      return MOBILE_RE.test(national) && !REPEATED_DIGIT_RE.test(national);
+    }
+    return true;
+  }
+  // Legacy national format — Indian 10-digit rules.
+  return MOBILE_RE.test(mobile) && !REPEATED_DIGIT_RE.test(mobile);
+}
 
 const norm = (v: unknown): string => String(v ?? '').trim();
 
@@ -175,16 +192,16 @@ function validateAdminContact(
       errors.push('adminContact.email must be a valid email address');
     }
     if (!mobile) {
-      errors.push('adminContact.mobile must be a valid 10-digit mobile number');
+      errors.push('adminContact.mobile must be a valid mobile number');
     }
   }
 
   if (email && !EMAIL_RE.test(email)) {
     errors.push('adminContact.email must be a valid email address');
   }
-  // A provided mobile must satisfy the Indian 10-digit format.
-  if (mobile && (!MOBILE_RE.test(mobile) || REPEATED_DIGIT_RE.test(mobile))) {
-    errors.push('adminContact.mobile must be a valid 10-digit mobile number');
+  // A provided mobile must be a valid national (Indian) or E.164 number.
+  if (mobile && !isValidAdminMobile(mobile)) {
+    errors.push('adminContact.mobile must be a valid mobile number');
   }
 
   if (errors.length) return { errors };
