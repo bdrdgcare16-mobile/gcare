@@ -6,6 +6,8 @@ import 'platform_admin_audit_page.dart';
 import 'platform_admin_dashboard_page.dart';
 import 'platform_admin_registrations_page.dart';
 import 'platform_admin_session.dart';
+import 'platform_admin_sidebar.dart';
+import 'platform_admin_theme.dart';
 
 /// Browser shell for the Platform Admin portal — a desktop-first
 /// NavigationRail layout. Selected destinations swap the body in place;
@@ -21,14 +23,22 @@ class PlatformAdminShell extends StatefulWidget {
 }
 
 class _PlatformAdminShellState extends State<PlatformAdminShell> {
-  static const _destinations = <(IconData, String, String)>[
-    (Icons.dashboard_outlined, 'Dashboard', '/platform-admin/dashboard'),
-    (
-      Icons.domain_verification_outlined,
-      'Organization Registrations',
-      '/platform-admin/registrations',
+  static const _destinations = <AdminNavItem>[
+    AdminNavItem(
+      icon: Icons.dashboard_outlined,
+      label: 'Dashboard',
+      route: '/platform-admin/dashboard',
     ),
-    (Icons.history_outlined, 'Audit / Review History', '/platform-admin/audit'),
+    AdminNavItem(
+      icon: Icons.domain_verification_outlined,
+      label: 'Organization Registrations',
+      route: '/platform-admin/registrations',
+    ),
+    AdminNavItem(
+      icon: Icons.history_outlined,
+      label: 'Audit / Review History',
+      route: '/platform-admin/audit',
+    ),
   ];
 
   late int _selected = widget.selectedIndex;
@@ -50,13 +60,36 @@ class _PlatformAdminShellState extends State<PlatformAdminShell> {
     }
   }
 
+  /// Single logout path for the portal: PlatformAdminSession.signOut()
+  /// wipes the stored + in-memory session (and best-effort Firebase
+  /// sign-out), then every authenticated route is popped and replaced by
+  /// the login page so browser Back cannot reopen protected pages.
   Future<void> _logout() async {
-    await PlatformAdminSession.signOut();
+    try {
+      await PlatformAdminSession.signOut();
+    } catch (e) {
+      debugPrint('[PlatformAdmin] signOut error: $e');
+    }
     if (!mounted) return;
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      '/platform-admin/login',
-      (route) => false,
-    );
+    try {
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/platform-admin/login',
+        (route) => false,
+      );
+    } catch (e) {
+      debugPrint('[PlatformAdmin] logout navigation failed: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Logout failed — please refresh the page.'),
+        ),
+      );
+    }
+  }
+
+  void _select(int i) {
+    if (i == _selected) return;
+    setState(() => _selected = i);
+    Navigator.of(context).pushReplacementNamed(_destinations[i].route);
   }
 
   @override
@@ -68,85 +101,36 @@ class _PlatformAdminShellState extends State<PlatformAdminShell> {
     };
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F2FA),
-      body: Row(
-        children: [
-          NavigationRail(
-            backgroundColor: const Color(0xFF2E2450),
-            selectedIndex: _selected,
-            onDestinationSelected: (i) {
-              if (i == _selected) return;
-              setState(() => _selected = i);
-              Navigator.of(context).pushReplacementNamed(_destinations[i].$3);
-            },
-            labelType: NavigationRailLabelType.all,
-            selectedIconTheme: const IconThemeData(color: Colors.white),
-            unselectedIconTheme:
-                const IconThemeData(color: Color(0xFFB8AED8)),
-            selectedLabelTextStyle: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-              fontSize: 12,
+      backgroundColor: PlatformAdminColors.background,
+      body: PlatformAdminBackground(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Fixed left gutter = collapsed rail width, so expanding the
+            // sidebar never shifts or resizes the page content.
+            Row(
+              children: [
+                const SizedBox(width: AdminSidebar.collapsedWidth),
+                Expanded(child: body),
+              ],
             ),
-            unselectedLabelTextStyle: const TextStyle(
-              color: Color(0xFFB8AED8),
-              fontSize: 12,
-            ),
-            leading: const Padding(
-              padding: EdgeInsets.symmetric(vertical: 20),
-              child: Column(
-                children: [
-                  Icon(
-                    Icons.admin_panel_settings,
-                    color: Colors.white,
-                    size: 30,
-                  ),
-                  SizedBox(height: 6),
-                  Text(
-                    'Platform Admin',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              child: AdminSidebar(
+                brandIcon: Icons.admin_panel_settings,
+                brandLabel: 'Platform Admin',
+                items: _destinations,
+                selectedIndex: _selected,
+                onSelect: _select,
+                footerIcon: Icons.logout,
+                footerLabel: 'Logout',
+                onFooterTap: _logout,
               ),
             ),
-            trailing: Expanded(
-              child: Align(
-                alignment: Alignment.bottomCenter,
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 20),
-                  child: TextButton.icon(
-                    onPressed: _logout,
-                    icon: const Icon(
-                      Icons.logout,
-                      color: Color(0xFFB8AED8),
-                      size: 18,
-                    ),
-                    label: const Text(
-                      'Logout',
-                      style: TextStyle(color: Color(0xFFB8AED8)),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            destinations: [
-              for (final d in _destinations)
-                NavigationRailDestination(
-                  icon: Icon(d.$1),
-                  label: Text(
-                    d.$2,
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-            ],
-          ),
-          const VerticalDivider(width: 1, color: Color(0xFFE0DAF0)),
-          Expanded(child: body),
-        ],
+          ],
+        ),
       ),
     );
   }

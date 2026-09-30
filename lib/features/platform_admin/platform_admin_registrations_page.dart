@@ -3,6 +3,8 @@
 import 'package:flutter/material.dart';
 import 'package:serv_app/services/platform_admin_registration_service.dart';
 
+import 'platform_admin_theme.dart';
+
 /// Platform Admin review list for organization registration
 /// applications (Milestones 3D-B/C/D). Tabs map to application statuses:
 /// Pending → pending_approval, Approved → approved (not yet activated),
@@ -108,22 +110,22 @@ class _PlatformAdminRegistrationsPageState
     }
   }
 
-  Color _statusColor(String status) {
+  (Color, Color) _statusColors(String status) {
     switch (status) {
       case 'pending_approval':
-        return Colors.orange;
+        return (PlatformAdminColors.amberBg, PlatformAdminColors.amberFg);
       case 'approved':
-        return Colors.green;
+        return (PlatformAdminColors.greenBg, PlatformAdminColors.greenFg);
       case 'rejected':
-        return Colors.red;
+        return (PlatformAdminColors.redBg, PlatformAdminColors.redFg);
       case 'changes_requested':
-        return Colors.blue;
+        return (PlatformAdminColors.blueBg, PlatformAdminColors.blueFg);
       case 'pending_verification':
-        return Colors.teal;
+        return (PlatformAdminColors.blueBg, PlatformAdminColors.blueFg);
       case 'activated':
-        return const Color(0xFF6A1B9A);
+        return (PlatformAdminColors.purpleBg, PlatformAdminColors.purpleFg);
       default:
-        return Colors.grey;
+        return (PlatformAdminColors.grayBg, PlatformAdminColors.grayFg);
     }
   }
 
@@ -139,20 +141,11 @@ class _PlatformAdminRegistrationsPageState
   };
 
   Widget _statusBadge(String status) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-      decoration: BoxDecoration(
-        color: _statusColor(status),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        (_statusLabels[status] ?? status).toUpperCase(),
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
+    final (bg, fg) = _statusColors(status);
+    return PlatformAdminStatusBadge(
+      label: (_statusLabels[status] ?? status).toUpperCase(),
+      background: bg,
+      foreground: fg,
     );
   }
 
@@ -169,24 +162,10 @@ class _PlatformAdminRegistrationsPageState
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEDE7F6),
-              borderRadius: BorderRadius.circular(6),
-              border:
-                  Border.all(color: const Color(0xFF7E57C2), width: 1),
-            ),
-            child: Text(
-              'RESUBMITTED • REVISION ${count + 1}',
-              style: const TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF5E35B1),
-                letterSpacing: 0.4,
-              ),
-            ),
+          PlatformAdminStatusBadge(
+            label: 'RESUBMITTED • REVISION ${count + 1}',
+            background: PlatformAdminColors.purpleBg,
+            foreground: PlatformAdminColors.purpleFg,
           ),
           if (changed > 0)
             Padding(
@@ -195,7 +174,7 @@ class _PlatformAdminRegistrationsPageState
                 '$changed ${changed == 1 ? 'field' : 'fields'} updated',
                 style: const TextStyle(
                   fontSize: 11,
-                  color: Color(0xFF5E35B1),
+                  color: PlatformAdminColors.purpleFg,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -209,14 +188,11 @@ class _PlatformAdminRegistrationsPageState
     final contact = item['adminContact'] as Map? ?? {};
     final features =
         (item['requestedFeatures'] as List? ?? const []).join(', ');
-    return Container(
+    return PlatformAdminCard(
+      hoverable: true,
       margin: const EdgeInsets.only(bottom: 10),
+      radius: PlatformAdminRadii.cardSmall,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
       child: Row(
         children: [
           Expanded(
@@ -229,15 +205,17 @@ class _PlatformAdminRegistrationsPageState
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
-                    color: Colors.black87,
+                    color: PlatformAdminColors.textPrimary,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 2),
                 Text(
                   'Ref: ${item['registrationId'] ?? '—'}',
-                  style:
-                      const TextStyle(fontSize: 11, color: Colors.black45),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: PlatformAdminColors.textMuted,
+                  ),
                 ),
                 if (item['status'] == 'activated') ...[
                   const SizedBox(height: 2),
@@ -246,14 +224,14 @@ class _PlatformAdminRegistrationsPageState
                     style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
-                      color: Color(0xFF6A1B9A),
+                      color: PlatformAdminColors.purpleFg,
                     ),
                   ),
                   Text(
                     'Activated: ${_fmtDate(item['activatedAt'])}',
                     style: const TextStyle(
                       fontSize: 11,
-                      color: Colors.black45,
+                      color: PlatformAdminColors.textMuted,
                     ),
                   ),
                 ],
@@ -265,7 +243,10 @@ class _PlatformAdminRegistrationsPageState
             flex: 2,
             child: Text(
               contact['fullName']?.toString() ?? '—',
-              style: const TextStyle(fontSize: 12, color: Colors.black87),
+              style: const TextStyle(
+                fontSize: 12,
+                color: PlatformAdminColors.textPrimary,
+              ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -273,14 +254,20 @@ class _PlatformAdminRegistrationsPageState
             flex: 2,
             child: Text(
               _fmtDate(item['submittedAt']),
-              style: const TextStyle(fontSize: 12, color: Colors.black87),
+              style: const TextStyle(
+                fontSize: 12,
+                color: PlatformAdminColors.textPrimary,
+              ),
             ),
           ),
           Expanded(
             flex: 2,
             child: Text(
               features.isEmpty ? '—' : features,
-              style: const TextStyle(fontSize: 11, color: Colors.black54),
+              style: const TextStyle(
+                fontSize: 11,
+                color: PlatformAdminColors.textSecondary,
+              ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -292,8 +279,9 @@ class _PlatformAdminRegistrationsPageState
             ),
           ),
           SizedBox(
-            width: 130,
+            width: 140,
             child: OutlinedButton(
+              style: PlatformAdminButtonStyles.secondary(),
               onPressed: () {
                 final id = item['registrationId']?.toString();
                 if (id == null || id.isEmpty) return;
@@ -305,6 +293,42 @@ class _PlatformAdminRegistrationsPageState
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _tabChip(int i) {
+    final selected = _tabIndex == i;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ChoiceChip(
+        label: Text(_tabs[i].$1),
+        selected: selected,
+        onSelected: (_) {
+          setState(() {
+            _tabIndex = i;
+            _page = 1;
+          });
+          _fetch();
+        },
+        showCheckmark: false,
+        selectedColor: PlatformAdminColors.primarySoft,
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(PlatformAdminRadii.pill),
+          side: BorderSide(
+            color: selected
+                ? PlatformAdminColors.primary
+                : PlatformAdminColors.border,
+          ),
+        ),
+        labelStyle: TextStyle(
+          color: selected
+              ? PlatformAdminColors.primary
+              : PlatformAdminColors.textSecondary,
+          fontWeight: FontWeight.w600,
+          fontSize: 12.5,
+        ),
       ),
     );
   }
@@ -321,49 +345,25 @@ class _PlatformAdminRegistrationsPageState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Organization Registrations',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF2E2450),
-                ),
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                'Open an application to record a review decision.',
-                style: TextStyle(fontSize: 12, color: Colors.black54),
+              const PlatformAdminSectionHeader(
+                title: 'Organization Registrations',
+                subtitle: 'Open an application to record a review decision.',
               ),
               const SizedBox(height: 14),
-              Row(
+              Wrap(
+                runSpacing: 8,
                 children: [
-                  for (var i = 0; i < _tabs.length; i++) ...[
-                    ChoiceChip(
-                      label: Text(_tabs[i].$1),
-                      selected: _tabIndex == i,
-                      onSelected: (_) {
-                        setState(() {
-                          _tabIndex = i;
-                          _page = 1;
-                        });
-                        _fetch();
-                      },
-                      selectedColor: const Color(0xFF4B3B73),
-                      labelStyle: TextStyle(
-                        color: _tabIndex == i
-                            ? Colors.white
-                            : Colors.black87,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
+                  for (var i = 0; i < _tabs.length; i++) _tabChip(i),
                 ],
               ),
               const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
+              SizedBox(
+                width: double.infinity,
+                child: Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 12,
+                  runSpacing: 10,
+                  children: [
                   // Search
                   SizedBox(
                     width: 240,
@@ -372,6 +372,8 @@ class _PlatformAdminRegistrationsPageState
                       decoration: InputDecoration(
                         hintText: 'Search organization…',
                         isDense: true,
+                        filled: true,
+                        fillColor: Colors.white,
                         prefixIcon: const Icon(Icons.search, size: 18),
                         suffixIcon: _search.isNotEmpty
                             ? IconButton(
@@ -384,7 +386,16 @@ class _PlatformAdminRegistrationsPageState
                               )
                             : null,
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: BorderRadius.circular(
+                              PlatformAdminRadii.control),
+                          borderSide: const BorderSide(
+                              color: PlatformAdminColors.border),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(
+                              PlatformAdminRadii.control),
+                          borderSide: const BorderSide(
+                              color: PlatformAdminColors.primary, width: 1.6),
                         ),
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 10,
@@ -397,7 +408,6 @@ class _PlatformAdminRegistrationsPageState
                       },
                     ),
                   ),
-                  const SizedBox(width: 12),
                   // Sort
                   SizedBox(
                     width: 180,
@@ -407,8 +417,19 @@ class _PlatformAdminRegistrationsPageState
                       decoration: InputDecoration(
                         labelText: 'Sort by',
                         isDense: true,
+                        filled: true,
+                        fillColor: Colors.white,
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: BorderRadius.circular(
+                              PlatformAdminRadii.control),
+                          borderSide: const BorderSide(
+                              color: PlatformAdminColors.border),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(
+                              PlatformAdminRadii.control),
+                          borderSide: const BorderSide(
+                              color: PlatformAdminColors.primary, width: 1.6),
                         ),
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 10,
@@ -433,13 +454,14 @@ class _PlatformAdminRegistrationsPageState
                       },
                     ),
                   ),
-                ],
+                  ],
+                ),
               ),
               const SizedBox(height: 14),
             ],
           ),
         ),
-        const Divider(height: 1),
+        const Divider(height: 1, color: PlatformAdminColors.border),
 
         // Body
         Expanded(
@@ -463,7 +485,8 @@ class _PlatformAdminRegistrationsPageState
                         child: Text(
                           _errorMessage!,
                           textAlign: TextAlign.center,
-                          style: const TextStyle(color: Colors.red),
+                          style: const TextStyle(
+                              color: PlatformAdminColors.redFg),
                         ),
                       ),
                     )
@@ -473,7 +496,8 @@ class _PlatformAdminRegistrationsPageState
                       child: Center(
                         child: Text(
                           'No registration applications found',
-                          style: TextStyle(color: Colors.black54),
+                          style: TextStyle(
+                              color: PlatformAdminColors.textSecondary),
                         ),
                       ),
                     )
@@ -484,6 +508,7 @@ class _PlatformAdminRegistrationsPageState
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       OutlinedButton(
+                        style: PlatformAdminButtonStyles.secondary(),
                         onPressed: _page > 1 && !_isLoading
                             ? () {
                                 setState(() => _page -= 1);
@@ -493,9 +518,14 @@ class _PlatformAdminRegistrationsPageState
                         child: const Text('Previous'),
                       ),
                       const SizedBox(width: 12),
-                      Text('Page $_page'),
+                      Text(
+                        'Page $_page',
+                        style: const TextStyle(
+                            color: PlatformAdminColors.textSecondary),
+                      ),
                       const SizedBox(width: 12),
                       OutlinedButton(
+                        style: PlatformAdminButtonStyles.secondary(),
                         onPressed: _hasMore && !_isLoading
                             ? () {
                                 setState(() => _page += 1);

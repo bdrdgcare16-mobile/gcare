@@ -51,6 +51,10 @@ class PlatformAdminSession {
     return true;
   }
 
+  /// Clears the stored + in-memory portal session, then best-effort
+  /// Firebase sign-out. Local SERV state is wiped FIRST so a Firebase
+  /// failure (e.g. preview harness without initialized Firebase) can
+  /// never leave the caller half-authenticated.
   static Future<void> signOut() async {
     // Blank values first (the non-web stub's remove() is a no-op), then
     // remove the keys on real browser storage.
@@ -62,6 +66,8 @@ class PlatformAdminSession {
     html.window.localStorage.remove(_kRole);
     CompanyData.token = '';
     CompanyData.role = '';
+    CompanyData.email = '';
+    CompanyData.companyId = '';
     try {
       await FirebaseAuth.instance.signOut();
     } catch (_) {

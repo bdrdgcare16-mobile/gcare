@@ -4,6 +4,7 @@ import { Router } from 'express';
 import {
   activateRegistration,
   approveRegistration,
+  getAuditHistory,
   getRegistrationDocumentForReview,
   getRegistrationForReview,
   listRegistrations,
@@ -31,6 +32,9 @@ const router = Router();
 router.use(authMiddleware, roleMiddleware(['platform_admin']));
 
 router.get('/', listRegistrations);
+// Registered BEFORE '/:id' — otherwise the generic param route would
+// shadow this literal path (Milestone 3D-E: Audit / Review History).
+router.get('/audit-history', getAuditHistory);
 router.get('/:id', getRegistrationForReview);
 router.get('/:id/documents/:field', getRegistrationDocumentForReview);
 

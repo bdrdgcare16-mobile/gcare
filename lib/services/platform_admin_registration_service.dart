@@ -142,6 +142,39 @@ class PlatformAdminRegistrationService {
     );
   }
 
+  /// Fetches the cross-application Audit / Review History feed
+  /// (Milestone 3D-E). Aggregates the SAME lifecycle/reviewer events
+  /// already stored on each registration's auditTrail/reviewHistory —
+  /// no second audit system. Returns `{events, page, pageSize, hasMore}`.
+  /// [action] filters to one lifecycle action (e.g. 'application_approved');
+  /// [search] matches organization name, registration id, or org code.
+  Future<Map<String, dynamic>> getAuditHistory({
+    String? action,
+    String? search,
+    int page = 1,
+    int pageSize = 10,
+  }) async {
+    final params = <String, String>{
+      'page': '$page',
+      'pageSize': '$pageSize',
+      if (action != null && action.isNotEmpty) 'action': action,
+      if (search != null && search.isNotEmpty) 'search': search,
+    };
+    final uri =
+        Uri.parse('$_base/audit-history').replace(queryParameters: params);
+    final response = await http.get(uri, headers: _headers).timeout(_timeout);
+    debugPrint('[AdminReg] audit-history status=${response.statusCode}');
+    final decoded = json.decode(response.body);
+    if (response.statusCode == 200) {
+      return Map<String, dynamic>.from(decoded as Map);
+    }
+    throw Exception(
+      decoded is Map && decoded['error'] != null
+          ? decoded['error']
+          : 'Failed to load audit history (${response.statusCode})',
+    );
+  }
+
   /// Fetches one full application for review.
   Future<Map<String, dynamic>> getRegistration(String registrationId) async {
     final response = await http

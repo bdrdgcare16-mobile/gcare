@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:serv_app/services/platform_admin_registration_service.dart';
 
 import 'platform_admin_session.dart';
+import 'platform_admin_theme.dart';
 
 /// Portal landing page — a small operational overview of registration
 /// applications. Read-only; review actions arrive with Milestone 3D-C.
@@ -50,54 +51,47 @@ class _PlatformAdminDashboardPageState
     }
   }
 
-  Widget _statCard(String title, String value, IconData icon, Color color,
-      VoidCallback? onTap) {
+  Widget _statCard(String title, String value, IconData icon, Color bg,
+      Color fg, VoidCallback? onTap) {
     return Expanded(
-      child: InkWell(
+      child: PlatformAdminCard(
+        hoverable: onTap != null,
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.grey.shade200),
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(icon, color: color),
+        padding: const EdgeInsets.all(20),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: bg,
+                borderRadius: BorderRadius.circular(10),
               ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      value,
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.black87,
-                      ),
+              child: Icon(icon, color: fg),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                      color: PlatformAdminColors.textPrimary,
                     ),
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.black54,
-                      ),
+                  ),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: PlatformAdminColors.textSecondary,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -110,18 +104,17 @@ class _PlatformAdminDashboardPageState
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Dashboard',
-            style: TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF2E2450),
-            ),
+          const PlatformAdminSectionHeader(
+            title: 'Dashboard',
+            titleSize: 26,
           ),
           const SizedBox(height: 4),
           Text(
             'Signed in as ${PlatformAdminSession.email}',
-            style: const TextStyle(fontSize: 13, color: Colors.black54),
+            style: const TextStyle(
+              fontSize: 13,
+              color: PlatformAdminColors.textSecondary,
+            ),
           ),
           const SizedBox(height: 24),
           if (_error != null)
@@ -129,12 +122,12 @@ class _PlatformAdminDashboardPageState
               padding: const EdgeInsets.all(12),
               margin: const EdgeInsets.only(bottom: 16),
               decoration: BoxDecoration(
-                color: const Color(0xFFFFEBEE),
+                color: PlatformAdminColors.redBg,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
                 _error!,
-                style: const TextStyle(color: Color(0xFFC62828)),
+                style: const TextStyle(color: PlatformAdminColors.redFg),
               ),
             ),
           Row(
@@ -145,7 +138,8 @@ class _PlatformAdminDashboardPageState
                     ? '—'
                     : '$_pendingCount${_pendingHasMore ? '+' : ''}',
                 Icons.hourglass_top_outlined,
-                Colors.orange,
+                PlatformAdminColors.amberBg,
+                PlatformAdminColors.amberFg,
                 () => Navigator.of(context)
                     .pushReplacementNamed('/platform-admin/registrations'),
               ),
@@ -154,7 +148,8 @@ class _PlatformAdminDashboardPageState
                 'Applications (first page)',
                 _totalSampled == null ? '—' : '$_totalSampled',
                 Icons.domain_verification_outlined,
-                const Color(0xFF655193),
+                PlatformAdminColors.primarySoft,
+                PlatformAdminColors.primary,
                 () => Navigator.of(context)
                     .pushReplacementNamed('/platform-admin/registrations'),
               ),
@@ -163,25 +158,26 @@ class _PlatformAdminDashboardPageState
                 'Review actions',
                 'Read-only',
                 Icons.lock_outline,
-                Colors.blueGrey,
+                PlatformAdminColors.grayBg,
+                PlatformAdminColors.grayFg,
                 null,
               ),
             ],
           ),
           const SizedBox(height: 24),
-          Container(
+          SizedBox(
             width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade200),
-            ),
-            child: const Text(
-              'This portal reviews organization registration applications. '
-              'Milestone 3D-B is read-only: approve, reject and request-changes '
-              'actions will be introduced in Milestone 3D-C.',
-              style: TextStyle(fontSize: 13, color: Colors.black87),
+            child: PlatformAdminCard(
+              padding: const EdgeInsets.all(16),
+              child: const Text(
+                'This portal reviews organization registration applications. '
+                'Milestone 3D-B is read-only: approve, reject and request-changes '
+                'actions will be introduced in Milestone 3D-C.',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: PlatformAdminColors.textPrimary,
+                ),
+              ),
             ),
           ),
         ],

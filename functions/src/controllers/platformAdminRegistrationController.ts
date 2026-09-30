@@ -712,6 +712,246 @@ function detailProjection(d: FirebaseFirestore.DocumentSnapshot) {
   };
 }
 
+/**
+ * Lifecycle/reviewer events surfaced on the Platform Admin Audit / Review
+ * History page (Milestone 3D-E). Deliberately a small, closed set — the
+ * low-level applicant events already in auditTrail ('draft_created',
+ * 'draft_updated', 'verified_<channel>', 'documents_uploaded:...') stay in
+ * the per-application detail view only, matching the existing product
+ * intent for that page (see detailProjection.auditTrail).
+ *
+ * previousStatus/newStatus reflect the fixed transitions this controller
+ * (and organizationRegistrationController) already enforces for each
+ * action — they are read off this table, never inferred per-event.
+ */
+const LIFECYCLE_EVENTS: Record<
+  string,
+  { label: string; previousStatus: RegistrationStatus | null; newStatus: RegistrationStatus }
+> = {
+  submitted: {
+    label: 'Application Submitted',
+    previousStatus: null,
+    newStatus: 'pending_approval',
+  },
+  changes_requested: {
+    label: 'Changes Requested',
+    previousStatus: 'pending_approval',
+    newStatus: 'changes_requested',
+  },
+  application_resubmitted: {
+    label: 'Application Resubmitted',
+    previousStatus: 'changes_requested',
+    newStatus: 'pending_approval',
+  },
+  application_approved: {
+    label: 'Application Approved',
+    previousStatus: 'pending_approval',
+    newStatus: 'approved',
+  },
+  application_rejected: {
+    label: 'Application Rejected',
+    previousStatus: 'pending_approval',
+    newStatus: 'rejected',
+  },
+  organization_activated: {
+    label: 'Organization Activated',
+    previousStatus: 'approved',
+    newStatus: 'activated',
+  },
+};
+
+/** Bounds the number of registration docs scanned per audit-history
+ *  request. auditTrail lives inline on each doc (no subcollection), so
+ *  aggregating across applications means reading application docs
+ *  directly; this cap keeps a single request cheap at current scale. */
+const AUDIT_HISTORY_SCAN_LIMIT = 500;
+
+/** Normalizes a stored timestamp (Date | Firestore Timestamp | {_seconds}
+ *  map) to epoch millis for sorting/matching only — never returned as-is. */
+function eventTimeMs(v: unknown): number {
+  if (v instanceof Date) return v.getTime();
+  if (v && typeof (v as any).toMillis === 'function') {
+    return (v as any).toMillis();
+  }
+  const secs = (v as any)?._seconds ?? (v as any)?.seconds;
+  if (typeof secs === 'number') return secs * 1000;
+  return 0;
+}
+
+function decisionForAction(
+  action: string,
+): 'approved' | 'rejected' | 'changes_requested' | null {
+  if (action === 'application_approved') return 'approved';
+  if (action === 'application_rejected') return 'rejected';
+  if (action === 'changes_requested') return 'changes_requested';
+  return null;
+}
+
+/**
+ * Resolves the reviewer's EMAIL (never uid) for a decision event by
+ * matching decision type + closest decidedAt among the active `review`
+ * and the archived `reviewHistory`. Returns null when no match exists
+ * (e.g. legacy data) rather than guessing.
+ */
+function resolveReviewerEmail(
+  r: OrganizationRegistration,
+  action: string,
+  atMs: number,
+): string | null {
+  const decision = decisionForAction(action);
+  if (!decision) return null;
+  const candidates: Array<{ email: string; atMs: number }> = [];
+  if (r.review?.decision === decision) {
+    candidates.push({
+      email: r.review.reviewerEmail,
+      atMs: eventTimeMs(r.review.decidedAt),
+    });
+  }
+  for (const h of r.reviewHistory ?? []) {
+    if (h.decision === decision) {
+      candidates.push({ email: h.reviewerEmail, atMs: eventTimeMs(h.decidedAt) });
+    }
+  }
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => Math.abs(a.atMs - atMs) - Math.abs(b.atMs - atMs));
+  return candidates[0].email || null;
+}
+
+/**
+ * Safe per-event projection for the audit-history feed. `atMs` is an
+ * internal sort key only and is stripped before the response is sent.
+ */
+function buildRegistrationEvents(d: FirebaseFirestore.DocumentSnapshot) {
+  const r = d.data() as OrganizationRegistration;
+  const registrationId = d.id;
+  const organizationName = r.organization?.name ?? '';
+  const organizationCode = r.organizationCode ?? null;
+  const applicantEmail = r.adminContact?.email ?? '';
+
+  return (r.auditTrail ?? [])
+    .filter((e) => Boolean(LIFECYCLE_EVENTS[e.action]))
+    .map((e) => {
+      const spec = LIFECYCLE_EVENTS[e.action];
+      const atMs = eventTimeMs(e.at);
+      const isApplicantAction =
+        e.action === 'submitted' || e.action === 'application_resubmitted';
+
+      const actorEmail =
+        e.action === 'organization_activated'
+          ? r.activatedByEmail ?? null
+          : isApplicantAction
+            ? applicantEmail || null
+            : resolveReviewerEmail(r, e.action, atMs);
+
+      return {
+        atMs,
+        registrationId,
+        organizationName,
+        // Organization code is only meaningful once activation has
+        // happened — surfaced on that event, not every prior one.
+        organizationCode:
+          e.action === 'organization_activated' ? organizationCode : null,
+        action: e.action,
+        eventLabel: spec.label,
+        previousStatus: spec.previousStatus,
+        newStatus: spec.newStatus,
+        actorEmail,
+        actorRole: isApplicantAction ? 'Applicant' : 'Platform Admin',
+        note: e.note ?? null,
+        revision:
+          e.action === 'application_resubmitted'
+            ? (e as { revision?: number }).revision ?? r.resubmissionCount ?? null
+            : null,
+        changedFieldsCount:
+          e.action === 'application_resubmitted'
+            ? (r.changedFields ?? []).length
+            : null,
+        at: e.at,
+      };
+    });
+}
+
+/**
+ * GET /platform-admin/registrations/audit-history  (Milestone 3D-E)
+ *
+ * Aggregates lifecycle/reviewer events across organization registrations
+ * for the Audit / Review History page, reusing the SAME auditTrail /
+ * reviewHistory / review / activation fields the detail endpoint already
+ * exposes — no second audit system, no new storage.
+ *
+ * Query:
+ *   action   (optional filter — one of LIFECYCLE_EVENTS' keys)
+ *   search   (optional, matches organization name / registration id /
+ *             organization code, case-insensitive)
+ *   page     (1-based), pageSize (max 50)
+ *
+ * Newest-first by event timestamp. Response shape mirrors listRegistrations:
+ * { events, page, pageSize, hasMore }.
+ */
+export const getAuditHistory = async (
+  req: Request,
+  res: Response,
+): Promise<Response> => {
+  try {
+    const action = String(req.query.action ?? '').trim();
+    if (action && !LIFECYCLE_EVENTS[action]) {
+      return errorResponse(res, 'Invalid action filter', 400);
+    }
+    const search = String(req.query.search ?? '')
+      .trim()
+      .toLowerCase()
+      .slice(0, 80);
+
+    const page = Math.max(1, Math.floor(Number(req.query.page) || 1));
+    const pageSize = Math.min(
+      MAX_PAGE_SIZE,
+      Math.max(1, Math.floor(Number(req.query.pageSize) || DEFAULT_PAGE_SIZE)),
+    );
+
+    const snap = await getDb()
+      .collection(ORGANIZATION_REGISTRATIONS_COL)
+      .orderBy('createdAt', 'desc')
+      .limit(AUDIT_HISTORY_SCAN_LIMIT)
+      .get();
+
+    let events = snap.docs.flatMap((doc) => buildRegistrationEvents(doc));
+
+    if (action) {
+      events = events.filter((e) => e.action === action);
+    }
+    if (search) {
+      events = events.filter(
+        (e) =>
+          e.organizationName.toLowerCase().includes(search) ||
+          e.registrationId.toLowerCase().includes(search) ||
+          (e.organizationCode ?? '').toLowerCase().includes(search),
+      );
+    }
+
+    events.sort((a, b) => b.atMs - a.atMs);
+
+    const total = events.length;
+    const offset = (page - 1) * pageSize;
+    const pageEvents = events
+      .slice(offset, offset + pageSize)
+      .map(({ atMs, ...rest }) => rest);
+
+    return successResponse(
+      res,
+      {
+        events: pageEvents,
+        page,
+        pageSize,
+        hasMore: offset + pageSize < total,
+      },
+      'Audit history retrieved',
+    );
+  } catch (err: any) {
+    console.error('getAuditHistory error:', err);
+    return errorResponse(res, err.message || 'Internal server error', 500);
+  }
+};
+
 const VALID_SORTS: ReadonlySet<string> = new Set([
   'createdAt',
   'submittedAt',

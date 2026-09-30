@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:serv_app/config/api_config.dart';
 
 import 'platform_admin_session.dart';
+import 'platform_admin_theme.dart';
 
 /// Browser login for the Platform Admin portal (Milestone 3D-B).
 ///
@@ -139,152 +140,217 @@ class _PlatformAdminLoginPageState extends State<PlatformAdminLoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F2FA),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Container(
-              padding: const EdgeInsets.all(32),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.grey.shade200),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.06),
-                    blurRadius: 16,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Icon(
-                      Icons.admin_panel_settings_outlined,
-                      size: 44,
-                      color: Color(0xFF4B3B73),
-                    ),
-                    const SizedBox(height: 14),
-                    const Text(
-                      'SERV Platform Admin',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF4B3B73),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      'Organization registration review portal',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 13, color: Colors.black54),
-                    ),
-                    const SizedBox(height: 28),
-                    TextFormField(
-                      controller: _emailController,
-                      keyboardType: TextInputType.emailAddress,
-                      autocorrect: false,
-                      decoration: const InputDecoration(
-                        labelText: 'Email',
-                        prefixIcon: Icon(Icons.mail_outline),
-                        border: OutlineInputBorder(),
-                      ),
-                      validator: (v) {
-                        final value = (v ?? '').trim();
-                        if (value.isEmpty || !value.contains('@')) {
-                          return 'Enter a valid email address';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _passwordController,
-                      obscureText: _obscure,
-                      decoration: InputDecoration(
-                        labelText: 'Password',
-                        prefixIcon: const Icon(Icons.lock_outline),
-                        border: const OutlineInputBorder(),
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _obscure
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
+      backgroundColor: PlatformAdminColors.background,
+      body: PlatformAdminBackground(
+        child: Stack(
+          children: [
+            // Subtle ambient gradient blobs — decorative only.
+            Positioned(
+              top: -120,
+              left: -80,
+              child: _ambientBlob(320, PlatformAdminColors.primarySoft),
+            ),
+            Positioned(
+              bottom: -140,
+              right: -100,
+              child: _ambientBlob(360, PlatformAdminColors.primarySofter),
+            ),
+            Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  child: PlatformAdminCard(
+                    radius: PlatformAdminRadii.card,
+                    padding: const EdgeInsets.all(32),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Container(
+                            width: 56,
+                            height: 56,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: PlatformAdminColors.primarySoft,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Icon(
+                              Icons.admin_panel_settings_outlined,
+                              size: 28,
+                              color: PlatformAdminColors.primary,
+                            ),
                           ),
-                          onPressed: () =>
-                              setState(() => _obscure = !_obscure),
-                        ),
-                      ),
-                      validator: (v) =>
-                          (v ?? '').isEmpty ? 'Enter your password' : null,
-                      onFieldSubmitted: (_) => _busy ? null : _signIn(),
-                    ),
-                    if (_error != null) ...[
-                      const SizedBox(height: 16),
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFEBEE),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: const Color(0xFFEF9A9A),
+                          const SizedBox(height: 18),
+                          const Text(
+                            'SERV Platform Admin',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 21,
+                              fontWeight: FontWeight.w700,
+                              color: PlatformAdminColors.textPrimary,
+                            ),
                           ),
-                        ),
-                        child: Text(
-                          _error!,
-                          style: const TextStyle(
-                            color: Color(0xFFC62828),
-                            fontSize: 13,
+                          const SizedBox(height: 6),
+                          const Text(
+                            'Organization registration review portal',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: PlatformAdminColors.textSecondary,
+                            ),
                           ),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 22),
-                    ElevatedButton(
-                      onPressed: _busy ? null : _signIn,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF4B3B73),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      child: _busy
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
+                          const SizedBox(height: 28),
+                          TextFormField(
+                            controller: _emailController,
+                            keyboardType: TextInputType.emailAddress,
+                            autocorrect: false,
+                            decoration: InputDecoration(
+                              labelText: 'Email',
+                              prefixIcon: const Icon(Icons.mail_outline),
+                              filled: true,
+                              fillColor: Colors.white,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(
+                                    PlatformAdminRadii.control),
+                                borderSide: const BorderSide(
+                                    color: PlatformAdminColors.border),
                               ),
-                            )
-                          : const Text(
-                              'Sign in',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(
+                                    PlatformAdminRadii.control),
+                                borderSide: const BorderSide(
+                                    color: PlatformAdminColors.primary,
+                                    width: 1.6),
                               ),
                             ),
+                            validator: (v) {
+                              final value = (v ?? '').trim();
+                              if (value.isEmpty || !value.contains('@')) {
+                                return 'Enter a valid email address';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _passwordController,
+                            obscureText: _obscure,
+                            decoration: InputDecoration(
+                              labelText: 'Password',
+                              prefixIcon: const Icon(Icons.lock_outline),
+                              filled: true,
+                              fillColor: Colors.white,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(
+                                    PlatformAdminRadii.control),
+                                borderSide: const BorderSide(
+                                    color: PlatformAdminColors.border),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(
+                                    PlatformAdminRadii.control),
+                                borderSide: const BorderSide(
+                                    color: PlatformAdminColors.primary,
+                                    width: 1.6),
+                              ),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscure
+                                      ? Icons.visibility_outlined
+                                      : Icons.visibility_off_outlined,
+                                  color: PlatformAdminColors.textSecondary,
+                                ),
+                                onPressed: () =>
+                                    setState(() => _obscure = !_obscure),
+                              ),
+                            ),
+                            validator: (v) => (v ?? '').isEmpty
+                                ? 'Enter your password'
+                                : null,
+                            onFieldSubmitted: (_) =>
+                                _busy ? null : _signIn(),
+                          ),
+                          if (_error != null) ...[
+                            const SizedBox(height: 16),
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: PlatformAdminColors.redBg,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                _error!,
+                                style: const TextStyle(
+                                  color: PlatformAdminColors.redFg,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 22),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: _busy ? null : _signIn,
+                              style: PlatformAdminButtonStyles.primary()
+                                  .copyWith(
+                                padding: const WidgetStatePropertyAll(
+                                  EdgeInsets.symmetric(vertical: 14),
+                                ),
+                              ),
+                              child: _busy
+                                  ? const SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Text(
+                                      'Sign in',
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          const Text(
+                            'Access is restricted to platform_admin accounts.\n'
+                            'Review actions are read-only in this milestone.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: PlatformAdminColors.textMuted,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 14),
-                    const Text(
-                      'Access is restricted to platform_admin accounts.\n'
-                      'Review actions are read-only in this milestone.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 11, color: Colors.black45),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _ambientBlob(double size, Color color) {
+    return IgnorePointer(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            colors: [color, color.withValues(alpha: 0)],
           ),
         ),
       ),

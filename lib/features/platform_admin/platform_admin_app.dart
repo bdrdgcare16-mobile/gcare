@@ -6,6 +6,7 @@ import 'platform_admin_login_page.dart';
 import 'platform_admin_registration_detail_page.dart';
 import 'platform_admin_session.dart';
 import 'platform_admin_shell.dart';
+import 'platform_admin_theme.dart';
 
 /// Browser-based Platform Admin portal app (Milestone 3D-B).
 ///
@@ -61,7 +62,14 @@ class PlatformAdminApp extends StatelessWidget {
       page = const PlatformAdminLoginPage();
     }
 
-    return MaterialPageRoute(settings: settings, builder: (_) => page);
+    // Instant swaps — no fade/slide between portal pages.
+    return PageRouteBuilder<dynamic>(
+      settings: settings,
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
+      pageBuilder: (_, __, ___) => page,
+      transitionsBuilder: (_, __, ___, child) => child,
+    );
   }
 
   @override
@@ -71,10 +79,10 @@ class PlatformAdminApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         fontFamily: 'Inter',
-        scaffoldBackgroundColor: const Color(0xFFF4F2FA),
-        cardColor: Colors.white,
+        scaffoldBackgroundColor: PlatformAdminColors.background,
+        cardColor: PlatformAdminColors.surface,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF4B3B73),
+          seedColor: PlatformAdminColors.primary,
         ),
         useMaterial3: true,
       ),
