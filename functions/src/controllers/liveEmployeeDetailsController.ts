@@ -41,9 +41,18 @@ export async function liveEmployeeDetails(req: Request, res: Response) {
     }
 
     const dateIso = pickDate(req);
+    const companyId = String((req as any).user?.companyId || '').trim();
+
+    if (!companyId) {
+      return res.status(403).json({
+        status: 'error',
+        message: 'companyId missing in token',
+      });
+    }
 
     const attendanceSnap = await getDb()
       .collection('attendance')
+      .where('companyId', '==', companyId)
       .where('empid', '==', empid)
       .where('date', '==', dateIso)
       .limit(1)
@@ -51,6 +60,7 @@ export async function liveEmployeeDetails(req: Request, res: Response) {
 
     const employeeSnap = await getDb()
       .collection('employees')
+      .where('companyId', '==', companyId)
       .where('empid', '==', empid)
       .limit(1)
       .get();

@@ -59,7 +59,7 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
     const currentUserId = (req as any).user?.userId;
 
     const {
-      companyId,
+      companyId: requestedCompanyId,
       empid,
       name,
       email,
@@ -68,7 +68,6 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
       dept,
       designation,
       shiftGroup,
-      role,
       status = 'active',
       password,
     }: {
@@ -81,7 +80,6 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
       dept?: string;
       designation?: string;
       shiftGroup?: string;
-      role?: string;
       status?: string;
       password?: string;
     } = req.body;
@@ -90,12 +88,18 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    if (!companyId || !empid || !email || !name) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-
-    if (companyId !== tokenCompanyId) {
+    // companyId is always the authenticated admin's organization — the
+    // client may echo it (legacy clients) but cannot steer it.
+    if (
+      requestedCompanyId &&
+      String(requestedCompanyId).trim() !== tokenCompanyId
+    ) {
       return res.status(403).json({ error: 'Invalid companyId' });
+    }
+    const companyId = tokenCompanyId;
+
+    if (!empid || !email || !name) {
+      return res.status(400).json({ error: 'Missing required fields' });
     }
 
     // Normalize email and empid
@@ -146,8 +150,11 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
       dept,
       designation,
       shiftGroup: shiftGroup ?? null,
-      role,
-      status: status as 'active' | 'inactive',
+      // Role is server-owned: membership rows created through Employee
+      // Master are always plain employees. Org-admin rows are written by
+      // activation provisioning, not this endpoint.
+      role: 'employee',
+      status: status === 'inactive' ? 'inactive' : 'active',
 
       createdAt: now,
       updatedAt: now,
@@ -247,11 +254,35 @@ export const getEmployeeById = async (req: Request, res: Response): Promise<Resp
   }
 };
 // Update employee (Admin only)
+//
+// Allowlist update — same convention as payrollController. Fields like
+// companyId, id, role, password, createdAt/createdBy and other
+// ownership/auth fields can never be mass-assigned from the client.
+const EMPLOYEE_UPDATE_ALLOWED = new Set([
+  'name',
+  'empid',
+  'email',
+  'phone',
+  'location',
+  'dept',
+  'designation',
+  'shiftGroup',
+  'status',
+]);
+
 export const updateEmployee = async (req: Request, res: Response): Promise<Response> => {
   try {
 
     const companyId = (req as any).user?.companyId;
+    const currentUserId = (req as any).user?.userId;
     const { id } = req.params;
+
+    const unexpected = Object.keys(req.body ?? {}).filter(
+      (field) => !EMPLOYEE_UPDATE_ALLOWED.has(field),
+    );
+    if (unexpected.length > 0) {
+      return res.status(400).json({ error: 'Unexpected employee fields' });
+    }
 
     const ref = getDb().collection(EMPLOYEES).doc(id);
     const doc = await ref.get();
@@ -260,14 +291,75 @@ export const updateEmployee = async (req: Request, res: Response): Promise<Respo
       return res.status(404).json({ error: 'Employee not found' });
     }
 
-    if (doc.data()?.companyId !== companyId) {
+    const existing = doc.data() as Record<string, any>;
+    if (existing?.companyId !== companyId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    await ref.update({
-      ...req.body,
-      updatedAt: Timestamp.now()
-    });
+    const body = req.body as Record<string, any>;
+    const updates: Record<string, any> = {
+      updatedAt: Timestamp.now(),
+      updatedBy: currentUserId,
+    };
+
+    for (const field of EMPLOYEE_UPDATE_ALLOWED) {
+      if (body[field] !== undefined) updates[field] = body[field];
+    }
+
+    if (updates.empid !== undefined) {
+      const normalizedEmpid = String(updates.empid || '').trim();
+      if (!normalizedEmpid) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+      if (normalizedEmpid !== existing.empid) {
+        const dup = await getDb()
+          .collection(EMPLOYEES)
+          .where('companyId', '==', companyId)
+          .where('empid', '==', normalizedEmpid)
+          .limit(1)
+          .get();
+        if (!dup.empty && dup.docs[0].id !== id) {
+          return res
+            .status(409)
+            .json({ error: 'Employee ID already exists for this company' });
+        }
+      }
+      updates.empid = normalizedEmpid;
+      // keep empId aliases in sync where present
+      if (existing.empId !== undefined) updates.empId = normalizedEmpid;
+      if (existing.employeeId !== undefined) updates.employeeId = normalizedEmpid;
+    }
+
+    if (updates.email !== undefined) {
+      const normalizedEmail = String(updates.email || '').trim().toLowerCase();
+      if (!normalizedEmail) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+      if (normalizedEmail !== existing.email) {
+        const dup = await getDb()
+          .collection(EMPLOYEES)
+          .where('companyId', '==', companyId)
+          .where('email', '==', normalizedEmail)
+          .limit(1)
+          .get();
+        if (!dup.empty && dup.docs[0].id !== id) {
+          return res
+            .status(409)
+            .json({ error: 'Email already exists for this company' });
+        }
+      }
+      updates.email = normalizedEmail;
+      updates.emailLower = normalizedEmail;
+    }
+
+    if (updates.status !== undefined) {
+      updates.status =
+        String(updates.status).toLowerCase() === 'inactive'
+          ? 'inactive'
+          : 'active';
+    }
+
+    await ref.update(updates);
 
     // Track usage after successful employee update
     await trackEmployeeUsage(req, {

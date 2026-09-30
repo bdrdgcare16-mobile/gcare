@@ -10,6 +10,7 @@ import 'package:intl_phone_field/intl_phone_field.dart';
 import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 import 'package:serv_app/models/company_data.dart';
+import 'package:serv_app/models/organization_context.dart';
 import 'package:serv_app/services/api_service.dart';
 
 const Color kPrimaryBackgroundTop = Colors.white;
@@ -86,6 +87,23 @@ class Employee {
       'designation': designation,
       'shiftGroup': shiftGroup.isEmpty ? null : shiftGroup,
       'role': role,
+    };
+  }
+
+  /// Update payload — mirrors the backend EMPLOYEE_UPDATE_ALLOWED
+  /// allowlist exactly. Never sends companyId/role/password/id or any
+  /// ownership/auth field.
+  Map<String, dynamic> toUpdateBody() {
+    return {
+      'name': name,
+      'empid': id,
+      'email': email,
+      'phone': mobile,
+      'location': location,
+      'dept': dept,
+      'designation': designation,
+      'shiftGroup': shiftGroup,
+      'status': status.toLowerCase(),
     };
   }
 }
@@ -506,17 +524,7 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
     }
 
     try {
-      await EmployeeService.updateEmployee(e.docId!, {
-        'name': edited.name,
-        'empid': edited.id,
-        'email': edited.email,
-        'phone': edited.mobile,
-        'location': edited.location,
-        'dept': edited.dept,
-        'designation': edited.designation,
-        'shiftGroup': edited.shiftGroup,
-        'status': edited.status.toLowerCase(),
-      });
+      await EmployeeService.updateEmployee(e.docId!, edited.toUpdateBody());
 
       await _loadEmployees();
 
@@ -742,15 +750,36 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
                 ),
               ),
               const SizedBox(height: 16),
+              // Organization context (server-derived) — employees below
+              // belong to this companyId only.
+              Builder(
+                builder: (context) {
+                  final org = OrganizationContext.current;
+                  if (org == null) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      '${org.organizationName.isNotEmpty ? org.organizationName : 'Organization'}'
+                      '${org.organizationCode.isNotEmpty ? ' • ${org.organizationCode}' : ''}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Colors.black54,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
               Center(
   child: Wrap(
     alignment: WrapAlignment.center,
     spacing: 10,
     runSpacing: 10,
     children: [
-      statButton('Total', 22),
-      statButton('Active', 21),
-      statButton('Inactive', 1),
+      statButton('Total', employees.length),
+      statButton('Active', countStatus('Active')),
+      statButton('Inactive', countStatus('Inactive')),
       statButton('Suspended', 0),
       statButton('Relived', 0),
     ],
@@ -887,6 +916,10 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
       dept.text = emp.dept;
       desig.text = emp.designation;
       status = emp.status;
+    } else {
+      // companyId is the authenticated organization — display-only, never
+      // user-editable. The backend re-derives it from the JWT regardless.
+      companyId.text = OrganizationContext.current?.companyId ?? '';
     }
 
     _loadShiftGroups();
@@ -927,12 +960,14 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
     String label,
     TextEditingController ctrl, {
     TextInputType type = TextInputType.text,
+    bool readOnly = false,
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: TextFormField(
         controller: ctrl,
         keyboardType: type,
+        readOnly: readOnly,
         validator: (v) {
           if (v == null || v.trim().isEmpty) return 'Required';
 
@@ -1039,7 +1074,10 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: DropdownButtonFormField<String>(
         isExpanded: true,
-        initialValue:
+        // Live-bound to the controller — in edit mode the prefilled shift
+        // is often not in _shiftOptions until fetchShiftGroups() resolves,
+        // and initialValue is only read once at field init.
+        value:
             shiftgroup.text.isNotEmpty && _shiftOptions.contains(shiftgroup.text)
                 ? shiftgroup.text
                 : null,
@@ -1099,6 +1137,13 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
       password: password.text.trim(),
       role: 'employee',
     );
+
+    // Edit mode: hand the edited Employee back to the list screen, which
+    // calls updateEmployee (PUT /employees/:docId). Never call create here.
+    if (widget.editEmployee != null) {
+      Navigator.pop(context, newEmp);
+      return;
+    }
 
     try {
       final response = await EmployeeService.createEmployee(newEmp);
@@ -1183,7 +1228,9 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
             key: _formKey,
             child: Column(
               children: [
-                formField('Company ID', companyId),
+                // Org-scoped: server derives companyId from the JWT; the
+                // field is read-only context, not a chooser.
+                formField('Company ID', companyId, readOnly: true),
                 formField('Employee Name', name),
                 formField('Employee ID', id),
                 formField('Email', email, type: TextInputType.emailAddress),
