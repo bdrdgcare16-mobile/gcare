@@ -827,13 +827,31 @@ export const getLiveAttendance = async (req: Request, res: Response) => {
     console.log('Today:', today);
     console.log('Company ID:', companyId);
     
-    // Fetch all leaves to include pending Half-Day requests
-    const leaveSnap = await getDb().collection(LEAVE_COL)
-      .where('companyId', '==', companyId)
+    // Leave merge only when the organization enabled `leave_management` —
+    // attendance is a basic feature and must not surface leave data on its
+    // own. Legacy orgs (no enabledFeatures field) keep existing behavior.
+    const leaveProfileSnap = await getDb()
+      .collection('companyProfile')
+      .doc(companyId)
       .get();
-    
+    const leaveEnabledFeatures = leaveProfileSnap.exists
+      ? (leaveProfileSnap.data() as any)?.enabledFeatures
+      : undefined;
+    const leaveEnabled =
+      leaveEnabledFeatures === undefined ||
+      leaveEnabledFeatures === null ||
+      (Array.isArray(leaveEnabledFeatures) &&
+        leaveEnabledFeatures.includes('leave_management'));
+
+    // Fetch all leaves to include pending Half-Day requests
+    const leaveSnap = leaveEnabled
+      ? await getDb().collection(LEAVE_COL)
+        .where('companyId', '==', companyId)
+        .get()
+      : { docs: [] as any[], size: 0 };
+
     console.log('Total leaves fetched:', leaveSnap.size);
-    
+
     const processedLeaves = leaveSnap.docs
       .map(d => d.data())
       .filter((l: any) => {

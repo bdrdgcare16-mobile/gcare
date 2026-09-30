@@ -7,6 +7,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { getDb, getBucket } from '../config/firebase';
 import { errorResponse, successResponse } from '../common/response';
 import {
+  BASIC_HRMS_FEATURES,
   CANONICAL_FEATURES,
   CLIENT_FORBIDDEN_FIELDS,
   computeChangedFields,
@@ -194,7 +195,14 @@ function validateRequestedFeatures(raw: any): {
   errors: string[];
   value: string[];
 } {
-  if (raw === undefined || raw === null) return { errors: [], value: [] };
+  // BASIC HRMS features are mandatory — always injected server-side so the
+  // client can never drop them, then deduplicated with the valid optional
+  // selections.
+  const withBasics = (ids: string[]) =>
+    [...new Set([...BASIC_HRMS_FEATURES, ...ids])];
+  if (raw === undefined || raw === null) {
+    return { errors: [], value: withBasics([]) };
+  }
   if (!Array.isArray(raw)) {
     return { errors: ['requestedFeatures must be an array'], value: [] };
   }
@@ -206,7 +214,7 @@ function validateRequestedFeatures(raw: any): {
       value: [],
     };
   }
-  return { errors: [], value: [...new Set(ids)] };
+  return { errors: [], value: withBasics(ids) };
 }
 
 function validateStep(

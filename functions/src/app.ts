@@ -154,7 +154,7 @@ import authRoutes from "./routes/authRoutes";
 import companyRoutes from "./routes/companyRoutes";
 import employeeRoutes from "./routes/employeeRoutes";
 import employeeDetailsRoutes from "./routes/employeeDetailsRoutes";
-import attendanceRoutes from "./routes/attendanceRoutes";
+import attendanceRoutes, { liveAttendanceRouter } from "./routes/attendanceRoutes";
 import leaveTypeRoutes from "./routes/leaveTypeRoutes";
 import officeLocationRoutes from "./routes/officeLocationRoutes";
 import uploadRoutes from "./routes/uploadRoutes";
@@ -180,7 +180,7 @@ import platformAdminRegistrationRoutes from "./routes/platformAdminRegistrationR
 
 import * as authController from "./controllers/authController";
 import { authMiddleware } from "./middlewares/authMiddleware";
-import { requireFeature } from "./middlewares/featureMiddleware";
+import { requireAnyFeature, requireFeature } from "./middlewares/featureMiddleware";
 
 const app = express();
 
@@ -303,6 +303,17 @@ app.use(
   requireFeature("employee_master"),
   employeeRoutes,
 );
+// GET /attendance/live is shared: Location Tracking admins view employees'
+// live location/status on the Live Attendance page. Reachable with EITHER
+// `attendance` OR `location_tracking`; every other /attendance route stays
+// attendance-only via the gated mount below.
+app.use(
+  `${apiPrefix}/attendance`,
+  attendanceRateLimit,
+  authMiddleware,
+  requireAnyFeature(["attendance", "location_tracking"]),
+  liveAttendanceRouter,
+);
 app.use(
   `${apiPrefix}/attendance`,
   attendanceRateLimit,
@@ -331,7 +342,15 @@ app.use(
   requireFeature("leave_management"),
   leaveTypeRoutes,
 );
-app.use(`${apiPrefix}/office`, generalRateLimit, officeLocationRoutes);
+// Office locations feed the geofence used by attendance check-in AND the
+// Location Tracking module — shared surface, reachable with either.
+app.use(
+  `${apiPrefix}/office`,
+  generalRateLimit,
+  authMiddleware,
+  requireAnyFeature(["attendance", "location_tracking"]),
+  officeLocationRoutes,
+);
 app.use(`${apiPrefix}/uploads`, uploadRateLimit, uploadRoutes);
 app.use(
   `${apiPrefix}/reports`,
@@ -341,8 +360,21 @@ app.use(
   reportRoutes,
 );
 app.use(`${apiPrefix}/rewards`, generalRateLimit, rewardRoutes);
-app.use(`${apiPrefix}/events`, generalRateLimit, eventRoutes());
-app.use(`${apiPrefix}/feedback`, generalRateLimit, feedbackRoutes());
+app.use(
+  `${apiPrefix}/events`,
+  generalRateLimit,
+  authMiddleware,
+  requireFeature("events"),
+  eventRoutes(),
+);
+// Feedback is a Basic HRMS feature — enabled for every activated org.
+app.use(
+  `${apiPrefix}/feedback`,
+  generalRateLimit,
+  authMiddleware,
+  requireFeature("feedback"),
+  feedbackRoutes(),
+);
 app.use(
   `${apiPrefix}/shifts`,
   generalRateLimit,
@@ -371,7 +403,14 @@ app.use(
   requireFeature("employee_master"),
   liveEmployeeDetailsRouter,
 );
-app.use(`${apiPrefix}/reasons`, generalRateLimit, reasonsRouter);
+// Reason Master backs attendance/leave permission workflows — core path.
+app.use(
+  `${apiPrefix}/reasons`,
+  generalRateLimit,
+  authMiddleware,
+  requireAnyFeature(["attendance", "leave_management"]),
+  reasonsRouter,
+);
 app.use(
   `${apiPrefix}/overtime`,
   generalRateLimit,

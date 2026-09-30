@@ -12,6 +12,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import 'package:serv_app/services/api_service.dart';
 import 'package:serv_app/models/company_data.dart';
+import 'package:serv_app/models/organization_context.dart';
 
 // Theme
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -958,23 +959,31 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: _showLastTrackingPath,
-                              icon: const Icon(Icons.alt_route),
-                              label: const Text('Geolocation'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.orange.shade600,
-                                foregroundColor: Colors.white,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 12),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
+                          // Live tracking path is Location Tracking data —
+                          // hide the Geolocation action when the org didn't
+                          // enable that module (attendance/branch locations
+                          // stay available as part of core attendance).
+                          if (OrganizationContext.current
+                                  ?.isFeatureEnabled('location_tracking') ??
+                              true) ...[
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: _showLastTrackingPath,
+                                icon: const Icon(Icons.alt_route),
+                                label: const Text('Geolocation'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orange.shade600,
+                                  foregroundColor: Colors.white,
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
 
@@ -1114,8 +1123,12 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
         _polylines.clear();
       });
 
-      // Reload tracking for new date
-      await _showLastTrackingPath();
+      // Reload tracking for new date — only when Location Tracking is on.
+      if (OrganizationContext.current
+              ?.isFeatureEnabled('location_tracking') ??
+          true) {
+        await _showLastTrackingPath();
+      }
     }
   }
 }

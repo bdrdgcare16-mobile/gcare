@@ -70,7 +70,24 @@ export const CANONICAL_FEATURES: ReadonlySet<string> = new Set([
   'recruitment',
   'performance',
   'reporting',
+  'feedback',
+  'events',
 ]);
+
+/**
+ * BASIC HRMS — mandatory core modules for every SERV HRMS organization.
+ * Auto-selected (locked) in registration UI and injected server-side into
+ * requestedFeatures so applicants cannot opt out. On activation these are
+ * always present in companyProfile.enabledFeatures.
+ *
+ *   `shifts` is the canonical key for the "Shift Management" module.
+ */
+export const BASIC_HRMS_FEATURES: ReadonlyArray<string> = [
+  'attendance',
+  'employee_master',
+  'feedback',
+  'shifts',
+];
 
 /** Fields the applicant may never set — server/platform controlled. */
 export const CLIENT_FORBIDDEN_FIELDS: ReadonlySet<string> = new Set([

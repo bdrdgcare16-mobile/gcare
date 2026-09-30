@@ -18,6 +18,7 @@ import { getDb, getBucket } from '../config/firebase';
 import {
   activateRegistration,
   approveRegistration,
+  getAuditHistory,
   getRegistrationDocumentForReview,
   getRegistrationForReview,
   listRegistrations,
@@ -256,7 +257,7 @@ function seedRegistration(
         officialEmailLower: `hr${regSeq}@org.example.com`,
         contactNumber: '+91 80 1111 2222',
       },
-      requestedFeatures: ['attendance', 'leave_management'],
+      requestedFeatures: ['attendance', 'employee_master', 'feedback', 'shifts', 'leave_management'],
       adminContact: {
         fullName: `Admin ${regSeq}`,
         designation: 'HR Manager',
@@ -455,7 +456,7 @@ describe('platformAdminRegistrationController (3D-B)', () => {
       expect(statusCode(res)).toBe(200);
       const reg = jsonBody(res).registration;
       expect(reg.organization.name).toBe('Org 1');
-      expect(reg.requestedFeatures).toEqual(['attendance', 'leave_management']);
+      expect(reg.requestedFeatures).toEqual(['attendance', 'employee_master', 'feedback', 'shifts', 'leave_management']);
       expect(reg.verification.orgEmail.verified).toBe(true);
       expect(reg.documents.registrationCertificate.originalName).toBe('cert.pdf');
       expect(reg.auditTrail).toHaveLength(2);
@@ -822,7 +823,7 @@ describe('resubmission review context (change diff)', () => {
     expect(b).toBeTruthy();
     expect(b.organization.name).toBe('Org 1');
     expect(b.organization.employeeCount).toBe(10);
-    expect(b.requestedFeatures).toEqual(['attendance', 'leave_management']);
+    expect(b.requestedFeatures).toEqual(['attendance', 'employee_master', 'feedback', 'shifts', 'leave_management']);
     expect(b.adminContact.fullName).toBe('Admin 1');
     expect(b.verification.orgEmail).toEqual({ verified: true });
     expect(b.documents.registrationCertificate.originalName).toBe('cert.pdf');
@@ -1002,6 +1003,9 @@ describe('POST /:id/activate (3D-D)', () => {
     expect(body.companyId).toBe(APPLICANT_EMAIL);
     expect(body.enabledFeatures).toEqual([
       'attendance',
+      'employee_master',
+      'feedback',
+      'shifts',
       'leave_management',
     ]);
 
@@ -1013,8 +1017,8 @@ describe('POST /:id/activate (3D-D)', () => {
     expect(d.activatedBy).toBe('pa1');
     expect(d.activatedByEmail).toBe('pa@x.com');
     expect(d.activatedAt).toBeTruthy();
-    expect(d.approvedFeatures).toEqual(['attendance', 'leave_management']);
-    expect(d.enabledFeatures).toEqual(['attendance', 'leave_management']);
+    expect(d.approvedFeatures).toEqual(['attendance', 'employee_master', 'feedback', 'shifts', 'leave_management']);
+    expect(d.enabledFeatures).toEqual(['attendance', 'employee_master', 'feedback', 'shifts', 'leave_management']);
     expect(d.provisionedAdmin).toEqual({
       uid: APPLICANT_UID,
       email: APPLICANT_EMAIL,
@@ -1036,6 +1040,9 @@ describe('POST /:id/activate (3D-D)', () => {
     expect(profile.data.registrationId).toBe(id);
     expect(profile.data.enabledFeatures).toEqual([
       'attendance',
+      'employee_master',
+      'feedback',
+      'shifts',
       'leave_management',
     ]);
 
@@ -1186,7 +1193,7 @@ describe('POST /:id/activate (3D-D)', () => {
     const body = jsonBody(res);
     expect(body.companyId).toBe(APPLICANT_EMAIL);
     expect(body.organizationCode).toBe('SERV001');
-    expect(body.enabledFeatures).toEqual(['attendance', 'leave_management']);
+    expect(body.enabledFeatures).toEqual(['attendance', 'employee_master', 'feedback', 'shifts', 'leave_management']);
     const d = docData(collections, id);
     expect(d.approvedCompanyId).toBe(APPLICANT_EMAIL);
     expect(d.organizationCode).toBe('SERV001');
@@ -1389,6 +1396,9 @@ describe('POST /:id/activate (3D-D)', () => {
     expect(reg.provisioning.companyId).toBe(APPLICANT_EMAIL);
     expect(reg.provisioning.enabledFeatures).toEqual([
       'attendance',
+      'employee_master',
+      'feedback',
+      'shifts',
       'leave_management',
     ]);
     expect(reg.provisioning.admin).toEqual({
@@ -1422,5 +1432,286 @@ describe('POST /:id/activate (3D-D)', () => {
       expect(typeof u[f]).toBe('string');
       expect(String(u[f]).length).toBeGreaterThan(0);
     }
+  });
+});
+
+// ─── Audit / Review History (3D-E) ──────────────────────────────────────────
+
+describe('GET /platform-admin/registrations/audit-history (3D-E)', () => {
+  let collections: Record<string, MockDoc[]>;
+
+  beforeEach(() => {
+    collections = {};
+    regSeq = 0;
+    (getDb as jest.Mock).mockReturnValue(makeMockDb(collections));
+  });
+
+  describe('route protection (middleware chain)', () => {
+    const guard = roleMiddleware(['platform_admin']);
+    const next: NextFunction = jest.fn();
+
+    beforeEach(() => (next as jest.Mock).mockClear());
+
+    it('rejects an unauthenticated caller (401)', () => {
+      const res = mockResponse();
+      guard(makeReq({}) as Request, res, next);
+      expect(statusCode(res)).toBe(401);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('rejects a non platform_admin role (403)', () => {
+      const res = mockResponse();
+      const req = makeReq({}) as Request;
+      req.user = { userId: 'e1', email: 'e@x.com', role: 'employee' };
+      guard(req, res, next);
+      expect(statusCode(res)).toBe(403);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('admits a platform_admin JWT', () => {
+      const res = mockResponse();
+      const req = makeReq({}) as Request;
+      req.user = PA_USER;
+      guard(req, res, next);
+      expect(next).toHaveBeenCalled();
+    });
+  });
+
+  it('returns a clean empty result when no registrations exist', async () => {
+    const res = mockResponse();
+    await getAuditHistory(makeReq({}) as Request, res);
+    expect(statusCode(res)).toBe(200);
+    const body = jsonBody(res);
+    expect(body.events).toEqual([]);
+    expect(body.hasMore).toBe(false);
+  });
+
+  it('aggregates lifecycle events across registrations, newest first', async () => {
+    seedRegistration(collections, {
+      id: 'r1',
+      createdAt: new Date(2024, 0, 1),
+      auditTrail: [
+        { at: new Date(2024, 0, 1, 9), action: 'draft_created', actor: 'applicant' },
+        { at: new Date(2024, 0, 1, 10), action: 'submitted', actor: 'applicant', note: 'submitted for review' },
+      ],
+    });
+    seedRegistration(collections, {
+      id: 'r2',
+      createdAt: new Date(2024, 0, 2),
+      status: 'approved',
+      review: {
+        reviewerId: 'pa1',
+        reviewerEmail: 'pa@x.com',
+        decidedAt: new Date(2024, 0, 3),
+        decision: 'approved',
+        note: 'Looks good',
+      },
+      auditTrail: [
+        { at: new Date(2024, 0, 2, 9), action: 'submitted', actor: 'applicant' },
+        { at: new Date(2024, 0, 3), action: 'application_approved', actor: 'pa1', note: 'Looks good' },
+      ],
+    });
+
+    const res = mockResponse();
+    await getAuditHistory(makeReq({ query: { pageSize: '50' } }) as Request, res);
+    expect(statusCode(res)).toBe(200);
+    const body = jsonBody(res);
+    // draft_created is a low-level applicant event — excluded here.
+    expect(body.events).toHaveLength(3);
+    expect(body.events.map((e: any) => e.action)).toEqual([
+      'application_approved',
+      'submitted',
+      'submitted',
+    ]);
+    expect(body.events[0].registrationId).toBe('r2');
+    expect(body.events[0].actorEmail).toBe('pa@x.com');
+    expect(body.events[0].actorRole).toBe('Platform Admin');
+    expect(body.events[0].previousStatus).toBe('pending_approval');
+    expect(body.events[0].newStatus).toBe('approved');
+    expect(body.events[0].eventLabel).toBe('Application Approved');
+  });
+
+  it('filters by action', async () => {
+    seedRegistration(collections, { id: 'r1' });
+    seedRegistration(collections, {
+      id: 'r2',
+      status: 'rejected',
+      auditTrail: [
+        { at: new Date(), action: 'submitted', actor: 'applicant' },
+        { at: new Date(), action: 'application_rejected', actor: 'pa1', note: 'Docs illegible' },
+      ],
+    });
+    const res = mockResponse();
+    await getAuditHistory(
+      makeReq({ query: { action: 'application_rejected' } }) as Request,
+      res,
+    );
+    const body = jsonBody(res);
+    expect(body.events).toHaveLength(1);
+    expect(body.events[0].registrationId).toBe('r2');
+    expect(body.events[0].note).toBe('Docs illegible');
+  });
+
+  it('rejects an invalid action filter', async () => {
+    const res = mockResponse();
+    await getAuditHistory(
+      makeReq({ query: { action: 'not-a-real-action' } }) as Request,
+      res,
+    );
+    expect(statusCode(res)).toBe(400);
+  });
+
+  it('paginates with page/pageSize and hasMore', async () => {
+    for (let i = 0; i < 5; i++) seedRegistration(collections);
+    const res1 = mockResponse();
+    await getAuditHistory(
+      makeReq({ query: { page: '1', pageSize: '2' } }) as Request,
+      res1,
+    );
+    expect(jsonBody(res1).events).toHaveLength(2);
+    expect(jsonBody(res1).hasMore).toBe(true);
+
+    const res3 = mockResponse();
+    await getAuditHistory(
+      makeReq({ query: { page: '3', pageSize: '2' } }) as Request,
+      res3,
+    );
+    expect(jsonBody(res3).events).toHaveLength(1);
+    expect(jsonBody(res3).hasMore).toBe(false);
+  });
+
+  it('search matches organization name, registration id, and organization code', async () => {
+    seedRegistration(collections, {
+      id: 'serv-demo',
+      organization: {
+        name: 'SERV Demo Technologies Pvt Ltd',
+        nameLower: 'serv demo technologies pvt ltd',
+        type: 'Private Limited',
+        industry: 'IT',
+        employeeCount: 10,
+        branchCount: 1,
+        registeredAddress: '1 St',
+        officialEmail: 'hr@serv-demo.example.com',
+        officialEmailLower: 'hr@serv-demo.example.com',
+        contactNumber: '+91 80 1111 2222',
+      },
+    });
+    seedRegistration(collections, { id: 'other-1' });
+    const res = mockResponse();
+    await getAuditHistory(
+      makeReq({ query: { search: 'serv demo' } }) as Request,
+      res,
+    );
+    const body = jsonBody(res);
+    expect(body.events).toHaveLength(1);
+    expect(body.events[0].registrationId).toBe('serv-demo');
+  });
+
+  it('exposes the full timeline for an activated, previously resubmitted application (SERV Demo scenario)', async () => {
+    const id = seedRegistration(collections, {
+      id: 'serv-demo',
+      status: 'activated',
+      resubmissionCount: 1,
+      changedFields: [
+        {
+          field: 'organization.employeeCount',
+          label: 'Employees',
+          changeType: 'modified',
+          oldValue: '10',
+          newValue: '36',
+        },
+      ],
+      organizationCode: 'SERV001',
+      activatedBy: 'pa1',
+      activatedByEmail: 'pa@x.com',
+      review: {
+        reviewerId: 'pa1',
+        reviewerEmail: 'pa@x.com',
+        decidedAt: new Date(2024, 0, 5),
+        decision: 'approved',
+        note: 'All good now',
+      },
+      reviewHistory: [
+        {
+          reviewerId: 'pa1',
+          reviewerEmail: 'pa@x.com',
+          decidedAt: new Date(2024, 0, 2),
+          decision: 'changes_requested',
+          note: 'Please fix employee count',
+        },
+      ],
+      auditTrail: [
+        { at: new Date(2024, 0, 1), action: 'submitted', actor: 'applicant', note: 'submitted for review' },
+        { at: new Date(2024, 0, 2), action: 'changes_requested', actor: 'pa1', note: 'Please fix employee count' },
+        {
+          at: new Date(2024, 0, 3),
+          action: 'application_resubmitted',
+          actor: 'a1',
+          note: 'changes_requested -> pending_approval (revision 1)',
+          revision: 1,
+        },
+        { at: new Date(2024, 0, 5), action: 'application_approved', actor: 'pa1', note: 'All good now' },
+        {
+          at: new Date(2024, 0, 6),
+          action: 'organization_activated',
+          actor: 'pa1',
+          note: 'approved -> activated by platform_admin; organizationCode=SERV001; companyId=c1; admin=a@x.com',
+        },
+      ],
+    });
+
+    const res = mockResponse();
+    await getAuditHistory(
+      makeReq({ query: { search: id, pageSize: '50' } }) as Request,
+      res,
+    );
+    const body = jsonBody(res);
+    expect(body.events.map((e: any) => e.action)).toEqual([
+      'organization_activated',
+      'application_approved',
+      'application_resubmitted',
+      'changes_requested',
+      'submitted',
+    ]);
+
+    const [activated, approved, resubmitted, changesRequested] = body.events;
+    expect(activated.organizationCode).toBe('SERV001');
+    expect(activated.actorEmail).toBe('pa@x.com');
+    expect(activated.newStatus).toBe('activated');
+
+    expect(approved.actorEmail).toBe('pa@x.com');
+    expect(approved.note).toBe('All good now');
+
+    expect(resubmitted.revision).toBe(1);
+    expect(resubmitted.changedFieldsCount).toBe(1);
+    expect(resubmitted.actorRole).toBe('Applicant');
+
+    expect(changesRequested.actorEmail).toBe('pa@x.com');
+    expect(changesRequested.note).toBe('Please fix employee count');
+  });
+
+  it('never leaks reviewer uid, applicant uid, or storage internals', async () => {
+    seedRegistration(collections, {
+      id: 'r1',
+      status: 'approved',
+      review: {
+        reviewerId: 'pa1',
+        reviewerEmail: 'pa@x.com',
+        decidedAt: new Date(),
+        decision: 'approved',
+      },
+      auditTrail: [
+        { at: new Date(), action: 'submitted', actor: 'applicant' },
+        { at: new Date(), action: 'application_approved', actor: 'pa1', note: 'ok' },
+      ],
+    });
+    const res = mockResponse();
+    await getAuditHistory(makeReq({}) as Request, res);
+    const raw = JSON.stringify(jsonBody(res));
+    expect(raw).not.toContain('resumeTokenHash');
+    expect(raw).not.toContain('storagePath');
+    expect(raw).not.toContain('"reviewerId"');
+    expect(raw).not.toContain('"applicantUid"');
+    expect(raw).not.toContain('"actor"');
   });
 });

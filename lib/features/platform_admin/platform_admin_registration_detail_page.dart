@@ -3,6 +3,8 @@
 import 'package:flutter/material.dart';
 import 'package:serv_app/services/platform_admin_registration_service.dart';
 
+import 'platform_admin_theme.dart';
+
 /// Detail view of one organization registration application in the
 /// browser Platform Admin portal (Milestones 3D-B/C/D). Requested features
 /// are labelled REQUESTED — never approved or enabled. When the
@@ -54,6 +56,8 @@ class _PlatformAdminRegistrationDetailPageState
     'recruitment': 'Recruitment',
     'performance': 'Performance',
     'reporting': 'Reporting',
+    'feedback': 'Feedback',
+    'events': 'Events',
   };
 
   static const _channelLabels = <String, String>{
@@ -132,19 +136,19 @@ class _PlatformAdminRegistrationDetailPageState
   Color _statusColor(String status) {
     switch (status) {
       case 'pending_approval':
-        return Colors.orange;
+        return PlatformAdminColors.amberFg;
       case 'approved':
-        return Colors.green;
+        return PlatformAdminColors.greenFg;
       case 'rejected':
-        return Colors.red;
+        return PlatformAdminColors.redFg;
       case 'changes_requested':
-        return Colors.blue;
+        return PlatformAdminColors.blueFg;
       case 'pending_verification':
-        return Colors.teal;
+        return PlatformAdminColors.blueFg;
       case 'activated':
-        return const Color(0xFF6A1B9A);
+        return PlatformAdminColors.purpleFg;
       default:
-        return Colors.grey;
+        return PlatformAdminColors.grayFg;
     }
   }
 
@@ -157,30 +161,20 @@ class _PlatformAdminRegistrationDetailPageState
           Text(
             title,
             style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF4B3B73),
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              color: PlatformAdminColors.textPrimary,
             ),
           ),
           const SizedBox(height: 12),
-          Container(
+          SizedBox(
             width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade200, width: 1),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.05),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: children,
+            child: PlatformAdminCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: children,
+              ),
             ),
           ),
         ],
@@ -201,7 +195,7 @@ class _PlatformAdminRegistrationDetailPageState
               '$label:',
               style: const TextStyle(
                 fontWeight: FontWeight.w600,
-                color: Colors.grey,
+                color: PlatformAdminColors.textSecondary,
               ),
             ),
           ),
@@ -209,8 +203,11 @@ class _PlatformAdminRegistrationDetailPageState
           Expanded(
             child: Text(
               displayValue.isEmpty ? '—' : displayValue,
-              style:
-                  const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+              style: const TextStyle(
+                fontWeight: FontWeight.w500,
+                fontSize: 14,
+                color: PlatformAdminColors.textPrimary,
+              ),
             ),
           ),
         ],
@@ -223,16 +220,15 @@ class _PlatformAdminRegistrationDetailPageState
       margin: const EdgeInsets.only(right: 8, bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF8E1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFFFC107)),
+        color: PlatformAdminColors.amberBg,
+        borderRadius: BorderRadius.circular(PlatformAdminRadii.pill),
       ),
       child: Text(
         '${_featureLabels[id] ?? id} — REQUESTED',
         style: const TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.w600,
-          color: Color(0xFF795548),
+          color: PlatformAdminColors.amberFg,
         ),
       ),
     );
@@ -253,12 +249,17 @@ class _PlatformAdminRegistrationDetailPageState
           ),
           Text(
             s['target']?.toString() ?? '',
-            style: const TextStyle(fontSize: 12, color: Colors.black54),
+            style: const TextStyle(
+              fontSize: 12,
+              color: PlatformAdminColors.textSecondary,
+            ),
           ),
           const SizedBox(width: 8),
           Icon(
             verified ? Icons.check_circle : Icons.cancel,
-            color: verified ? Colors.green : Colors.grey,
+            color: verified
+                ? PlatformAdminColors.greenFg
+                : PlatformAdminColors.textMuted,
             size: 18,
           ),
           const SizedBox(width: 4),
@@ -267,7 +268,9 @@ class _PlatformAdminRegistrationDetailPageState
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: verified ? Colors.green : Colors.grey,
+              color: verified
+                  ? PlatformAdminColors.greenFg
+                  : PlatformAdminColors.textMuted,
             ),
           ),
         ],
@@ -293,8 +296,10 @@ class _PlatformAdminRegistrationDetailPageState
                   Text(
                     '${m['originalName'] ?? ''} '
                     '(${((m['size'] ?? 0) / 1024).toStringAsFixed(1)} KB)',
-                    style:
-                        const TextStyle(fontSize: 11, color: Colors.black54),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: PlatformAdminColors.textSecondary,
+                    ),
                   ),
               ],
             ),
@@ -307,6 +312,9 @@ class _PlatformAdminRegistrationDetailPageState
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : TextButton.icon(
+                    style: TextButton.styleFrom(
+                      foregroundColor: PlatformAdminColors.primary,
+                    ),
                     onPressed: () => _openDocument(
                       field,
                       m['originalName']?.toString() ?? 'document',
@@ -315,7 +323,10 @@ class _PlatformAdminRegistrationDetailPageState
                     label: const Text('View Document'),
                   )
           else
-            const Text('Not uploaded', style: TextStyle(color: Colors.grey)),
+            const Text(
+              'Not uploaded',
+              style: TextStyle(color: PlatformAdminColors.textMuted),
+            ),
         ],
       ),
     );
@@ -332,7 +343,10 @@ class _PlatformAdminRegistrationDetailPageState
             width: 140,
             child: Text(
               _fmtDate(e['at']),
-              style: const TextStyle(fontSize: 11, color: Colors.black54),
+              style: const TextStyle(
+                fontSize: 11,
+                color: PlatformAdminColors.textMuted,
+              ),
             ),
           ),
           Expanded(
@@ -340,7 +354,10 @@ class _PlatformAdminRegistrationDetailPageState
               '${e['action'] ?? ''}'
               '${e['actor'] != null && e['actor'] != '' ? ' — ${e['actor']}' : ''}'
               '${e['note'] != null && e['note'] != '' ? ' (${e['note']})' : ''}',
-              style: const TextStyle(fontSize: 12, color: Colors.black87),
+              style: const TextStyle(
+                fontSize: 12,
+                color: PlatformAdminColors.textPrimary,
+              ),
             ),
           ),
         ],
@@ -374,9 +391,9 @@ class _PlatformAdminRegistrationDetailPageState
       padding: const EdgeInsets.all(16),
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-        color: const Color(0xFFEDE7F6),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF7E57C2)),
+        color: PlatformAdminColors.purpleBg,
+        borderRadius: BorderRadius.circular(PlatformAdminRadii.cardSmall),
+        border: Border.all(color: PlatformAdminColors.purpleFg.withValues(alpha: 0.35)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -384,7 +401,7 @@ class _PlatformAdminRegistrationDetailPageState
           Row(
             children: [
               const Icon(Icons.history_edu,
-                  size: 18, color: Color(0xFF5E35B1)),
+                  size: 18, color: PlatformAdminColors.purpleFg),
               const SizedBox(width: 8),
               const Expanded(
                 child: Text(
@@ -392,26 +409,14 @@ class _PlatformAdminRegistrationDetailPageState
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
                     fontSize: 14,
-                    color: Color(0xFF4527A0),
+                    color: PlatformAdminColors.purpleFg,
                   ),
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF5E35B1),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  'RESUBMITTED • REVISION ${count + 1}',
-                  style: const TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                    letterSpacing: 0.4,
-                  ),
-                ),
+              PlatformAdminStatusBadge(
+                label: 'RESUBMITTED • REVISION ${count + 1}',
+                background: PlatformAdminColors.purpleFg,
+                foreground: Colors.white,
               ),
             ],
           ),
@@ -422,7 +427,7 @@ class _PlatformAdminRegistrationDetailPageState
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF5E35B1),
+                color: PlatformAdminColors.purpleFg,
               ),
             ),
             const SizedBox(height: 4),
@@ -432,15 +437,17 @@ class _PlatformAdminRegistrationDetailPageState
                 style: const TextStyle(
                   fontSize: 12.5,
                   fontStyle: FontStyle.italic,
-                  color: Colors.black87,
+                  color: PlatformAdminColors.textPrimary,
                 ),
               ),
             const SizedBox(height: 4),
             Text(
               'Requested at: $prevAt'
               '${(prevRequest['reviewerEmail'] ?? '').toString().isNotEmpty ? ' by ${prevRequest['reviewerEmail']}' : ''}',
-              style:
-                  const TextStyle(fontSize: 11, color: Colors.black54),
+              style: const TextStyle(
+                fontSize: 11,
+                color: PlatformAdminColors.textSecondary,
+              ),
             ),
             const SizedBox(height: 8),
           ],
@@ -448,7 +455,10 @@ class _PlatformAdminRegistrationDetailPageState
             'Previous decision: Changes Requested  •  '
             'Resubmitted: ${_fmtDate(reg['resubmittedAt'])}  •  '
             'Revision: ${count + 1}',
-            style: const TextStyle(fontSize: 12, color: Colors.black87),
+            style: const TextStyle(
+              fontSize: 12,
+              color: PlatformAdminColors.textPrimary,
+            ),
           ),
         ],
       ),
@@ -543,19 +553,23 @@ class _PlatformAdminRegistrationDetailPageState
         padding: const EdgeInsets.all(14),
         margin: const EdgeInsets.only(bottom: 16),
         decoration: BoxDecoration(
-          color: const Color(0xFFF5F3FA),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFD9D0EA)),
+          color: PlatformAdminColors.primarySofter,
+          borderRadius: BorderRadius.circular(PlatformAdminRadii.cardSmall),
+          border: Border.all(color: PlatformAdminColors.borderStrong),
         ),
         child: const Row(
           children: [
-            Icon(Icons.lock_outline, size: 18, color: Color(0xFF6E6390)),
+            Icon(Icons.lock_outline,
+                size: 18, color: PlatformAdminColors.textSecondary),
             SizedBox(width: 10),
             Expanded(
               child: Text(
                 'This application is not awaiting review. Decisions are '
                 'final — no review actions are available.',
-                style: TextStyle(fontSize: 12, color: Color(0xFF6E6390)),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: PlatformAdminColors.textSecondary,
+                ),
               ),
             ),
           ],
@@ -564,100 +578,97 @@ class _PlatformAdminRegistrationDetailPageState
     }
 
     final busy = _runningAction != null;
-    return Container(
+    return SizedBox(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFD9D0EA)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Review Decision',
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF4B3B73),
-            ),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Approving records a review decision only — no organization, '
-            'account, or feature is activated.',
-            style: TextStyle(fontSize: 11.5, color: Colors.black54),
-          ),
-          if (((_registration?['resubmissionCount'] as num?)?.toInt() ??
-                  0) >
-              0)
-            const Padding(
-              padding: EdgeInsets.only(top: 6),
-              child: Text(
-                'This application has been resubmitted after requested '
-                'corrections.',
-                style: TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF5E35B1),
-                ),
+      child: PlatformAdminCard(
+        padding: const EdgeInsets.all(16),
+        margin: const EdgeInsets.only(bottom: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Review Decision',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: PlatformAdminColors.textPrimary,
               ),
             ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 12,
-            runSpacing: 8,
-            children: [
-              ElevatedButton.icon(
-                onPressed: busy ? null : () => _onReviewAction('approve'),
-                icon: _runningAction == 'approve'
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.check_circle_outline, size: 18),
-                label: const Text('Approve'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2E7D32),
-                  foregroundColor: Colors.white,
+            const SizedBox(height: 4),
+            const Text(
+              'Approving records a review decision only — no organization, '
+              'account, or feature is activated.',
+              style: TextStyle(
+                fontSize: 11.5,
+                color: PlatformAdminColors.textSecondary,
+              ),
+            ),
+            if (((_registration?['resubmissionCount'] as num?)?.toInt() ??
+                    0) >
+                0)
+              const Padding(
+                padding: EdgeInsets.only(top: 6),
+                child: Text(
+                  'This application has been resubmitted after requested '
+                  'corrections.',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: PlatformAdminColors.purpleFg,
+                  ),
                 ),
               ),
-              OutlinedButton.icon(
-                onPressed: busy
-                    ? null
-                    : () => _onReviewAction('request-changes'),
-                icon: _runningAction == 'request-changes'
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.edit_note_outlined, size: 18),
-                label: const Text('Request Changes'),
-              ),
-              OutlinedButton.icon(
-                onPressed: busy ? null : () => _onReviewAction('reject'),
-                icon: _runningAction == 'reject'
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.cancel_outlined, size: 18),
-                label: const Text('Reject'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.red.shade700,
-                  side: BorderSide(color: Colors.red.shade300),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: busy ? null : () => _onReviewAction('approve'),
+                  icon: _runningAction == 'approve'
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.check_circle_outline, size: 18),
+                  label: const Text('Approve'),
+                  style: PlatformAdminButtonStyles.primary(
+                    background: PlatformAdminColors.greenFg,
+                  ),
                 ),
-              ),
-            ],
-          ),
-        ],
+                OutlinedButton.icon(
+                  onPressed: busy
+                      ? null
+                      : () => _onReviewAction('request-changes'),
+                  icon: _runningAction == 'request-changes'
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.edit_note_outlined, size: 18),
+                  label: const Text('Request Changes'),
+                  style: PlatformAdminButtonStyles.secondary(),
+                ),
+                OutlinedButton.icon(
+                  onPressed: busy ? null : () => _onReviewAction('reject'),
+                  icon: _runningAction == 'reject'
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.cancel_outlined, size: 18),
+                  label: const Text('Reject'),
+                  style: PlatformAdminButtonStyles.danger(),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -797,54 +808,50 @@ class _PlatformAdminRegistrationDetailPageState
   Widget _activationPanel(String status, Map<String, dynamic>? reg) {
     if (status == 'approved') {
       final busy = _runningAction != null;
-      return Container(
+      return SizedBox(
         width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        margin: const EdgeInsets.only(bottom: 16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFD9D0EA)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Provisioning',
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF4B3B73),
+        child: PlatformAdminCard(
+          padding: const EdgeInsets.all(16),
+          margin: const EdgeInsets.only(bottom: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Provisioning',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: PlatformAdminColors.textPrimary,
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Provisioning Status: Awaiting Activation',
-              style: TextStyle(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF795548),
+              const SizedBox(height: 8),
+              const Text(
+                'Provisioning Status: Awaiting Activation',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: PlatformAdminColors.amberFg,
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            ElevatedButton.icon(
-              onPressed: busy ? null : _onActivate,
-              icon: _runningAction == 'activate'
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.rocket_launch_outlined, size: 18),
-              label: const Text('Activate Organization'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF6A1B9A),
-                foregroundColor: Colors.white,
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                onPressed: busy ? null : _onActivate,
+                icon: _runningAction == 'activate'
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.rocket_launch_outlined, size: 18),
+                label: const Text('Activate Organization'),
+                style: PlatformAdminButtonStyles.primary(
+                  background: PlatformAdminColors.purpleFg,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       );
     }
@@ -873,7 +880,7 @@ class _PlatformAdminRegistrationDetailPageState
             'Enabled Modules',
             style: TextStyle(
               fontWeight: FontWeight.w600,
-              color: Colors.grey,
+              color: PlatformAdminColors.textSecondary,
             ),
           ),
         ),
@@ -887,16 +894,16 @@ class _PlatformAdminRegistrationDetailPageState
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFEDE7F6),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFF7E57C2)),
+                    color: PlatformAdminColors.purpleBg,
+                    borderRadius:
+                        BorderRadius.circular(PlatformAdminRadii.pill),
                   ),
                   child: Text(
                     '${_featureLabels[f.toString()] ?? f} — ENABLED',
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: Color(0xFF4527A0),
+                      color: PlatformAdminColors.purpleFg,
                     ),
                   ),
                 ),
@@ -906,7 +913,7 @@ class _PlatformAdminRegistrationDetailPageState
         if (enabled.isEmpty)
           const Text(
             'No modules enabled',
-            style: TextStyle(color: Colors.grey),
+            style: TextStyle(color: PlatformAdminColors.textMuted),
           ),
       ]);
     }
@@ -988,79 +995,86 @@ class _PlatformAdminRegistrationDetailPageState
     final status = reg?['status']?.toString() ?? '';
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F2FA),
+      backgroundColor: PlatformAdminColors.background,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF2E2450),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
         elevation: 0,
         title: Text(
           'Application Review — ${widget.registrationId}',
           style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w600,
+            color: PlatformAdminColors.textPrimary,
+            fontWeight: FontWeight.w700,
             fontSize: 16,
           ),
         ),
-        iconTheme: const IconThemeData(color: Colors.white),
+        iconTheme: const IconThemeData(color: PlatformAdminColors.textPrimary),
+        bottom: const PreferredSize(
+          preferredSize: Size.fromHeight(1),
+          child: Divider(height: 1, color: PlatformAdminColors.border),
+        ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _errorMessage != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      _errorMessage!,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.red),
+      body: PlatformAdminBackground(
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _errorMessage != null
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        _errorMessage!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: PlatformAdminColors.redFg),
+                      ),
                     ),
-                  ),
-                )
-              : Center(
-                  child: SingleChildScrollView(
-                    physics: const BouncingScrollPhysics(),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 900),
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Status banner — read-only, no decision actions.
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(12),
-                              margin: const EdgeInsets.only(bottom: 16),
-                              decoration: BoxDecoration(
-                                color: _statusColor(status)
-                                    .withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(
+                  )
+                : Center(
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 900),
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Status banner — read-only, no decision actions.
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(12),
+                                margin: const EdgeInsets.only(bottom: 16),
+                                decoration: BoxDecoration(
                                   color: _statusColor(status)
-                                      .withValues(alpha: 0.4),
+                                      .withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(
+                                      PlatformAdminRadii.control),
+                                  border: Border.all(
+                                    color: _statusColor(status)
+                                        .withValues(alpha: 0.4),
+                                  ),
                                 ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      'Status: '
-                                      '${status.toUpperCase().replaceAll('_', ' ')}',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        color: _statusColor(status),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        'Status: '
+                                        '${status.toUpperCase().replaceAll('_', ' ')}',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          color: _statusColor(status),
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                  Text(
-                                    'Submitted: ${_fmtDate(reg?['submittedAt'])}',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.black54,
+                                    Text(
+                                      'Submitted: ${_fmtDate(reg?['submittedAt'])}',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: PlatformAdminColors.textSecondary,
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
-                            ),
 
                             if (reg != null) _resubmissionPanel(reg),
 
@@ -1096,7 +1110,7 @@ class _PlatformAdminRegistrationDetailPageState
                                   'when the organization is activated.',
                                   style: TextStyle(
                                     fontSize: 12,
-                                    color: Colors.black54,
+                                    color: PlatformAdminColors.textSecondary,
                                   ),
                                 ),
                               ),
@@ -1108,7 +1122,8 @@ class _PlatformAdminRegistrationDetailPageState
                               if (features.isEmpty)
                                 const Text(
                                   'No features requested',
-                                  style: TextStyle(color: Colors.grey),
+                                  style: TextStyle(
+                                      color: PlatformAdminColors.textMuted),
                                 ),
                             ]),
 
@@ -1161,6 +1176,7 @@ class _PlatformAdminRegistrationDetailPageState
                     ),
                   ),
                 ),
+      ),
     );
   }
 }

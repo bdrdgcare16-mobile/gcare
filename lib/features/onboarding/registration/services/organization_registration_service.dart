@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 
 import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/models/company_data.dart';
+import 'package:serv_app/models/hrms_features.dart';
 import '../models/organization_registration_draft.dart';
 
 /// Thrown when the registration API cannot be used right now (network, 5xx).
@@ -191,7 +192,12 @@ class OrganizationRegistrationService {
         'email': d.adminEmail,
         'mobile': d.adminMobile,
       },
-      'requestedFeatures': d.requestedFeatures.toList(),
+      // Basic HRMS features are mandatory — always included client-side
+      // too (the backend re-injects them regardless).
+      'requestedFeatures': {
+        ...kBasicHrmsFeatures,
+        ...d.requestedFeatures,
+      }.toList(),
       'currentStep': d.currentStep,
       'maxCompletedStep': d.maxCompletedStep,
     };

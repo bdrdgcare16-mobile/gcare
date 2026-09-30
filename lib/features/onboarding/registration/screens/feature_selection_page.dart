@@ -2,6 +2,8 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:serv_app/models/hrms_features.dart';
+
 import '../controllers/registration_draft_controller.dart';
 import '../widgets/registration_form_section.dart';
 import 'organization_information_page.dart';
@@ -9,25 +11,33 @@ import 'admin_information_page.dart';
 
 const Color _kPrimaryDark = Color(0xFF655193);
 
-/// Requested-feature catalogue for the applicant.
+/// BASIC HRMS — core modules every SERV HRMS organization gets by default.
+/// Rendered selected + locked; the backend also injects them server-side
+/// into requestedFeatures so they can never be dropped.
+const List<RegistrationFeature> kBasicFeatures = [
+  RegistrationFeature('attendance', 'Attendance',
+      'Check-in/check-out with geofence support.'),
+  RegistrationFeature('employee_master', 'Employee Master',
+      'Employee records, documents and profiles.'),
+  RegistrationFeature('feedback', 'Feedback',
+      'Employee feedback and responses.'),
+  RegistrationFeature('shifts', 'Shift Management',
+      'Shift scheduling and rotation.'),
+];
+
+/// Requested-feature catalogue for the applicant — OPTIONAL modules only.
 ///
 /// These are REQUESTED modules only — approval and enablement happen on the
 /// platform side (Milestone 3D). Selecting here never activates a feature.
-const List<RegistrationFeature> kSelectableFeatures = [
-  RegistrationFeature('employee_master', 'Employee Master',
-      'Employee records, documents and profiles.'),
+const List<RegistrationFeature> kOptionalFeatures = [
   RegistrationFeature('organization_structure', 'Organization Structure',
       'Branches, departments and designations.'),
   RegistrationFeature('users_and_roles', 'Users and Roles',
       'User accounts and role-based access.'),
-  RegistrationFeature('attendance', 'Attendance',
-      'Check-in/check-out with geofence support.'),
   RegistrationFeature('location_tracking', 'Location Tracking',
       'Work-hours employee location tracking.'),
   RegistrationFeature('tasks', 'Tasks',
       'Task assignment and tracking.'),
-  RegistrationFeature('shifts', 'Shifts',
-      'Shift scheduling and rotation.'),
   RegistrationFeature('leave_management', 'Leave Management',
       'Leave types, requests and approvals.'),
   RegistrationFeature('payroll', 'Payroll',
@@ -38,6 +48,14 @@ const List<RegistrationFeature> kSelectableFeatures = [
       'Reviews, goals and appraisals.'),
   RegistrationFeature('reporting', 'Reporting',
       'Analytics and management reports.'),
+  RegistrationFeature('events', 'Events',
+      'Organization events and announcements.'),
+];
+
+/// Full catalogue (basic + optional) — used by review surfaces.
+const List<RegistrationFeature> kSelectableFeatures = [
+  ...kBasicFeatures,
+  ...kOptionalFeatures,
 ];
 
 class RegistrationFeature {
@@ -91,6 +109,8 @@ class _FeatureSelectionPageState extends State<FeatureSelectionPage> {
   }
 
   void _toggle(String id, bool? selected) {
+    // Basic HRMS features are locked — never toggled from this UI.
+    if (isBasicHrmsFeature(id)) return;
     setState(() {
       if (selected == true) {
         _controller.draft.requestedFeatures.add(id);
@@ -98,6 +118,42 @@ class _FeatureSelectionPageState extends State<FeatureSelectionPage> {
         _controller.draft.requestedFeatures.remove(id);
       }
     });
+  }
+
+  Widget _featureCard(
+    RegistrationFeature f, {
+    required bool selected,
+    required bool locked,
+  }) {
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 5),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: selected ? _kPrimaryDark : Colors.grey.shade300,
+          width: selected ? 1.5 : 1,
+        ),
+      ),
+      child: CheckboxListTile(
+        controlAffinity: ListTileControlAffinity.leading,
+        activeColor: _kPrimaryDark,
+        value: selected,
+        // Locked basics: onChanged null disables interaction so the
+        // applicant cannot deselect mandatory core modules.
+        onChanged: locked ? null : (v) => _toggle(f.id, v),
+        title: Text(
+          f.title,
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 14.5,
+          ),
+        ),
+        subtitle: Text(
+          f.description,
+          style: const TextStyle(fontSize: 12.5),
+        ),
+      ),
+    );
   }
 
   @override
@@ -131,38 +187,49 @@ class _FeatureSelectionPageState extends State<FeatureSelectionPage> {
             ),
           ),
           const SizedBox(height: 12),
-          ...kSelectableFeatures.map((f) => Card(
-                margin: const EdgeInsets.symmetric(vertical: 5),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  side: BorderSide(
-                    color: selected.contains(f.id)
-                        ? _kPrimaryDark
-                        : Colors.grey.shade300,
-                    width: selected.contains(f.id) ? 1.5 : 1,
-                  ),
-                ),
-                child: CheckboxListTile(
-                  controlAffinity: ListTileControlAffinity.leading,
-                  activeColor: _kPrimaryDark,
-                  value: selected.contains(f.id),
-                  onChanged: (v) => _toggle(f.id, v),
-                  title: Text(
-                    f.title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14.5,
-                    ),
-                  ),
-                  subtitle: Text(
-                    f.description,
-                    style: const TextStyle(fontSize: 12.5),
-                  ),
-                ),
+          const Padding(
+            padding: EdgeInsets.only(left: 4, bottom: 6),
+            child: Text(
+              'Basic HRMS — Included by Default',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 13.5,
+                color: _kPrimaryDark,
+              ),
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.only(left: 4, bottom: 8),
+            child: Text(
+              'These core HRMS modules are included by default.',
+              style: TextStyle(fontSize: 12.5, color: Colors.black54),
+            ),
+          ),
+          ...kBasicFeatures.map((f) => _featureCard(
+                f,
+                selected: true,
+                locked: true,
+              )),
+          const SizedBox(height: 14),
+          const Padding(
+            padding: EdgeInsets.only(left: 4, bottom: 6),
+            child: Text(
+              'Optional HRMS Modules',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 13.5,
+                color: _kPrimaryDark,
+              ),
+            ),
+          ),
+          ...kOptionalFeatures.map((f) => _featureCard(
+                f,
+                selected: selected.contains(f.id),
+                locked: false,
               )),
           const SizedBox(height: 8),
           Text(
-            '${selected.length} feature(s) requested',
+            '${selected.where((id) => !isBasicHrmsFeature(id)).length + kBasicFeatures.length} feature(s) requested',
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 12.5, color: Colors.black54),
           ),

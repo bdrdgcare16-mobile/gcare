@@ -1,6 +1,7 @@
 // lib/features/onboarding/registration/screens/registration_review_page.dart
 
 import 'package:flutter/material.dart';
+import 'package:serv_app/models/hrms_features.dart';
 
 import '../controllers/registration_draft_controller.dart';
 import '../services/organization_registration_service.dart';
@@ -192,12 +193,33 @@ class _RegistrationReviewPageState extends State<RegistrationReviewPage> {
                           _row('CIN / registration number', d.cinNumber),
                       ]),
                       _section('Requested HRMS Features', [
-                        if (d.requestedFeatures.isEmpty)
-                          const Text('No modules requested',
+                        const Text(
+                          'Basic HRMS — included by default:',
+                          style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black54),
+                        ),
+                        const SizedBox(height: 4),
+                        ...kBasicFeatures.map((f) => Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Row(children: [
+                                const Icon(Icons.check,
+                                    size: 16, color: _kPrimaryDark),
+                                const SizedBox(width: 6),
+                                Expanded(child: Text(f.title)),
+                              ]),
+                            )),
+                        if (d.requestedFeatures
+                            .where((id) => !isBasicHrmsFeature(id))
+                            .isEmpty)
+                          const Text('No optional modules requested',
                               style: TextStyle(color: Colors.black54))
                         else
                           ...kSelectableFeatures
-                              .where((f) => d.requestedFeatures.contains(f.id))
+                              .where((f) =>
+                                  !isBasicHrmsFeature(f.id) &&
+                                  d.requestedFeatures.contains(f.id))
                               .map((f) => Padding(
                                     padding:
                                         const EdgeInsets.only(bottom: 4),

@@ -28,8 +28,7 @@ class OthersPage extends StatelessWidget {
 
   /// `feature` maps the entry to a canonical feature id — hidden and
   /// blocked when the organization's enabledFeatures doesn't contain it.
-  /// `null` = universal entry (feedback/events are account-level, not
-  /// modules).
+  /// `null` = universal entry.
   static const _items = [
     _MenuItem(
       title: 'My Tasks',
@@ -53,6 +52,8 @@ class OthersPage extends StatelessWidget {
       icon: Icons.chat_bubble_outline_rounded,
       iconBg: _kIconBg3,
       iconColor: Color(0xFF655193),
+      // Basic HRMS module — enabled for every activated organization.
+      feature: 'feedback',
     ),
     _MenuItem(
       title: 'Event Updates',
@@ -60,6 +61,7 @@ class OthersPage extends StatelessWidget {
       icon: Icons.event_note_rounded,
       iconBg: _kIconBg4,
       iconColor: Color(0xFF9575CD),
+      feature: 'events',
     ),
   ];
 
@@ -81,8 +83,14 @@ class OthersPage extends StatelessWidget {
         feature: 'performance',
         child: RewardsPage(),
       ),
-      'Feedback': const FeedbackPage(employeeName: '', employeeId: ''),
-      'Event Updates': const EventUpdatesPage(),
+      'Feedback': const FeatureGate(
+        feature: 'feedback',
+        child: FeedbackPage(employeeName: '', employeeId: ''),
+      ),
+      'Event Updates': const FeatureGate(
+        feature: 'events',
+        child: EventUpdatesPage(),
+      ),
     };
     Navigator.push(
       context,

@@ -402,6 +402,82 @@ describe('organizationRegistrationController', () => {
     });
   });
 
+  describe('basic HRMS features', () => {
+    it('injects the basic set even when requestedFeatures is omitted', async () => {
+      const res = mockResponse();
+      const body = validBody();
+      delete (body as any).requestedFeatures;
+      await createRegistrationDraft(makeReq({ body }) as Request, res);
+      expect(statusCode(res)).toBe(201);
+      const doc = collections['organizationRegistrations'][0];
+      for (const f of [
+        'attendance',
+        'employee_master',
+        'feedback',
+        'shifts',
+      ]) {
+        expect(doc.data.requestedFeatures).toContain(f);
+      }
+    });
+
+    it('client cannot drop basic features — they are unioned in', async () => {
+      const res = mockResponse();
+      await createRegistrationDraft(
+        makeReq({
+          body: { ...validBody(), requestedFeatures: ['payroll'] },
+        }) as Request,
+        res,
+      );
+      expect(statusCode(res)).toBe(201);
+      const doc = collections['organizationRegistrations'][0];
+      expect(doc.data.requestedFeatures).toEqual([
+        'attendance',
+        'employee_master',
+        'feedback',
+        'shifts',
+        'payroll',
+      ]);
+    });
+
+    it('empty requestedFeatures still stores the basic set', async () => {
+      const res = mockResponse();
+      await createRegistrationDraft(
+        makeReq({ body: { ...validBody(), requestedFeatures: [] } }) as Request,
+        res,
+      );
+      expect(statusCode(res)).toBe(201);
+      const doc = collections['organizationRegistrations'][0];
+      expect(doc.data.requestedFeatures).toEqual([
+        'attendance',
+        'employee_master',
+        'feedback',
+        'shifts',
+      ]);
+    });
+
+    it('deduplicates basics already present in the request', async () => {
+      const res = mockResponse();
+      await createRegistrationDraft(
+        makeReq({
+          body: {
+            ...validBody(),
+            requestedFeatures: ['attendance', 'shifts', 'payroll'],
+          },
+        }) as Request,
+        res,
+      );
+      expect(statusCode(res)).toBe(201);
+      const doc = collections['organizationRegistrations'][0];
+      expect(
+        doc.data.requestedFeatures.filter((f: string) => f === 'attendance'),
+      ).toHaveLength(1);
+      expect(
+        doc.data.requestedFeatures.filter((f: string) => f === 'shifts'),
+      ).toHaveLength(1);
+      expect(doc.data.requestedFeatures).toContain('payroll');
+    });
+  });
+
   describe('GET /draft/:id', () => {
     it('returns the draft with a valid resume token', async () => {
       const { body } = await createDraft();
@@ -591,6 +667,9 @@ describe('organizationRegistrationController', () => {
       expect(statusCode(res)).toBe(200);
       expect(jsonBody(res).requestedFeatures).toEqual([
         'attendance',
+        'employee_master',
+        'feedback',
+        'shifts',
         'leave_management',
       ]);
     });

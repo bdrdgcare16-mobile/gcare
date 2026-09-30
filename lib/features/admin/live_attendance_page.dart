@@ -10,6 +10,7 @@ import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/services/api_service.dart';
 import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/models/company_profile.dart';
+import 'package:serv_app/models/organization_context.dart';
 import 'package:serv_app/utils/performance_logger.dart';
 
 final String _apiBase = ApiConfig.baseUrl;
@@ -176,18 +177,30 @@ class _LiveAttendancePageState extends State<LiveAttendancePage>
       _error = null;
     });
     try {
+      // Shared surface: this page is reachable with `attendance` OR
+      // `location_tracking`. Auxiliary feeds belong to other features —
+      // skip them when that feature isn't enabled so a location_tracking-
+      // only org doesn't fire guaranteed-403 requests.
+      final org = OrganizationContext.current;
+      final canEmployeeMaster = org?.isFeatureEnabled('employee_master') ?? true;
+      final canShifts = org?.isFeatureEnabled('shifts') ?? true;
+      final canAttendance = org?.isFeatureEnabled('attendance') ?? true;
+
       // ✅ OPTIMIZATION: Load shifts and employees in parallel if not already cached
       List<Future<void>> futures = [];
 
-      if (!_shiftsLoaded) {
+      if (!_shiftsLoaded && canShifts) {
         futures.add(_loadShiftsFromApi().then((_) => _shiftsLoaded = true));
       }
-      if (!_employeesLoaded) {
+      if (!_employeesLoaded && canEmployeeMaster) {
         futures.add(_fetchEmployeesMeta().then((_) => _employeesLoaded = true));
       }
 
-      // Always load live attendance and pending approvals in parallel
-      futures.addAll([_fetchLiveAttendance(), _fetchPendingApprovalsCount()]);
+      // Always load live attendance; pending approvals is attendance-only.
+      futures.add(_fetchLiveAttendance());
+      if (canAttendance) {
+        futures.add(_fetchPendingApprovalsCount());
+      }
 
       await Future.wait(futures);
       _ac.forward(from: 0);
@@ -713,12 +726,18 @@ class _LiveAttendancePageState extends State<LiveAttendancePage>
                   ]),
             ),
             const SizedBox(width: 14),
-            // Right mini stats
+            // Right mini stats — On Leave only when leave_management is on
             Column(children: [
               _miniBadge('$absentCount', 'Absent'),
               const SizedBox(height: 10),
-              _miniBadge('$onLeaveCount', 'On Leave'),
-              const SizedBox(height: 10),
+              if (OrganizationContext.current
+                      ?.isFeatureEnabled('leave_management') ??
+                  true)
+                _miniBadge('$onLeaveCount', 'On Leave'),
+              if (OrganizationContext.current
+                      ?.isFeatureEnabled('leave_management') ??
+                  true)
+                const SizedBox(height: 10),
               _miniBadge('$halfDayCount', 'Half Day'),
             ]),
           ],
@@ -869,14 +888,20 @@ class _LiveAttendancePageState extends State<LiveAttendancePage>
                   _C.red,
                   Icons.cancel_rounded,
                   _records.where((r) => _isStatus(r, 'absent')).toList())),
-          const SizedBox(width: 10),
-          Expanded(
-              child: _statusTile(
-                  'On Leave',
-                  onLeaveCount,
-                  _C.amber,
-                  Icons.beach_access_rounded,
-                  _records.where((r) => _isStatus(r, 'leave')).toList())),
+          // On Leave tile only when the org enabled leave_management —
+          // attendance alone shows pure attendance metrics.
+          if (OrganizationContext.current
+                  ?.isFeatureEnabled('leave_management') ??
+              true) ...[
+            const SizedBox(width: 10),
+            Expanded(
+                child: _statusTile(
+                    'On Leave',
+                    onLeaveCount,
+                    _C.amber,
+                    Icons.beach_access_rounded,
+                    _records.where((r) => _isStatus(r, 'leave')).toList())),
+          ],
         ]),
       );
 

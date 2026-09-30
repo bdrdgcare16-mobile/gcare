@@ -161,6 +161,7 @@ import 'package:serv_app/features/admin/leave_page.dart';
 import 'package:serv_app/features/admin/profile_page.dart';
 import 'package:serv_app/features/admin/reason_master_page.dart';
 import 'package:serv_app/features/admin/office_location_page.dart';
+import 'package:serv_app/models/organization_context.dart';
 
 // Theme colors (unchanged)
 const Color kPrimaryBackgroundTop    = Color(0xFFFFFFFF);
@@ -202,28 +203,54 @@ class SettingsPage extends StatelessWidget {
     }
   }
 
+  // Settings tiles gated by enabled features. `shifts` (Shift Management)
+  // and `attendance` are Basic HRMS — always enabled for activated orgs.
+  // Reason Master backs attendance/leave permission workflows → `attendance`.
   static const _sections = [
     _Section(
       label: 'Work Schedule',
       items: [
-        _Item('Workdays & Shift Permission', Icons.calendar_today_rounded, Color(0xFFE8E0F5), Color(0xFF7B5EA7)),
-        _Item('Leave Holiday',               Icons.beach_access_rounded,   Color(0xFFEDE7F6), Color(0xFF8C6EAF)),
+        _Item('Workdays & Shift Permission', Icons.calendar_today_rounded, Color(0xFFE8E0F5), Color(0xFF7B5EA7), 'shifts'),
+        _Item('Leave Holiday',               Icons.beach_access_rounded,   Color(0xFFEDE7F6), Color(0xFF8C6EAF), 'leave_management'),
       ],
     ),
     _Section(
       label: 'Corporate',
       items: [
-        _Item('Profile',         Icons.person_outline_rounded,   Color(0xFFE6DEF0), Color(0xFF655193)),
-        _Item('Office Location', Icons.location_on_rounded,      Color(0xFFD1C4E9), Color(0xFF9575CD)),
+        _Item('Profile',         Icons.person_outline_rounded,   Color(0xFFE6DEF0), Color(0xFF655193), null),
+        _Item('Office Location', Icons.location_on_rounded,      Color(0xFFD1C4E9), Color(0xFF9575CD), 'location_tracking'),
       ],
     ),
     _Section(
       label: 'Admin',
       items: [
-        _Item('Reason Master', Icons.edit_note_rounded, Color(0xFFE8E0F5), Color(0xFF7B5EA7)),
+        _Item('Reason Master', Icons.edit_note_rounded, Color(0xFFE8E0F5), Color(0xFF7B5EA7), 'attendance'),
       ],
     ),
   ];
+
+  /// Sections with only visible items; empty sections are dropped.
+  /// Tiles with a null [feature] are always visible. When no
+  /// [OrganizationContext] is loaded (legacy session) everything shows —
+  /// backend authorization remains the real enforcement.
+  List<_Section> _visibleSections() {
+    final org = OrganizationContext.current;
+    return _sections
+        .map(
+          (s) => _Section(
+            label: s.label,
+            items: s.items
+                .where(
+                  (i) => i.feature == null ||
+                      org == null ||
+                      org.isFeatureEnabled(i.feature!),
+                )
+                .toList(),
+          ),
+        )
+        .where((s) => s.items.isNotEmpty)
+        .toList();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -290,8 +317,9 @@ class SettingsPage extends StatelessWidget {
 
                   const SizedBox(height: 28),
 
-                  // Sections
-                  ..._sections.map((section) => Column(
+                  // Sections — hide feature-gated tiles when the module is
+                  // not enabled (legacy orgs / no context: show all).
+                  ..._visibleSections().map((section) => Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Section label
@@ -337,7 +365,8 @@ class _Item {
   final IconData icon;
   final Color iconBg;
   final Color iconColor;
-  const _Item(this.title, this.icon, this.iconBg, this.iconColor);
+  final String? feature;
+  const _Item(this.title, this.icon, this.iconBg, this.iconColor, this.feature);
 }
 
 // ── Animated tile ──
