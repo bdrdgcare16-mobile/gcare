@@ -241,8 +241,8 @@ void main() {
       expect(popped!.companyId, 'viki@gmail.com');
     });
 
-    testWidgets('create mode prefills Company ID from org context',
-        (tester) async {
+    testWidgets('create mode shows org code in Company ID, not the '
+        'canonical email id', (tester) async {
       OrganizationContext.current = const OrganizationContext(
         companyId: 'viki@gmail.com',
         organizationCode: 'SERV001',
@@ -254,7 +254,20 @@ void main() {
         const MaterialApp(home: CreateEmployeeScreen()),
       );
       await tester.pump();
-      expect(find.text('viki@gmail.com'), findsOneWidget);
+
+      // Human-readable org code displayed…
+      expect(find.text('SERV001'), findsOneWidget);
+      // …never the email-shaped canonical companyId.
+      expect(find.text('viki@gmail.com'), findsNothing);
+
+      // And the Company ID field stays read-only.
+      final field = tester.widget<TextField>(
+        find.descendant(
+          of: find.widgetWithText(TextFormField, 'SERV001'),
+          matching: find.byType(TextField),
+        ),
+      );
+      expect(field.readOnly, isTrue);
     });
   });
 }

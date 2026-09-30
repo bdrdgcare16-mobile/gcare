@@ -904,9 +904,19 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
     super.initState();
 
     final emp = widget.editEmployee;
+    final org = OrganizationContext.current;
+
+    // The Company ID field shows the human-readable organization code
+    // (e.g. SERV001) — the canonical internal companyId (used for API
+    // scoping) stays in the session context, never in this text field.
+    final companyDisplay = (org?.organizationCode.isNotEmpty ?? false)
+        ? org!.organizationCode
+        : '';
 
     if (emp != null) {
-      companyId.text = emp.companyId;
+      companyId.text = companyDisplay.isNotEmpty
+          ? companyDisplay
+          : emp.companyId;
       name.text = emp.name;
       id.text = emp.id;
       email.text = emp.email;
@@ -917,9 +927,11 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
       desig.text = emp.designation;
       status = emp.status;
     } else {
-      // companyId is the authenticated organization — display-only, never
-      // user-editable. The backend re-derives it from the JWT regardless.
-      companyId.text = OrganizationContext.current?.companyId ?? '';
+      // Display-only, never user-editable — the backend re-derives the
+      // canonical companyId from the JWT regardless of what this shows.
+      companyId.text = companyDisplay.isNotEmpty
+          ? companyDisplay
+          : CompanyData.companyId;
     }
 
     _loadShiftGroups();
@@ -1124,7 +1136,12 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
     setState(() => _emailError = null);
 
     final newEmp = Employee(
-      companyId: companyId.text.trim(),
+      // Canonical companyId comes from the employee row (edit mode) or the
+      // authenticated session context (create mode) — never the displayed
+      // (SERV### code) or typed value.
+      companyId: widget.editEmployee?.companyId ??
+          OrganizationContext.current?.companyId ??
+          CompanyData.companyId,
       name: name.text.trim(),
       id: id.text.trim(),
       email: email.text.trim().toLowerCase(),
