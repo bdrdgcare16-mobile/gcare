@@ -473,6 +473,164 @@ describe('firebaseLogin employee context', () => {
   });
 });
 
+describe('firebaseLogin platform admin context', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function makeReq(body: any, authHeader?: string): Partial<Request> {
+    return {
+      body,
+      headers: { authorization: authHeader || '' },
+    } as any;
+  }
+
+  function mockVerifiedToken(email: string) {
+    (getAdminAuth as jest.Mock).mockReturnValue({
+      verifyIdToken: jest.fn().mockResolvedValue({
+        email,
+        uid: 'platform-uid',
+        aud: 'serv-dev-f2557',
+      }),
+    });
+  }
+
+  test('platform_admin with companyId=platform issues token', async () => {
+    mockVerifiedToken('dev.platform.admin@serv-test.local');
+    const usersQuery = makeQuery([
+      {
+        id: 'platform-uid',
+        data: {
+          email: 'dev.platform.admin@serv-test.local',
+          role: 'platform_admin',
+          status: 'active',
+          companyId: 'platform',
+          name: 'DEV Platform Admin',
+        },
+      },
+    ]);
+    (getDb as jest.Mock).mockImplementation(
+      makeDb(makeQuery([]), usersQuery)
+    );
+
+    const res = mockResponse();
+    await firebaseLogin(makeReq({}, 'Bearer fake-token') as Request, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    const json = (res.json as jest.Mock).mock.calls[0][0];
+    expect(json.message).toBe('Login successful');
+    expect(json.token).toBeDefined();
+    expect(json.role).toBe('platform_admin');
+    expect(json.companyId).toBe('platform');
+  });
+
+  test('missing users doc and no employee record is rejected', async () => {
+    mockVerifiedToken('ghost@serv-test.local');
+    (getDb as jest.Mock).mockImplementation(
+      makeDb(makeQuery([]), makeQuery([]))
+    );
+
+    const res = mockResponse();
+    await firebaseLogin(makeReq({}, 'Bearer fake-token') as Request, res);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+  });
+
+  test('invalid role is rejected', async () => {
+    mockVerifiedToken('weird@serv-test.local');
+    const usersQuery = makeQuery([
+      {
+        id: 'user-1',
+        data: {
+          email: 'weird@serv-test.local',
+          role: 'manager',
+          status: 'active',
+          companyId: 'platform',
+        },
+      },
+    ]);
+    (getDb as jest.Mock).mockImplementation(
+      makeDb(makeQuery([]), usersQuery)
+    );
+
+    const res = mockResponse();
+    await firebaseLogin(makeReq({}, 'Bearer fake-token') as Request, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+  });
+
+  test('inactive platform_admin is rejected', async () => {
+    mockVerifiedToken('dev.platform.admin@serv-test.local');
+    const usersQuery = makeQuery([
+      {
+        id: 'platform-uid',
+        data: {
+          email: 'dev.platform.admin@serv-test.local',
+          role: 'platform_admin',
+          status: 'suspended',
+          companyId: 'platform',
+        },
+      },
+    ]);
+    (getDb as jest.Mock).mockImplementation(
+      makeDb(makeQuery([]), usersQuery)
+    );
+
+    const res = mockResponse();
+    await firebaseLogin(makeReq({}, 'Bearer fake-token') as Request, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+  });
+
+  test('missing JWT_SECRET fails closed with 500 diagnostic', async () => {
+    mockVerifiedToken('dev.platform.admin@serv-test.local');
+    const usersQuery = makeQuery([
+      {
+        id: 'platform-uid',
+        data: {
+          email: 'dev.platform.admin@serv-test.local',
+          role: 'platform_admin',
+          status: 'active',
+          companyId: 'platform',
+        },
+      },
+    ]);
+    (getDb as jest.Mock).mockImplementation(
+      makeDb(makeQuery([]), usersQuery)
+    );
+
+    const saved = process.env.JWT_SECRET;
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    delete process.env.JWT_SECRET;
+    try {
+      const res = mockResponse();
+      await firebaseLogin(makeReq({}, 'Bearer fake-token') as Request, res);
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(errSpy).toHaveBeenCalledWith(
+        'FIREBASE LOGIN FAILED:',
+        expect.stringContaining('JWT_SECRET')
+      );
+    } finally {
+      process.env.JWT_SECRET = saved;
+      errSpy.mockRestore();
+    }
+  });
+
+  test('invalid Firebase token is rejected with 401', async () => {
+    (getAdminAuth as jest.Mock).mockReturnValue({
+      verifyIdToken: jest.fn().mockRejectedValue(new Error('bad token')),
+    });
+    (getDb as jest.Mock).mockImplementation(
+      makeDb(makeQuery([]), makeQuery([]))
+    );
+
+    const res = mockResponse();
+    await firebaseLogin(makeReq({}, 'Bearer fake-token') as Request, res);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+  });
+});
+
 describe('registerApplicant (3D-C follow-up)', () => {
   beforeEach(() => {
     jest.clearAllMocks();

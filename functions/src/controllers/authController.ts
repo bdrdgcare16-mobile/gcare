@@ -734,8 +734,14 @@ export const createEmployeeLogin = async (
       return errorResponse(res, 'empid is required', 400);
     }
 
+    const requesterCompanyId = String((req as any).user?.companyId || '').trim();
+    if (!requesterCompanyId) {
+      return errorResponse(res, 'Unauthorized', 401);
+    }
+
     const empQ = await getDb()
       .collection(EMPS_COL)
+      .where('companyId', '==', requesterCompanyId)
       .where('empid', '==', empid)
       .limit(1)
       .get();
@@ -768,8 +774,11 @@ export const createEmployeeLogin = async (
       return errorResponse(res, 'Login already exists for this email', 409);
     }
 
+    // empid uniqueness is company-wise (EMP001 may exist in two orgs);
+    // login uniqueness must therefore be scoped by companyId too.
     const existsByEmpid = await getDb()
       .collection(USERS_COL)
+      .where('companyId', '==', companyId)
       .where('empid', '==', empid)
       .limit(1)
       .get();
@@ -820,7 +829,17 @@ export const backfillEmployeesToUsers = async (
   res: Response
 ): Promise<Response> => {
   try {
-    const empSnap = await getDb().collection(EMPS_COL).get();
+    // Org-scoped backfill: an org admin may only backfill logins for
+    // employees inside their own company.
+    const requesterCompanyId = String((req as any).user?.companyId || '').trim();
+    if (!requesterCompanyId) {
+      return errorResponse(res, 'Unauthorized', 401);
+    }
+
+    const empSnap = await getDb()
+      .collection(EMPS_COL)
+      .where('companyId', '==', requesterCompanyId)
+      .get();
     const created: any[] = [];
     const updatedEmp: any[] = [];
 
@@ -857,6 +876,7 @@ export const backfillEmployeesToUsers = async (
 
       const existsEmp = await getDb()
         .collection(USERS_COL)
+        .where('companyId', '==', companyId)
         .where('empid', '==', empid)
         .limit(1)
         .get();

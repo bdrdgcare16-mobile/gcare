@@ -155,4 +155,141 @@ void main() {
       expect(find.text('Feature Not Enabled'), findsNothing);
     });
   });
+
+  group('Shared Live Attendance — attendance OR location_tracking', () {
+    test('OrganizationContext.isAnyFeatureEnabled', () {
+      expect(
+        _org(['location_tracking']).isAnyFeatureEnabled(
+          const ['attendance', 'location_tracking'],
+        ),
+        isTrue,
+      );
+      expect(
+        _org(['attendance']).isAnyFeatureEnabled(
+          const ['attendance', 'location_tracking'],
+        ),
+        isTrue,
+      );
+      expect(
+        _org(['payroll']).isAnyFeatureEnabled(
+          const ['attendance', 'location_tracking'],
+        ),
+        isFalse,
+      );
+      expect(
+        _org([]).isAnyFeatureEnabled(const ['attendance', 'location_tracking']),
+        isFalse,
+      );
+      // legacy org — no enabledFeatures field — unrestricted
+      final legacy = OrganizationContext.fromProfileJson({
+        'id': 'acme',
+        'companyName': 'Acme',
+      });
+      expect(
+        legacy.isAnyFeatureEnabled(const ['attendance', 'location_tracking']),
+        isTrue,
+      );
+    });
+
+    testWidgets(
+        'location_tracking + payroll: Live Attendance + Payroll shown, '
+        'full Attendance and unrelated modules hidden', (tester) async {
+      await _pumpDashboard(tester, ['location_tracking', 'payroll']);
+      await _openDrawer(tester);
+
+      // universal
+      expect(find.text('Home'), findsOneWidget);
+      expect(find.text('Others'), findsOneWidget);
+      expect(find.text('Settings'), findsOneWidget);
+      // enabled
+      expect(find.text('Live Attendance'), findsOneWidget);
+      expect(find.text('Payroll Management'), findsOneWidget);
+      // full Attendance stays attendance-only
+      expect(find.text('Attendance Reports'), findsNothing);
+      // unrelated modules hidden
+      expect(find.text('Employee Management'), findsNothing);
+      expect(find.text('Request and Leave Approvals'), findsNothing);
+      expect(find.text('Employee Onboarding'), findsNothing);
+      // default home is still generic — Live Attendance is not built
+      expect(find.byType(LiveAttendancePage), findsNothing);
+      // enabled-module chips on home
+      expect(find.text('Location Tracking'), findsOneWidget);
+      expect(find.text('Payroll'), findsOneWidget);
+    });
+
+    testWidgets(
+        'attendance only: Live Attendance + Attendance Reports shown',
+        (tester) async {
+      await _pumpDashboard(tester, ['attendance']);
+      await _openDrawer(tester);
+
+      expect(find.text('Live Attendance'), findsOneWidget);
+      expect(find.text('Attendance Reports'), findsOneWidget);
+      expect(find.text('Payroll Management'), findsNothing);
+      expect(find.text('Employee Management'), findsNothing);
+    });
+
+    testWidgets('no features: Live Attendance hidden', (tester) async {
+      await _pumpDashboard(tester, []);
+      await _openDrawer(tester);
+
+      expect(find.text('Live Attendance'), findsNothing);
+      expect(find.text('Payroll Management'), findsNothing);
+      expect(find.text('Attendance Reports'), findsNothing);
+    });
+
+    testWidgets('FeatureGate.anyOf allows location_tracking only',
+        (tester) async {
+      OrganizationContext.current = _org(['location_tracking']);
+      await tester.pumpWidget(const MaterialApp(
+        home: FeatureGate.anyOf(
+          features: ['attendance', 'location_tracking'],
+          child: Text('LIVE_BODY'),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('LIVE_BODY'), findsOneWidget);
+      expect(find.text('Feature Not Enabled'), findsNothing);
+    });
+
+    testWidgets('FeatureGate.anyOf allows attendance only', (tester) async {
+      OrganizationContext.current = _org(['attendance']);
+      await tester.pumpWidget(const MaterialApp(
+        home: FeatureGate.anyOf(
+          features: ['attendance', 'location_tracking'],
+          child: Text('LIVE_BODY'),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('LIVE_BODY'), findsOneWidget);
+    });
+
+    testWidgets('FeatureGate.anyOf blocks when neither is enabled',
+        (tester) async {
+      OrganizationContext.current = _org(['payroll']);
+      await tester.pumpWidget(const MaterialApp(
+        home: FeatureGate.anyOf(
+          features: ['attendance', 'location_tracking'],
+          child: Text('LIVE_BODY'),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('Feature Not Enabled'), findsOneWidget);
+      expect(find.text('LIVE_BODY'), findsNothing);
+    });
+
+    testWidgets('attendance-only route still blocked for location_tracking',
+        (tester) async {
+      OrganizationContext.current = _org(['location_tracking']);
+      await tester.pumpWidget(const MaterialApp(
+        home: FeatureGate(
+          feature: 'attendance',
+          child: Text('REPORT_BODY'),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('Feature Not Enabled'), findsOneWidget);
+      expect(find.text('REPORT_BODY'), findsNothing);
+    });
+  });
 }

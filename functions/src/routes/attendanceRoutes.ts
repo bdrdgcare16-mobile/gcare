@@ -26,3 +26,13 @@ router.get('/summary/:empid/:year/:month', attendanceController.getMonthlySummar
 router.get('/history', attendanceController.getAllAttendance);
 
 export default router;
+
+// Shared surface: GET /attendance/live is where organization admins view
+// employees' live location/status. It must be reachable with EITHER the
+// `attendance` feature OR `location_tracking` — app.ts mounts this router
+// ahead of the attendance-gated router with
+// requireAnyFeature(['attendance', 'location_tracking']). Every other
+// /attendance route remains `attendance`-only.
+export const liveAttendanceRouter = Router();
+liveAttendanceRouter.use(authMiddleware);
+liveAttendanceRouter.get('/live', attendanceController.getLiveAttendance);

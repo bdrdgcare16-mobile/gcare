@@ -20,12 +20,18 @@ class _NavEntry {
   final String title;
   final IconData icon;
   final String? feature;
+
+  /// Any-of feature list — the entry is visible when at least one of these
+  /// is enabled. Used for shared surfaces like Live Attendance, which is
+  /// reachable with `attendance` OR `location_tracking`.
+  final List<String>? anyOfFeatures;
   final Widget Function() page;
   const _NavEntry({
     required this.title,
     required this.icon,
     required this.page,
     this.feature,
+    this.anyOfFeatures,
   });
 }
 
@@ -66,9 +72,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
     _NavEntry(
       title: "Live Attendance",
       icon: Icons.check_circle,
-      feature: 'attendance',
-      page: () => FeatureGate(
-        feature: 'attendance',
+      // Shared capability: `attendance` OR `location_tracking`. The
+      // `attendance` feature alone still unlocks the full Attendance
+      // module (reports etc. stay attendance-gated below).
+      anyOfFeatures: const ['attendance', 'location_tracking'],
+      page: () => FeatureGate.anyOf(
+        features: const ['attendance', 'location_tracking'],
         child: LiveAttendancePage(companyProfile: widget.companyProfile),
       ),
     ),
@@ -136,7 +145,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
     final org = _org;
     if (org == null) return _allEntries;
     return _allEntries
-        .where((e) => e.feature == null || org.isFeatureEnabled(e.feature!))
+        .where(
+          (e) => e.feature != null
+              ? org.isFeatureEnabled(e.feature!)
+              : e.anyOfFeatures != null
+                  ? org.isAnyFeatureEnabled(e.anyOfFeatures!)
+                  : true,
+        )
         .toList();
   }
 
