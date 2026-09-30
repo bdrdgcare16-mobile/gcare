@@ -215,10 +215,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
         child: ListView(
           children: [
             _buildDrawerHeader(),
-            if (_org != null && _org!.companyId.isNotEmpty)
+            // Visible identifier is the human-readable organizationCode
+            // (SERV###) — never the internal companyId, which may be an
+            // email-shaped value for legacy organizations.
+            if (_org != null && _org!.organizationCode.isNotEmpty)
               ListTile(
                 dense: true,
-                title: Text("Org ID: ${_org!.companyId}"),
+                title: Text("Org ID: ${_org!.organizationCode}"),
               ),
             for (var i = 0; i < entries.length; i++)
               _buildDrawerItem(entries[i], i),
@@ -340,7 +343,9 @@ class _AdminHomeTab extends StatelessWidget {
                 ),
                 _row(
                   'Organization ID',
-                  org?.companyId.isNotEmpty == true ? org!.companyId : '—',
+                  org?.organizationCode.isNotEmpty == true
+                      ? org!.organizationCode
+                      : '—',
                 ),
               ],
             ),

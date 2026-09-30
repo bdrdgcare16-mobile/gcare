@@ -868,8 +868,12 @@ class _PlatformAdminRegistrationDetailPageState
         _detailRow('Activated At', _fmtDate(p['activatedAt'])),
         if ((p['activatedByEmail'] ?? '').toString().isNotEmpty)
           _detailRow('Activated By', p['activatedByEmail']),
+        // The visible Company ID for the organization is the
+        // organizationCode (SERV###) shown above; this row keeps the
+        // internal scoping id visible to platform admins under its real
+        // name — it is never the user-facing Company ID.
         if ((p['companyId'] ?? '').toString().isNotEmpty)
-          _detailRow('Company ID', p['companyId']),
+          _detailRow('Internal ID', p['companyId']),
         if (admin != null) ...[
           _detailRow('Provisioned Admin', admin['name']),
           _detailRow('Admin Email', admin['email']),

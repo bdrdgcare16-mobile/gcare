@@ -64,14 +64,16 @@ void main() {
   });
 
   group('AdminDashboard — employee_master only (SERV001 shape)', () {
-    testWidgets('shows org name, code, and internal org ID on Home',
-        (tester) async {
+    testWidgets('shows org name and SERV code on Home — never the '
+        'internal (email-shaped) companyId', (tester) async {
       await _pumpDashboard(tester, ['employee_master']);
       expect(find.text('ghhf'), findsWidgets);
       expect(find.text('Organization Code'), findsOneWidget);
       expect(find.text('SERV001'), findsWidgets);
       expect(find.text('Organization ID'), findsOneWidget);
-      expect(find.text('viki@gmail.com'), findsWidgets);
+      // The internal canonical companyId must not surface as a visible
+      // organization identifier — orgCode is the visible Company ID.
+      expect(find.text('viki@gmail.com'), findsNothing);
     });
 
     testWidgets('enabled modules listed on Home', (tester) async {
