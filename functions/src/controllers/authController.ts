@@ -134,15 +134,17 @@ async function getUserDocByEmailAny(
   return null;
 }
 
-/** Server-side fallback check against Firebase after hosted reset */
+/** Server-side fallback check against Firebase after hosted reset.
+ *  Returns the Firebase Auth uid (REST `localId`) when credentials are
+ *  valid — used to key users/{uid} and to disambiguate employee rows. */
 async function verifyWithFirebase(
   email: string,
   password: string
-): Promise<boolean> {
+): Promise<{ ok: boolean; uid?: string }> {
   const apiKey = getFirebaseWebApiKey();
   if (!/^AIza/.test(apiKey)) {
     console.error('APP_FIREBASE_WEB_API_KEY invalid or missing at runtime');
-    return false;
+    return { ok: false };
   }
 
   const url = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`;
@@ -157,15 +159,40 @@ async function verifyWithFirebase(
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
       console.warn('verifyWithFirebase failed:', resp.status, text);
-      return false;
+      return { ok: false };
     }
 
     const data: any = await resp.json();
-    return !!data?.idToken;
+    return {
+      ok: !!data?.idToken,
+      uid: data?.localId ? String(data.localId) : undefined,
+    };
   } catch (e) {
     console.error('verifyWithFirebase error:', e);
-    return false;
+    return { ok: false };
   }
+}
+
+/** Like getByEmail but returns up to `cap` matches — needed to detect
+ *  the same email existing under multiple companies. */
+async function getAllByEmailDocs(
+  colName: string,
+  emailLower: string,
+  cap = 5
+): Promise<FirebaseFirestore.QueryDocumentSnapshot[]> {
+  let snap = await getDb()
+    .collection(colName)
+    .where('emailLower', '==', emailLower)
+    .limit(cap)
+    .get();
+  if (!snap.empty) return snap.docs;
+
+  snap = await getDb()
+    .collection(colName)
+    .where('email', '==', emailLower)
+    .limit(cap)
+    .get();
+  return snap.empty ? [] : snap.docs;
 }
 
 // ── Controllers ──────────────────────────────────────────────────────────────
@@ -311,9 +338,19 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
       }
 
       if (!match) {
-        const ok = await verifyWithFirebase(email, password);
-        if (!ok) {
+        const fb = await verifyWithFirebase(email, password);
+        if (!fb.ok) {
           return errorResponse(res, 'Invalid email or password', 401);
+        }
+
+        // Bind the Firebase uid to the users doc once (idempotent).
+        if (fb.uid && !user.authUid) {
+          try {
+            await doc.ref.set(
+              { authUid: fb.uid, updatedAt: new Date() },
+              { merge: true }
+            );
+          } catch {}
         }
 
         try {
@@ -395,12 +432,61 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
     }
 
     console.log('[login] checking employees fallback');
-    const empSnap = await getByEmail(EMPS_COL, email);
-    if (!empSnap || empSnap.empty) {
-      return errorResponse(res, 'Invalid email or password', 401);
+
+    // The same email can legitimately appear in two companies' employees
+    // collections — fetch a few rows and disambiguate via the Firebase
+    // Auth uid instead of silently picking the first match.
+    const empEmailDocs = await getAllByEmailDocs(EMPS_COL, email);
+
+    let empDoc: FirebaseFirestore.QueryDocumentSnapshot | null = null;
+    let fbUid: string | undefined;
+    let fbVerified = false;
+
+    if (empEmailDocs.length > 1) {
+      // Ambiguous email: only the Auth uid can pick the right row.
+      const fb = await verifyWithFirebase(email, password);
+      if (!fb.ok) {
+        return errorResponse(res, 'Invalid email or password', 401);
+      }
+      fbVerified = true;
+      fbUid = fb.uid;
+      empDoc =
+        empEmailDocs.find((d) => d.data()?.authUid === fbUid) ?? null;
+      if (!empDoc) {
+        return errorResponse(
+          res,
+          'Ambiguous employee account — contact your administrator',
+          403
+        );
+      }
+    } else if (empEmailDocs.length === 1) {
+      empDoc = empEmailDocs[0];
+    } else {
+      // No email match — resolve the employee row by Firebase Auth uid.
+      const fb = await verifyWithFirebase(email, password);
+      if (!fb.ok || !fb.uid) {
+        return errorResponse(res, 'Invalid email or password', 401);
+      }
+      fbVerified = true;
+      fbUid = fb.uid;
+      const uidSnap = await getDb()
+        .collection(EMPS_COL)
+        .where('authUid', '==', fbUid)
+        .limit(2)
+        .get();
+      if (uidSnap.empty) {
+        return errorResponse(res, 'Invalid email or password', 401);
+      }
+      if (uidSnap.size > 1) {
+        return errorResponse(
+          res,
+          'Ambiguous employee account — contact your administrator',
+          403
+        );
+      }
+      empDoc = uidSnap.docs[0];
     }
 
-    const empDoc = empSnap.docs[0];
     const emp: any = empDoc.data();
     const employeeCompanyId = String(emp.companyId || '').trim() || null;
 
@@ -408,19 +494,23 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
       return errorResponse(res, 'companyId missing on employee record', 403);
     }
 
+    // Legacy credential path: employees written before Auth provisioning
+    // may still carry a bcrypt/plaintext password on the record.
     const stored = emp.password || '';
-    let passOK = false;
+    if (!fbVerified) {
+      const passOK = stored
+        ? isBcryptHash(stored)
+          ? await bcrypt.compare(password, stored)
+          : stored === password
+        : false;
 
-    if (stored) {
-      passOK = isBcryptHash(stored)
-        ? await bcrypt.compare(password, stored)
-        : stored === password;
-    }
-
-    if (!passOK) {
-      const ok = await verifyWithFirebase(email, password);
-      if (!ok) {
-        return errorResponse(res, 'Invalid email or password', 401);
+      if (!passOK) {
+        const fb = await verifyWithFirebase(email, password);
+        if (!fb.ok) {
+          return errorResponse(res, 'Invalid email or password', 401);
+        }
+        fbVerified = true;
+        fbUid = fb.uid;
       }
     }
 
@@ -428,48 +518,99 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
       return errorResponse(res, 'Account is not active', 403);
     }
 
-    let mirror = await getByEmail(USERS_COL, email);
-    let mirrorDoc: DocumentSnapshot | null = null;
-
-    if (mirror && !mirror.empty) {
-      const existingMirrorDoc = mirror.docs[0];
-      const mirrorData = existingMirrorDoc.data() as any;
-
-      if (!mirrorData.companyId && employeeCompanyId) {
-        await existingMirrorDoc.ref.set(
-          { companyId: employeeCompanyId, updatedAt: new Date() },
+    // Safe idempotent attach: a legacy employee row matched by email
+    // gets its authUid backfilled once the Auth identity is proven.
+    if (fbUid && !emp.authUid) {
+      try {
+        await empDoc.ref.set(
+          { authUid: fbUid, updatedAt: new Date() },
           { merge: true }
         );
-      }
+      } catch {}
+    }
 
-      if (!passOK) {
-        try {
-          const prev =
-            (existingMirrorDoc.get('password') ||
-              existingMirrorDoc.get('passwordHash') ||
-              existingMirrorDoc.get('hashedPassword') ||
-              null) as string | null;
+    let mirrorDoc: DocumentSnapshot | null = null;
 
-          await rotatePassword({
-            db: getDb(),
-            userId: existingMirrorDoc.id,
-            oldHash: prev,
-            newPlainPassword: password,
-            source: 'firebase_reset',
-            keepLast: 5,
-          });
-        } catch (e) {
-          console.warn('rotatePassword failed (EMPLOYEES existing mirror):', e);
+    // Preferred identity: the users doc keyed by the Firebase uid.
+    if (fbUid) {
+      const uidDoc = await getDb().collection(USERS_COL).doc(fbUid).get();
+      if (uidDoc.exists) {
+        const uidCompany = String(uidDoc.data()?.companyId || '').trim();
+        if (uidCompany && uidCompany !== employeeCompanyId) {
+          return errorResponse(
+            res,
+            'Account belongs to a different organization',
+            403
+          );
         }
+        mirrorDoc = uidDoc;
       }
+    }
 
-      mirrorDoc = existingMirrorDoc;
-    } else {
+    if (!mirrorDoc) {
+      const mirror = await getByEmail(USERS_COL, email);
+      if (mirror && !mirror.empty) {
+        const existingMirrorDoc = mirror.docs[0];
+        const mirrorData = existingMirrorDoc.data() as any;
+        const mirrorCompany = String(mirrorData.companyId || '').trim();
+
+        // Never reuse or overwrite a login account that belongs to a
+        // different company.
+        if (mirrorCompany && mirrorCompany !== employeeCompanyId) {
+          return errorResponse(
+            res,
+            'Account belongs to a different organization',
+            403
+          );
+        }
+
+        if (!mirrorCompany && employeeCompanyId) {
+          await existingMirrorDoc.ref.set(
+            { companyId: employeeCompanyId, updatedAt: new Date() },
+            { merge: true }
+          );
+        }
+
+        if (fbUid && !mirrorData.authUid) {
+          try {
+            await existingMirrorDoc.ref.set(
+              { authUid: fbUid },
+              { merge: true }
+            );
+          } catch {}
+        }
+
+        if (fbVerified) {
+          try {
+            const prev =
+              (existingMirrorDoc.get('password') ||
+                existingMirrorDoc.get('passwordHash') ||
+                existingMirrorDoc.get('hashedPassword') ||
+                null) as string | null;
+
+            await rotatePassword({
+              db: getDb(),
+              userId: existingMirrorDoc.id,
+              oldHash: prev,
+              newPlainPassword: password,
+              source: 'firebase_reset',
+              keepLast: 5,
+            });
+          } catch (e) {
+            console.warn('rotatePassword failed (EMPLOYEES existing mirror):', e);
+          }
+        }
+
+        mirrorDoc = existingMirrorDoc;
+      }
+    }
+
+    if (!mirrorDoc) {
       const hash = isBcryptHash(stored) ? stored : await bcrypt.hash(password, 10);
       const now = new Date();
       const empIdVal = pickEmpId(emp);
 
-      const ref = await getDb().collection(USERS_COL).add({
+      const userData: Record<string, any> = {
         empid: empIdVal || null,
         empId: empIdVal || null,
         name: emp.name || emp.fullName || '',
@@ -483,10 +624,18 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
         companyId: employeeCompanyId,
         createdAt: now,
         updatedAt: now,
-        authSource: !passOK ? 'firebase' : 'local',
-      });
+        authSource: fbVerified ? 'firebase' : 'local',
+      };
+      if (fbUid) userData.authUid = fbUid;
 
-      mirrorDoc = await ref.get();
+      if (fbUid) {
+        const ref = getDb().collection(USERS_COL).doc(fbUid);
+        await ref.set(userData);
+        mirrorDoc = await ref.get();
+      } else {
+        const ref = await getDb().collection(USERS_COL).add(userData);
+        mirrorDoc = await ref.get();
+      }
     }
 
     if (!mirrorDoc) {
