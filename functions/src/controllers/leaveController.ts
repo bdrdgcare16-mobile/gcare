@@ -338,7 +338,11 @@ export const createLeaveRequest = async (req: Request, res: Response): Promise<R
           payload.leaveType === 'Comp Off'
             ? 'You have already applied for leave/comp-off on the selected date.'
             : 'You already have a leave request for the selected date range.';
-        return res.status(200).json({ message: msg });
+        // 409 — no record is created; `message` is kept alongside `error`
+        // so existing clients that read either field render the same text.
+        return res
+          .status(409)
+          .json({ error: msg, message: msg, code: 'LEAVE_OVERLAP' });
       }
     }
 
@@ -581,6 +585,18 @@ export const updateLeaveStatus = async (req: Request, res: Response): Promise<Re
 
     if (leaveData?.companyId !== companyId) {
       return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Admins cannot decide their own leave request — prevents self-approval
+    // through the admin surface (match both userId and empid for safety).
+    const actorEmpid = String((req as any).user?.empid || '').trim();
+    if (
+      leaveData?.userId === actorId ||
+      (actorEmpid && leaveData?.empid === actorEmpid)
+    ) {
+      return res
+        .status(403)
+        .json({ error: 'You cannot approve or reject your own request' });
     }
 
     // Determine if request requires paid/unpaid classification based on stored type

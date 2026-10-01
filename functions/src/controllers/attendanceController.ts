@@ -3,7 +3,10 @@ import { getDb } from '../config/firebase';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { trackUsage } from '../services/usageService';
 import { pickEmpId } from '../common/user.utils';
-import { isOrgFeatureEnabled } from '../middlewares/featureMiddleware';
+import {
+  isOrgFeatureAllowed,
+  isOrgFeatureEnabled,
+} from '../middlewares/featureMiddleware';
 
 // Helper functions for request processing
 const getReqCompanyId = (req: Request) => req.user?.companyId;
@@ -1895,15 +1898,35 @@ export const decideApproval = async (req: Request, res: Response) => {
     }
 
     if (!leaveId) return res.status(400).json({ error: 'leaveId required' });
-      
+
+    // Leave decisions ride the shared /attendance mount — verify the
+    // leave_management feature separately. Legacy orgs (no enabledFeatures
+    // field) keep their existing access; orgs with an explicit feature list
+    // lacking leave_management are denied, mirroring the /leaves gate.
+    if (!(await isOrgFeatureAllowed(companyId, 'leave_management'))) {
+      return res.status(403).json({ error: 'FEATURE_NOT_ENABLED', feature: 'leave_management' });
+    }
+
     const leaveDoc = await getDb().collection(LEAVE_COL).doc(String(leaveId)).get();
     if (!leaveDoc.exists) {
       return res.status(404).json({ error: 'Leave record not found' });
     }
-      
+
     const leaveData = leaveDoc.data();
     if (leaveData?.companyId !== companyId) {
       return res.status(403).json({ error: 'Access denied: companyId mismatch' });
+    }
+
+    // Admins cannot decide their own leave request.
+    const actorUserId = String((req as any).user?.userId || (req as any).user?.uid || '');
+    const actorEmpid = String((req as any).user?.empid || '');
+    if (
+      (actorUserId && leaveData?.userId === actorUserId) ||
+      (actorEmpid && leaveData?.empid === actorEmpid)
+    ) {
+      return res
+        .status(403)
+        .json({ error: 'You cannot approve or reject your own request' });
     }
 
     // Read leave data safely and determine request type (include multiple possible fields)
@@ -2319,9 +2342,16 @@ export const listApprovalRequests = async (req: Request, res: Response) => {
   const search = normStr(req.query.search || '').toLowerCase();
   const includeAttendance = wantType === 'all' ||
     wantType === 'late check in' || wantType === 'early check out';
-  const includeLeaves = wantType === 'all' ||
+  // Leave rows belong to the leave_management feature — hidden from the
+  // approvals list when the org's feature list lacks it (legacy orgs with
+  // no enabledFeatures keep full access, same as the /leaves mount gate).
+  const leaveMgmtAllowed = await isOrgFeatureAllowed(
+    companyId,
+    'leave_management',
+  );
+  const includeLeaves = leaveMgmtAllowed && (wantType === 'all' ||
     ['leave type', 'permission', 'over time', 'half day leave', 'comp off']
-      .includes(wantType);
+      .includes(wantType));
   const paginated = req.query.page != null || req.query.limit != null;
   const fetchLimit = paginated ? page * limit + 1 : 10000;
   console.log(`[APPROVALS PAGINATION DEBUG] Request - page=${page}, limit=${limit}, paginated=${paginated}, fetchLimit=${fetchLimit}`);
@@ -3055,6 +3085,23 @@ export const getRequestDetails = async (req: Request, res: Response) => {
 
     if (data?.companyId !== companyId) {
       return res.status(403).json({ error: 'Access denied: companyId mismatch' });
+    }
+
+    // Employees may only read their own requests — prevent IDOR reads of
+    // coworkers' leave/attendance details by document id.
+    const role = String((req as any).user?.role || '').toLowerCase();
+    if (role !== 'admin' && role !== 'platform_admin' && role !== 'super_admin') {
+      const reqEmpid = String((req as any).user?.empid || '');
+      const reqUserId = String(
+        (req as any).user?.userId || (req as any).user?.uid || '');
+      const ownerEmpid = String(data?.empid || data?.empId || '');
+      const ownerUserId = String(data?.userId || '');
+      if (
+        !(reqEmpid && ownerEmpid && reqEmpid === ownerEmpid) &&
+        !(reqUserId && ownerUserId && reqUserId === ownerUserId)
+      ) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
     }
 
     return res.json({

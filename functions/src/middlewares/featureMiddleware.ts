@@ -102,6 +102,37 @@ export async function isOrgFeatureEnabled(
 }
 
 /**
+ * Non-middleware check using the SAME semantics as the route middleware:
+ * missing profile / inactive org → false; enabledFeatures absent → true
+ * (legacy orgs predate gating); present → must contain the feature.
+ *
+ * Use inside controllers that serve multiple feature domains under one
+ * mount (e.g. /attendance/approvals deciding on `leaves` records) where a
+ * route-level gate cannot express the per-source requirement.
+ */
+export async function isOrgFeatureAllowed(
+  companyId: string,
+  feature: string,
+): Promise<boolean> {
+  try {
+    const snap = await getDb()
+      .collection(COMPANY_PROFILE_COL)
+      .doc(String(companyId))
+      .get();
+    if (!snap.exists) return false;
+    const profile = (snap.data() ?? {}) as Record<string, unknown>;
+    const status = String(profile.status ?? 'active').trim().toLowerCase();
+    if (status !== 'active') return false;
+    const enabled = profile.enabledFeatures;
+    if (enabled === undefined || enabled === null) return true;
+    return Array.isArray(enabled) && enabled.includes(feature);
+  } catch (err) {
+    console.error('isOrgFeatureAllowed error:', err);
+    return false;
+  }
+}
+
+/**
  * requireFeature('<featureId>') — organization feature authorization.
  *
  * Runs AFTER authMiddleware. Reads the caller's companyId from the verified
