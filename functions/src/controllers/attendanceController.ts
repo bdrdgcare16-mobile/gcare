@@ -3,6 +3,7 @@ import { getDb } from '../config/firebase';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { trackUsage } from '../services/usageService';
 import { pickEmpId } from '../common/user.utils';
+import { isOrgFeatureEnabled } from '../middlewares/featureMiddleware';
 
 // Helper functions for request processing
 const getReqCompanyId = (req: Request) => req.user?.companyId;
@@ -277,6 +278,30 @@ export function validateLocationPayload(
   };
 }
 
+/**
+ * Geo Fence module (`geo_fence`) — a usable office location requires the
+ * officeLocations document to exist AND carry finite coordinates with a
+ * positive allowed radius. Anything else cannot be validated against.
+ */
+function isUsableOfficeLocation(office: any): boolean {
+  if (!office) return false;
+  const lat = Number(office.latitude);
+  const lng = Number(office.longitude);
+  const radius = Number(office.radius);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (lat === 0 && lng === 0) return false;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
+  return Number.isFinite(radius) && radius > 0;
+}
+
+/** Same check against a loose lat/lng/radius triple (stored fields). */
+function isUsableOfficeConfig(lat: any, lng: any, radius: any): boolean {
+  return isUsableOfficeLocation({ latitude: lat, longitude: lng, radius });
+}
+
+const OFFICE_NOT_CONFIGURED =
+  'Office location is not configured for this organization.';
+
 // find office by branch name (case-insensitive fallback)
 async function findOfficeByBranchName(branchNameRaw: string, companyId?: string) {
   const branchName = normStr(branchNameRaw);
@@ -485,7 +510,21 @@ export const checkIn = async (req: Request, res: Response) => {
     let withinRadius: boolean | null = null;
     let otherLocation: string | null = null;
 
+    // Geo Fence module: enabled only when the organization's
+    // companyProfile.enabledFeatures contains 'geo_fence'. Missing profile
+    // or absent key → feature OFF → the pre-existing flow runs unchanged.
+    const geoFenceEnabled = await isOrgFeatureEnabled(companyId, 'geo_fence');
+
     const office = await findOfficeByBranchName(branchName, companyId);
+
+    if (geoFenceEnabled && !isUsableOfficeLocation(office)) {
+      // Controlled business error — no attendance record is written.
+      return res.status(400).json({
+        error: OFFICE_NOT_CONFIGURED,
+        code: 'OFFICE_LOCATION_NOT_CONFIGURED',
+      });
+    }
+
     if (office) {
       expectedLatitude  = Number((office as any).latitude ?? 0) || 0;
       expectedLongitude = Number((office as any).longitude ?? 0) || 0;
@@ -711,16 +750,52 @@ export const checkOut = async (req: Request, res: Response) => {
     const current = doc.data() as any;
     const branchName = normStr(current.branchName || location || current.location || '');
 
+    // Geo Fence module: enabled only when the organization's
+    // companyProfile.enabledFeatures contains 'geo_fence'. Missing profile
+    // or absent key → feature OFF → the pre-existing flow runs unchanged.
+    const geoFenceEnabled = await isOrgFeatureEnabled(companyId, 'geo_fence');
+
     let expectedLatitude: number | null = current.expectedLatitude ?? null;
     let expectedLongitude: number | null = current.expectedLongitude ?? null;
     let expectedRadius: number | null = current.expectedRadius ?? null;
 
-    if (expectedLatitude == null || expectedLongitude == null || expectedRadius == null) {
+    // Stored config takes priority; look the office up when fields are
+    // missing — or, under Geo Fence, when the stored config is unusable.
+    const needLookup =
+      expectedLatitude == null ||
+      expectedLongitude == null ||
+      expectedRadius == null ||
+      (geoFenceEnabled &&
+        !isUsableOfficeConfig(
+          expectedLatitude, expectedLongitude, expectedRadius));
+
+    if (needLookup) {
       const office = await findOfficeByBranchName(branchName, companyId);
       if (office) {
         expectedLatitude  = Number((office as any).latitude ?? 0) || 0;
         expectedLongitude = Number((office as any).longitude ?? 0) || 0;
         expectedRadius    = Number((office as any).radius ?? 0) || 0;
+      }
+    }
+
+    if (geoFenceEnabled) {
+      // Controlled business errors — nothing is written when the
+      // organization enabled Geo Fence but the inputs needed for the
+      // validation are unavailable.
+      if (
+        !isUsableOfficeConfig(
+          expectedLatitude, expectedLongitude, expectedRadius)
+      ) {
+        return res.status(400).json({
+          error: OFFICE_NOT_CONFIGURED,
+          code: 'OFFICE_LOCATION_NOT_CONFIGURED',
+        });
+      }
+      if (checkOutLatitude == null || checkOutLongitude == null) {
+        return res.status(400).json({
+          error: 'latitude and longitude are required numeric values',
+          code: 'INVALID_COORDINATES',
+        });
       }
     }
 

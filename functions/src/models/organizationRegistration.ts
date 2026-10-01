@@ -63,6 +63,7 @@ export const CANONICAL_FEATURES: ReadonlySet<string> = new Set([
   'users_and_roles',
   'attendance',
   'location_tracking',
+  'geo_fence',
   'tasks',
   'shifts',
   'leave_management',

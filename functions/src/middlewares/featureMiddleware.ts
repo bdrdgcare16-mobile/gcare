@@ -74,6 +74,34 @@ const gateForFeatures = (features: string[]) => {
 };
 
 /**
+ * Non-middleware feature check for use inside controllers/services.
+ *
+ * Returns true only when companyProfile/{companyId}.enabledFeatures is an
+ * array containing [feature]. Unlike the middleware's legacy-allow rule,
+ * an org whose profile predates feature gating (no enabledFeatures field)
+ * returns FALSE — additive feature modules (e.g. geo_fence) must default
+ * to disabled for existing organizations unless explicitly enabled.
+ */
+export async function isOrgFeatureEnabled(
+  companyId: string,
+  feature: string,
+): Promise<boolean> {
+  try {
+    const snap = await getDb()
+      .collection(COMPANY_PROFILE_COL)
+      .doc(String(companyId))
+      .get();
+    if (!snap.exists) return false;
+    const enabled = (snap.data() as Record<string, unknown> | undefined)
+      ?.enabledFeatures;
+    return Array.isArray(enabled) && enabled.includes(feature);
+  } catch (err) {
+    console.error('isOrgFeatureEnabled error:', err);
+    return false;
+  }
+}
+
+/**
  * requireFeature('<featureId>') — organization feature authorization.
  *
  * Runs AFTER authMiddleware. Reads the caller's companyId from the verified
