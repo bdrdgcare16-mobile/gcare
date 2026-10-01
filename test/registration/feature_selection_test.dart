@@ -172,6 +172,7 @@ void main() {
       // Implemented optional modules are offered.
       for (final title in [
         'Location Tracking',
+        'Geo Fence',
         'Tasks',
         'Leave Management',
         'Payroll',

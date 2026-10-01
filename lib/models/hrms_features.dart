@@ -27,6 +27,7 @@ const List<String> kOptionalHrmsFeatures = [
   'organization_structure',
   'users_and_roles',
   'location_tracking',
+  'geo_fence',
   'tasks',
   'leave_management',
   'payroll',
@@ -42,6 +43,7 @@ const List<String> kOptionalHrmsFeatures = [
 /// from stored data; older registrations simply cannot select them anew.
 const Set<String> kImplementedOptionalFeatures = {
   'location_tracking',
+  'geo_fence',
   'tasks',
   'leave_management',
   'payroll',
@@ -56,6 +58,7 @@ const Map<String, String> kFeatureLabels = {
   'users_and_roles': 'Users and Roles',
   'attendance': 'Attendance',
   'location_tracking': 'Location Tracking',
+  'geo_fence': 'Geo Fence',
   'tasks': 'Tasks',
   'shifts': 'Shift Management',
   'leave_management': 'Leave Management',

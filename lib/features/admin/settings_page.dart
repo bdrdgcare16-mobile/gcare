@@ -218,7 +218,8 @@ class SettingsPage extends StatelessWidget {
       label: 'Corporate',
       items: [
         _Item('Profile',         Icons.person_outline_rounded,   Color(0xFFE6DEF0), Color(0xFF655193), null),
-        _Item('Office Location', Icons.location_on_rounded,      Color(0xFFD1C4E9), Color(0xFF9575CD), 'location_tracking'),
+        _Item('Office Location', Icons.location_on_rounded,      Color(0xFFD1C4E9), Color(0xFF9575CD), null,
+            anyOf: ['location_tracking', 'geo_fence']),
       ],
     ),
     _Section(
@@ -241,9 +242,10 @@ class SettingsPage extends StatelessWidget {
             label: s.label,
             items: s.items
                 .where(
-                  (i) => i.feature == null ||
+                  (i) => (i.feature == null && i.anyOf == null) ||
                       org == null ||
-                      org.isFeatureEnabled(i.feature!),
+                      (i.feature != null && org.isFeatureEnabled(i.feature!)) ||
+                      (i.anyOf != null && org.isAnyFeatureEnabled(i.anyOf!)),
                 )
                 .toList(),
           ),
@@ -366,7 +368,13 @@ class _Item {
   final Color iconBg;
   final Color iconColor;
   final String? feature;
-  const _Item(this.title, this.icon, this.iconBg, this.iconColor, this.feature);
+
+  /// Any-of feature list — the tile is visible when at least one of these
+  /// is enabled (e.g. Office Location is relevant to Location Tracking AND
+  /// to Geo Fence configurations).
+  final List<String>? anyOf;
+  const _Item(this.title, this.icon, this.iconBg, this.iconColor, this.feature,
+      {this.anyOf});
 }
 
 // ── Animated tile ──

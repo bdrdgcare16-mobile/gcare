@@ -49,6 +49,7 @@ class _PlatformAdminRegistrationDetailPageState
     'users_and_roles': 'Users & Roles',
     'attendance': 'Attendance',
     'location_tracking': 'Location Tracking',
+    'geo_fence': 'Geo Fence',
     'tasks': 'Tasks',
     'shifts': 'Shifts',
     'leave_management': 'Leave Management',

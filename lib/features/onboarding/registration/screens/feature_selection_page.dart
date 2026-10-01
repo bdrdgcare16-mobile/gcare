@@ -50,6 +50,9 @@ const List<RegistrationFeature> kSelectableOptionalCatalogue = [
       'User accounts and role-based access.'),
   RegistrationFeature('location_tracking', 'Location Tracking',
       'Work-hours employee location tracking.'),
+  RegistrationFeature('geo_fence', 'Geo Fence',
+      'Restrict attendance check-in/check-out to the configured office '
+      'location radius.'),
   RegistrationFeature('tasks', 'Tasks',
       'Task assignment and tracking.'),
   RegistrationFeature('leave_management', 'Leave Management',

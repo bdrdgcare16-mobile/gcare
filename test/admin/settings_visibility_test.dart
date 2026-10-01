@@ -50,6 +50,16 @@ void main() {
       expect(find.text('Office Location'), findsOneWidget);
       expect(find.text('Leave Holiday'), findsNothing);
     });
+
+    testWidgets('Basic + geo_fence: Office Location visible',
+        (tester) async {
+      OrganizationContext.current = _org([..._basic, 'geo_fence']);
+      await tester.pumpWidget(const MaterialApp(home: SettingsPage()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Office Location'), findsOneWidget);
+      expect(find.text('Leave Holiday'), findsNothing);
+    });
   });
 
   group('Others — conditional module entries', () {
