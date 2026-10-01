@@ -8,6 +8,7 @@ process.env.JWT_SECRET = 'test-jwt-secret-emp';
 
 jest.mock('../config/firebase', () => ({
   getDb: jest.fn(),
+  getAdminAuth: jest.fn(),
   checkFirestoreAccess: jest.fn().mockResolvedValue(true),
 }));
 
@@ -15,7 +16,7 @@ jest.mock('../services/usageService', () => ({
   trackUsage: jest.fn().mockResolvedValue(undefined),
 }));
 
-import { getDb } from '../config/firebase';
+import { getDb, getAdminAuth } from '../config/firebase';
 import {
   createEmployee,
   deleteEmployee,
@@ -107,7 +108,17 @@ const seedEmps = () => ({
 });
 
 describe('Employee Master controller (3D-E)', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (getAdminAuth as jest.Mock).mockReturnValue({
+      getUserByEmail: jest
+        .fn()
+        .mockRejectedValue({ code: 'auth/user-not-found' }),
+      createUser: jest.fn().mockResolvedValue({ uid: 'fb-uid-test' }),
+      updateUser: jest.fn().mockResolvedValue(undefined),
+      deleteUser: jest.fn().mockResolvedValue(undefined),
+    });
+  });
 
   describe('role gate (route middleware)', () => {
     const next = jest.fn();

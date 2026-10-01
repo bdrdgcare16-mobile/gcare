@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
-import { getDb } from '../config/firebase';
-import * as bcrypt from 'bcryptjs';
+import { getDb, getAdminAuth } from '../config/firebase';
+import { randomBytes } from 'crypto';
 import { Timestamp } from 'firebase-admin/firestore';
 import { trackUsage } from '../services/usageService';
 
@@ -21,7 +21,7 @@ interface Employee {
   role?: string;
   status: 'active' | 'inactive';
 
-  password?: string;
+  authUid?: string;
 
   emailLower?: string;
   searchKeywords?: string[];
@@ -49,6 +49,34 @@ async function trackEmployeeUsage(
   } catch (trackingError) {
     console.error('Usage tracking failed in employee:', trackingError);
   }
+}
+
+// Returns true when an email is already claimed by a users/employees
+// record belonging to a different company. Reusing that Auth account
+// would silently attach an existing identity to the wrong tenant.
+async function emailClaimedByOtherCompany(
+  emailLower: string,
+  companyId: string,
+): Promise<boolean> {
+  for (const col of ['users', EMPLOYEES]) {
+    let snap = await getDb()
+      .collection(col)
+      .where('emailLower', '==', emailLower)
+      .limit(5)
+      .get();
+    if (snap.empty) {
+      snap = await getDb()
+        .collection(col)
+        .where('email', '==', emailLower)
+        .limit(5)
+        .get();
+    }
+    for (const d of snap.docs) {
+      const cid = String(d.data()?.companyId || '').trim();
+      if (cid && cid !== companyId) return true;
+    }
+  }
+  return false;
 }
 
 // Create a new employee (Admin only)
@@ -137,6 +165,66 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
       return res.status(409).json({ error: 'Employee ID already exists for this company' });
     }
 
+    // ── Firebase Auth provisioning ───────────────────────────────────
+    // Every employee created through Employee Master gets a Firebase
+    // Auth account so first login never requires manual Console/Emulator
+    // setup. The admin-supplied password becomes the Auth credential;
+    // when none is provided a random temporary password is generated and
+    // returned once in this response — it is never stored in Firestore.
+    const providedPassword =
+      typeof password === 'string' ? password.trim() : '';
+    if (providedPassword && providedPassword.length < 6) {
+      return res
+        .status(400)
+        .json({ error: 'Password must be at least 6 characters' });
+    }
+    const generatedPassword = providedPassword.length === 0;
+    const authPassword =
+      providedPassword || `Tmp-${randomBytes(9).toString('base64url')}-1A`;
+
+    let authUid: string | null = null;
+    let createdAuthUser = false;
+    const auth = getAdminAuth();
+
+    try {
+      const existingAuthUser = await auth.getUserByEmail(normalizedEmail);
+      // Auth account already exists — reuse only when no tenant record
+      // claims this email for a different company.
+      if (await emailClaimedByOtherCompany(normalizedEmail, companyId)) {
+        return res
+          .status(409)
+          .json({ error: 'Email is already in use by another account' });
+      }
+      await auth.updateUser(existingAuthUser.uid, {
+        password: authPassword,
+        displayName: name,
+      });
+      authUid = existingAuthUser.uid;
+    } catch (lookupErr: any) {
+      if (lookupErr?.code !== 'auth/user-not-found') {
+        console.error('[CREATE EMPLOYEE] auth lookup failed:', lookupErr);
+        return res
+          .status(502)
+          .json({ error: 'Failed to provision employee login' });
+      }
+      try {
+        const created = await auth.createUser({
+          email: normalizedEmail,
+          password: authPassword,
+          displayName: name,
+          emailVerified: false,
+          disabled: false,
+        });
+        authUid = created.uid;
+        createdAuthUser = true;
+      } catch (createErr: any) {
+        console.error('[CREATE EMPLOYEE] auth create failed:', createErr);
+        return res
+          .status(502)
+          .json({ error: 'Failed to provision employee login' });
+      }
+    }
+
     const now = Timestamp.now();
 
     const employeeData: Employee = {
@@ -156,17 +244,33 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
       role: 'employee',
       status: status === 'inactive' ? 'inactive' : 'active',
 
+      authUid: authUid ?? undefined,
+
       createdAt: now,
       updatedAt: now,
       createdBy: currentUserId,
       updatedBy: currentUserId,
     };
 
-    if (password) {
-      employeeData.password = await bcrypt.hash(password, 10);
+    let ref;
+    try {
+      ref = await getDb().collection(EMPLOYEES).add(employeeData);
+    } catch (writeErr) {
+      // Auth and Firestore are not atomic — if the employee write fails,
+      // remove the Auth account we just created so it can't orphan.
+      // Pre-existing Auth users are never touched.
+      if (createdAuthUser && authUid) {
+        try {
+          await auth.deleteUser(authUid);
+        } catch (rollbackErr) {
+          console.error(
+            '[CREATE EMPLOYEE] auth rollback failed:',
+            rollbackErr,
+          );
+        }
+      }
+      throw writeErr;
     }
-
-    const ref = await getDb().collection(EMPLOYEES).add(employeeData);
     const doc = await ref.get();
 
     // Track usage after successful employee creation
@@ -177,7 +281,9 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
 
     return res.status(201).json({
       id: ref.id,
-      ...doc.data()
+      ...doc.data(),
+      // Temporary credential is surfaced to the admin exactly once.
+      ...(generatedPassword ? { temporaryPassword: authPassword } : {}),
     });
 
   } catch (error) {
