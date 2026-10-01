@@ -55,20 +55,15 @@ class AdminDashboard extends StatefulWidget {
 }
 
 class _AdminDashboardState extends State<AdminDashboard> {
+  /// Index 0 = the first enabled module — Live Attendance when
+  /// attendance/location_tracking is on, otherwise the next accessible
+  /// entry. There is no Home entry.
   int selectedIndex = 0;
   OrganizationContext? _org;
 
   /// Ordered module menu — features map 1:1 to CANONICAL_FEATURES on the
-  /// backend. Home/Settings/Others/Logout are universal, never gated.
+  /// backend. Settings/Others are universal, never gated.
   late final List<_NavEntry> _allEntries = [
-    _NavEntry(
-      title: "Home",
-      icon: Icons.home_outlined,
-      page: () => _AdminHomeTab(
-        org: _org,
-        companyProfile: widget.companyProfile,
-      ),
-    ),
     _NavEntry(
       title: "Live Attendance",
       icon: Icons.check_circle,
@@ -285,127 +280,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
         });
         Navigator.pop(context);
       },
-    );
-  }
-}
-
-/// Generic Admin home — organization identity + enabled modules.
-/// Deliberately loads NO module data: an org without the attendance
-/// feature must never trigger GET /attendance/live on open.
-class _AdminHomeTab extends StatelessWidget {
-  final OrganizationContext? org;
-  final CompanyProfile companyProfile;
-
-  const _AdminHomeTab({required this.org, required this.companyProfile});
-
-  static const _featureLabels = {
-    'employee_master': 'Employee Master',
-    'organization_structure': 'Organization Structure',
-    'users_and_roles': 'Users and Roles',
-    'attendance': 'Attendance',
-    'location_tracking': 'Location Tracking',
-    'tasks': 'Tasks',
-    'shifts': 'Shifts',
-    'leave_management': 'Leave Management',
-    'payroll': 'Payroll',
-    'recruitment': 'Recruitment',
-    'performance': 'Performance',
-    'reporting': 'Reporting',
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final orgName = org?.organizationName.isNotEmpty == true
-        ? org!.organizationName
-        : companyProfile.name;
-    final features = org?.enabledFeatures;
-
-    return ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Organization',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
-                _row('Organization Name', orgName.isEmpty ? '—' : orgName),
-                _row(
-                  'Organization Code',
-                  org?.organizationCode.isNotEmpty == true
-                      ? org!.organizationCode
-                      : '—',
-                ),
-                _row(
-                  'Organization ID',
-                  org?.organizationCode.isNotEmpty == true
-                      ? org!.organizationCode
-                      : '—',
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Enabled Modules',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                if (features == null)
-                  const Text('All modules')
-                else if (features.isEmpty)
-                  const Text('No modules enabled')
-                else
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: features
-                        .map(
-                          (f) => Chip(
-                            label: Text(_featureLabels[f] ?? f),
-                          ),
-                        )
-                        .toList(),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _row(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 140,
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontWeight: FontWeight.w600,
-                color: Colors.black54,
-              ),
-            ),
-          ),
-          Expanded(child: Text(value)),
-        ],
-      ),
     );
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:serv_app/features/admin/admin_dashboard_page.dart';
 import 'package:serv_app/features/admin/admin_feature_gate.dart';
+import 'package:serv_app/features/admin/employee_management_page.dart';
 import 'package:serv_app/features/admin/live_attendance_page.dart';
 import 'package:serv_app/models/company_profile.dart';
 import 'package:serv_app/models/organization_context.dart';
@@ -64,27 +65,24 @@ void main() {
   });
 
   group('AdminDashboard — employee_master only (SERV001 shape)', () {
-    testWidgets('shows org name and SERV code on Home — never the '
-        'internal (email-shaped) companyId', (tester) async {
+    testWidgets('no Home entry — landing is the first enabled module '
+        '(Employee Management)', (tester) async {
       await _pumpDashboard(tester, ['employee_master']);
-      expect(find.text('ghhf'), findsWidgets);
-      expect(find.text('Organization Code'), findsOneWidget);
-      expect(find.text('SERV001'), findsWidgets);
-      expect(find.text('Organization ID'), findsOneWidget);
-      // The internal canonical companyId must not surface as a visible
-      // organization identifier — orgCode is the visible Company ID.
+      // Landing = first enabled entry, not a Home/blank page.
+      expect(find.byType(EmployeeListScreen), findsOneWidget);
+      await _openDrawer(tester);
+      expect(find.text('Home'), findsNothing);
+      // Organization info / Enabled Modules live in Settings → Profile.
+      expect(find.text('Organization'), findsNothing);
+      expect(find.text('Enabled Modules'), findsNothing);
+      // The internal canonical companyId must never surface.
       expect(find.text('viki@gmail.com'), findsNothing);
     });
 
-    testWidgets('enabled modules listed on Home', (tester) async {
-      await _pumpDashboard(tester, ['employee_master']);
-      expect(find.text('Enabled Modules'), findsOneWidget);
-      expect(find.text('Employee Master'), findsOneWidget);
-    });
-
     testWidgets(
-        'default home is generic — does not build LiveAttendancePage '
-        '(no automatic GET /attendance/live)', (tester) async {
+        'landing does not build LiveAttendancePage for an org without '
+        'attendance/location_tracking (no GET /attendance/live)',
+        (tester) async {
       await _pumpDashboard(tester, ['employee_master']);
       expect(find.byType(LiveAttendancePage), findsNothing);
     });
@@ -95,7 +93,7 @@ void main() {
       await _openDrawer(tester);
 
       // universal
-      expect(find.text('Home'), findsOneWidget);
+      expect(find.text('Home'), findsNothing);
       expect(find.text('Others'), findsOneWidget);
       expect(find.text('Settings'), findsOneWidget);
       // enabled
@@ -124,11 +122,8 @@ void main() {
       expect(find.text('Attendance Reports'), findsOneWidget);
       expect(find.text('Employee Management'), findsOneWidget);
       expect(find.text('Payroll Management'), findsNothing);
-      // enabled-module chips on home
-      expect(find.text('Attendance'), findsOneWidget);
-      expect(find.text('Leave Management'), findsOneWidget);
-      // still generic home — not a live attendance page
-      expect(find.byType(LiveAttendancePage), findsNothing);
+      // attendance enabled → Live Attendance is the landing page
+      expect(find.byType(LiveAttendancePage), findsOneWidget);
     });
   });
 
@@ -200,7 +195,7 @@ void main() {
       await _openDrawer(tester);
 
       // universal
-      expect(find.text('Home'), findsOneWidget);
+      expect(find.text('Home'), findsNothing);
       expect(find.text('Others'), findsOneWidget);
       expect(find.text('Settings'), findsOneWidget);
       // enabled
@@ -212,11 +207,8 @@ void main() {
       expect(find.text('Employee Management'), findsNothing);
       expect(find.text('Request and Leave Approvals'), findsNothing);
       expect(find.text('Employee Onboarding'), findsNothing);
-      // default home is still generic — Live Attendance is not built
-      expect(find.byType(LiveAttendancePage), findsNothing);
-      // enabled-module chips on home
-      expect(find.text('Location Tracking'), findsOneWidget);
-      expect(find.text('Payroll'), findsOneWidget);
+      // location_tracking → Live Attendance is the landing page
+      expect(find.byType(LiveAttendancePage), findsOneWidget);
     });
 
     testWidgets(

@@ -13,6 +13,8 @@ import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
 import 'package:serv_app/models/company_data.dart'; // shared model with static fields
+import 'package:serv_app/models/hrms_features.dart';
+import 'package:serv_app/models/organization_context.dart';
 
 // ===== Theme colors (use shared theme) =====
 const Color kPrimaryBackgroundTop = Colors.white;
@@ -473,12 +475,19 @@ class _ViewLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Visible organization identifier is the human-readable org code
+    // (SERV###). The internal companyId is never surfaced here.
+    final org = OrganizationContext.current;
+    final orgCode = org?.organizationCode ?? '';
+    final enabledFeatures = org?.enabledFeatures;
+
     return Column(
       children: [
         _SectionHeader(title: 'Organization'),
         _GlassPanel(
           child: _InfoList(items: [
             _InfoRow(icon: Icons.badge, label: 'Company Name', value: _orDash(name)),
+            _InfoRow(icon: Icons.tag, label: 'Organization Code', value: _orDash(orgCode)),
             _InfoRow(icon: Icons.alternate_email, label: 'Official Email', value: _orDash(email)),
             _InfoRow(icon: Icons.phone, label: 'Phone Number', value: _orDash(phone)),
             _InfoRow(icon: Icons.public, label: 'Website', value: _orDash(website)),
@@ -492,6 +501,30 @@ class _ViewLayout extends StatelessWidget {
             _InfoRow(icon: Icons.person, label: 'Admin Full Name', value: _orDash(adminName)),
             _InfoRow(icon: Icons.workspace_premium, label: 'Admin Designation', value: _orDash(adminRole)),
           ]),
+        ),
+        SizedBox(height: spacing),
+
+        _SectionHeader(title: 'Enabled Modules'),
+        _GlassPanel(
+          child: enabledFeatures == null
+              ? const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('All modules'),
+                )
+              : enabledFeatures.isEmpty
+                  ? const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text('No modules enabled'),
+                    )
+                  : Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: enabledFeatures
+                          .map(
+                            (f) => Chip(label: Text(kFeatureLabels[f] ?? f)),
+                          )
+                          .toList(),
+                    ),
         ),
         SizedBox(height: spacing),
       ],
