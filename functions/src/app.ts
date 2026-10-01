@@ -359,7 +359,17 @@ app.use(
   requireFeature("reporting"),
   reportRoutes,
 );
-app.use(`${apiPrefix}/rewards`, generalRateLimit, rewardRoutes);
+// Rewards = the `performance` module. Same gate as other optional
+// features: enabledFeatures missing → legacy allow; present without
+// 'performance' → 403 FEATURE_NOT_ENABLED. Per-route role checks inside
+// rewardRoutes are unchanged.
+app.use(
+  `${apiPrefix}/rewards`,
+  generalRateLimit,
+  authMiddleware,
+  requireFeature("performance"),
+  rewardRoutes,
+);
 app.use(
   `${apiPrefix}/events`,
   generalRateLimit,

@@ -155,6 +155,26 @@ describe('feature-gated mounts', () => {
       await expectFeatureBlocked('/api/payroll/summary', BASIC);
     });
 
+  // Rewards = the `performance` module — mount-gated like the other
+  // optional features.
+  test('GET /rewards blocked without performance feature', async () => {
+    await expectFeatureBlocked('/api/rewards', BASIC);
+  });
+
+  test('GET /rewards allowed with performance enabled', async () => {
+    await expectFeatureAllowed('/api/rewards', [...BASIC, 'performance']);
+  });
+
+  test('GET /rewards legacy org (no enabledFeatures) → allowed', async () => {
+    installDb({ status: 'active' });
+    const res = await request(app)
+      .get('/api/rewards')
+      .set('Authorization', `Bearer ${adminToken('c1')}`);
+    expect(
+      res.status === 403 && res.body?.error === 'FEATURE_NOT_ENABLED',
+    ).toBe(false);
+  });
+
   test('unauthenticated gated mount → 401', async () => {
     installDb({ status: 'active', enabledFeatures: BASIC });
     const res = await request(app).get('/api/events');
