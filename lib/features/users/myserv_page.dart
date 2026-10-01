@@ -43,24 +43,29 @@ class MyServPage extends StatelessWidget {
           Navigator.push(context, MaterialPageRoute(builder: (_) => const MyAttendancePage()));
         },
       ),
-      _ServItemData(
-        imagePath: 'assets/images/my-track.png',
-        label: 'My Track',
-        iconBg: const Color(0xFFEDE7F6),
-        onTap: () {
-          if (!context.mounted) return;
-          Navigator.push(context, MaterialPageRoute(builder: (_) => const MyTrackPage()));
-        },
-      ),
-      _ServItemData(
-        imagePath: 'assets/images/myrequest.png',
-        label: 'My Request',
-        iconBg: const Color(0xFFE6DEF0),
-        onTap: () {
-          if (!context.mounted) return;
-          Navigator.push(context, MaterialPageRoute(builder: (_) => const MyRequestPage()));
-        },
-      ),
+      if (_featureAllowed('location_tracking'))
+        _ServItemData(
+          imagePath: 'assets/images/my-track.png',
+          label: 'My Track',
+          iconBg: const Color(0xFFEDE7F6),
+          onTap: () {
+            if (!context.mounted) return;
+            Navigator.push(context, MaterialPageRoute(builder: (_) => const MyTrackPage()));
+          },
+        ),
+      // My Request reads /attendance/my-requests — the merged own
+      // attendance+leave list, served under the `attendance` mount (Basic
+      // HRMS). `attendance` is therefore the correct gate.
+      if (_featureAllowed('attendance'))
+        _ServItemData(
+          imagePath: 'assets/images/myrequest.png',
+          label: 'My Request',
+          iconBg: const Color(0xFFE6DEF0),
+          onTap: () {
+            if (!context.mounted) return;
+            Navigator.push(context, MaterialPageRoute(builder: (_) => const MyRequestPage()));
+          },
+        ),
       if (_featureAllowed('leave_management'))
         _ServItemData(
           imagePath: 'assets/images/type_of_request3.png',
@@ -71,42 +76,46 @@ class MyServPage extends StatelessWidget {
             Navigator.push(context, MaterialPageRoute(builder: (_) => TypeOfRequestPage()));
           },
         ),
-      _ServItemData(
-        imagePath: 'assets/images/task5.png',
-        label: 'My Task',
-        iconBg: const Color(0xFFE8E0F5),
-        onTap: () {
-          if (!context.mounted) return;
-          Navigator.push(context, MaterialPageRoute(builder: (_) =>  MyTasksPage()));
-        },
-      ),
-      _ServItemData(
-        imagePath: 'assets/images/event_icon.png',
-        label: 'Events Update',
-        iconBg: const Color(0xFFEDE7F6),
-        onTap: () {
-          if (!context.mounted) return;
-          Navigator.push(context, MaterialPageRoute(builder: (_) => const UserEventUpdatesPage()));
-        },
-      ),
-      _ServItemData(
-        imagePath: 'assets/images/rewards1.png',
-        label: 'Rewards',
-        iconBg: const Color(0xFFE6DEF0),
-        onTap: () {
-          if (!context.mounted) return;
-          Navigator.push(context, MaterialPageRoute(builder: (_) => const UserRewardsPage()));
-        },
-      ),
-      _ServItemData(
-        imagePath: 'assets/images/reports.png',
-        label: 'Payslip',
-        iconBg: const Color(0xFFE8E0F5),
-        onTap: () {
-          if (!context.mounted) return;
-          Navigator.push(context, MaterialPageRoute(builder: (_) => const EmployeePayslipPage()));
-        },
-      ),
+      if (_featureAllowed('tasks'))
+        _ServItemData(
+          imagePath: 'assets/images/task5.png',
+          label: 'My Task',
+          iconBg: const Color(0xFFE8E0F5),
+          onTap: () {
+            if (!context.mounted) return;
+            Navigator.push(context, MaterialPageRoute(builder: (_) =>  MyTasksPage()));
+          },
+        ),
+      if (_featureAllowed('events'))
+        _ServItemData(
+          imagePath: 'assets/images/event_icon.png',
+          label: 'Events Update',
+          iconBg: const Color(0xFFEDE7F6),
+          onTap: () {
+            if (!context.mounted) return;
+            Navigator.push(context, MaterialPageRoute(builder: (_) => const UserEventUpdatesPage()));
+          },
+        ),
+      if (_featureAllowed('performance'))
+        _ServItemData(
+          imagePath: 'assets/images/rewards1.png',
+          label: 'Rewards',
+          iconBg: const Color(0xFFE6DEF0),
+          onTap: () {
+            if (!context.mounted) return;
+            Navigator.push(context, MaterialPageRoute(builder: (_) => const UserRewardsPage()));
+          },
+        ),
+      if (_featureAllowed('payroll'))
+        _ServItemData(
+          imagePath: 'assets/images/reports.png',
+          label: 'Payslip',
+          iconBg: const Color(0xFFE8E0F5),
+          onTap: () {
+            if (!context.mounted) return;
+            Navigator.push(context, MaterialPageRoute(builder: (_) => const EmployeePayslipPage()));
+          },
+        ),
     ];
 
     return Scaffold(
