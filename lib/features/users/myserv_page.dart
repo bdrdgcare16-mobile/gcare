@@ -7,6 +7,7 @@ import 'package:serv_app/features/users/events_page.dart';
 import 'package:serv_app/features/users/my_rewards_page.dart';
 import 'package:serv_app/features/users/types_of_request_page.dart';
 import 'package:serv_app/features/users/employee_payslip_page.dart';
+import 'package:serv_app/models/organization_context.dart';
 
 // Theme colors (unchanged)
 const Color kPrimaryBackgroundTop    = Color(0xFFFFFFFF);
@@ -23,6 +24,12 @@ const Color _kDark     = Color(0xFF655193);
 
 class MyServPage extends StatelessWidget {
   const MyServPage({super.key});
+
+  /// Feature gate matching the admin surfaces: a null OrganizationContext
+  /// means a legacy org that predates feature gating — keep full access.
+  static bool _featureAllowed(String feature) =>
+      OrganizationContext.current == null ||
+      OrganizationContext.current!.isFeatureEnabled(feature);
 
   @override
   Widget build(BuildContext context) {
@@ -54,15 +61,16 @@ class MyServPage extends StatelessWidget {
           Navigator.push(context, MaterialPageRoute(builder: (_) => const MyRequestPage()));
         },
       ),
-      _ServItemData(
-        imagePath: 'assets/images/type_of_request3.png',
-        label: 'Type of Request',
-        iconBg: const Color(0xFFD1C4E9),
-        onTap: () {
-          if (!context.mounted) return;
-          Navigator.push(context, MaterialPageRoute(builder: (_) => TypeOfRequestPage()));
-        },
-      ),
+      if (_featureAllowed('leave_management'))
+        _ServItemData(
+          imagePath: 'assets/images/type_of_request3.png',
+          label: 'Type of Request',
+          iconBg: const Color(0xFFD1C4E9),
+          onTap: () {
+            if (!context.mounted) return;
+            Navigator.push(context, MaterialPageRoute(builder: (_) => TypeOfRequestPage()));
+          },
+        ),
       _ServItemData(
         imagePath: 'assets/images/task5.png',
         label: 'My Task',
