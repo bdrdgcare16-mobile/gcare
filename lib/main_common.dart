@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'
     show kIsWeb;
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 import 'package:workmanager/workmanager.dart';
@@ -57,6 +59,23 @@ Future<void> startApp({
     );
     debugPrint('Firebase initialized for [$environmentName]: ${app.options.projectId}');
     debugPrint('API key configured: ${app.options.apiKey.isNotEmpty ? 'YES' : 'NO'}');
+
+    // Local emulator wiring — only active when explicitly requested at build
+    // time via --dart-define=USE_FIREBASE_EMULATORS=true. Never enabled in
+    // normal dev/prod runs, so production builds are unaffected.
+    if (const bool.fromEnvironment('USE_FIREBASE_EMULATORS')) {
+      const host = String.fromEnvironment(
+        'FIREBASE_EMULATOR_HOST',
+        defaultValue: '127.0.0.1',
+      );
+      try {
+        FirebaseAuth.instance.useAuthEmulator(host, 9099);
+        FirebaseFirestore.instance.useFirestoreEmulator(host, 8080);
+        debugPrint('Firebase emulators enabled [$environmentName]: host=$host');
+      } catch (e) {
+        debugPrint('Emulator wiring failed [$environmentName]: $e');
+      }
+    }
 
     FirebaseMessaging.onBackgroundMessage(
       firebaseMessagingBackgroundHandler,

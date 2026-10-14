@@ -5,7 +5,7 @@ import { Timestamp } from 'firebase-admin/firestore';
 import { trackUsage } from '../services/usageService';
 import { COLLECTIONS } from '../constants/collections';
 import { recordEmployeeJobHistory } from '../services/employeeJobHistoryService';
-import { appendAuditEvent } from '../services/auditService';
+import { appendAuditEvent, resolveAuditActor } from '../services/auditService';
 
 const EMPLOYEES = COLLECTIONS.EMPLOYEES;
 
@@ -23,6 +23,7 @@ interface Employee {
   shiftGroup?: string | null;
   role?: string;
   status: 'active' | 'inactive';
+  joiningDate?: string;
 
   password?: string;
 
@@ -77,6 +78,7 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
       role,
       status = 'active',
       password,
+      joiningDate: joiningDateInput,
     }: {
       companyId?: string;
       empid?: string;
@@ -90,6 +92,7 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
       role?: string;
       status?: string;
       password?: string;
+      joiningDate?: string;
     } = req.body;
 
     if (!tokenCompanyId || !currentUserId) {
@@ -107,6 +110,18 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
     // Normalize email and empid
     const normalizedEmail = String(email || '').trim().toLowerCase();
     const normalizedEmpid = String(empid || '').trim();
+
+    // Optional joining date (ISO yyyy-mm-dd). Persisted only when the
+    // client supplies a valid date — no value is invented server-side.
+    let joiningDate: string | undefined;
+    if (joiningDateInput !== undefined && joiningDateInput !== null && String(joiningDateInput).trim() !== '') {
+      const s = String(joiningDateInput).trim();
+      const d = new Date(s.length === 10 ? `${s}T00:00:00Z` : s);
+      if (Number.isNaN(d.getTime())) {
+        return res.status(400).json({ error: 'Invalid joiningDate (expected YYYY-MM-DD)' });
+      }
+      joiningDate = d.toISOString().slice(0, 10);
+    }
 
     // Add backend logs
     console.log('[CREATE EMPLOYEE] companyId:', companyId);
@@ -155,6 +170,7 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
       role,
       status: status as 'active' | 'inactive',
       isDeleted: false,
+      ...(joiningDate ? { joiningDate } : {}),
 
       createdAt: now,
       updatedAt: now,
@@ -177,6 +193,12 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
       delete safeEmployeeForAudit.password;
     }
 
+    const actor = await resolveAuditActor({
+      userId: currentUserId,
+      email: (req as any).user?.email,
+      companyId: tokenCompanyId,
+    });
+
     await getDb().runTransaction(async (transaction) => {
       recordEmployeeJobHistory({
         transaction,
@@ -190,6 +212,8 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
 
       appendAuditEvent(transaction, {
         actorId: currentUserId,
+        actorName: actor.actorName,
+        actorEmail: actor.actorEmail,
         companyId: tokenCompanyId,
         action: 'EMPLOYEE_CREATED',
         module: 'employee',
@@ -352,6 +376,12 @@ export const updateEmployee = async (req: Request, res: Response): Promise<Respo
     updates.updatedAt = Timestamp.now();
     updates.updatedBy = currentUserId;
 
+    const actor = await resolveAuditActor({
+      userId: currentUserId,
+      email: (req as any).user?.email,
+      companyId,
+    });
+
     const outcome = await getDb().runTransaction(async transaction => {
       const currentDoc = await transaction.get(ref);
 
@@ -387,6 +417,8 @@ export const updateEmployee = async (req: Request, res: Response): Promise<Respo
 
       appendAuditEvent(transaction, {
         actorId: currentUserId,
+        actorName: actor.actorName,
+        actorEmail: actor.actorEmail,
         companyId,
         action: 'EMPLOYEE_UPDATED',
         module: 'employee',
@@ -439,6 +471,11 @@ export const deleteEmployee = async (req: Request, res: Response): Promise<Respo
     }
 
     const ref = getDb().collection(EMPLOYEES).doc(id);
+    const actor = await resolveAuditActor({
+      userId: actorId,
+      email: user?.email,
+      companyId,
+    });
     const outcome = await getDb().runTransaction(async transaction => {
       const doc = await transaction.get(ref);
 
@@ -472,6 +509,8 @@ export const deleteEmployee = async (req: Request, res: Response): Promise<Respo
 
       appendAuditEvent(transaction, {
         actorId,
+        actorName: actor.actorName,
+        actorEmail: actor.actorEmail,
         companyId,
         action: 'EMPLOYEE_SOFT_DELETED',
         module: 'employee',

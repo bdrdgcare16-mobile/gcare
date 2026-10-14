@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:serv_app/shared/app_theme.dart';
 import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
 import 'package:intl_phone_field/intl_phone_field.dart';
 
 import 'package:serv_app/html_stub.dart'
@@ -38,6 +39,7 @@ class Employee {
   final String? docId;
   final String? password;
   final String role;
+  final String joiningDate;
 
   Employee({
     required this.companyId,
@@ -53,6 +55,7 @@ class Employee {
     this.docId,
     this.password,
     this.role = 'employee',
+    this.joiningDate = '',
   });
 
   factory Employee.fromServer(Map<String, dynamic> j) {
@@ -71,6 +74,7 @@ class Employee {
           ? 'Active'
           : 'Inactive',
       role: (j['role'] ?? 'employee').toString(),
+      joiningDate: (j['joiningDate'] ?? '').toString(),
     );
   }
 
@@ -88,6 +92,7 @@ class Employee {
       'shiftGroup': shiftGroup.isEmpty ? null : shiftGroup,
       'role': role,
       'status': status.toLowerCase(),
+      'joiningDate': joiningDate.isEmpty ? null : joiningDate,
     };
   }
 }
@@ -874,6 +879,7 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
   final location = TextEditingController();
   final dept = TextEditingController();
   final desig = TextEditingController();
+  final joiningDate = TextEditingController();
 
   bool _obscurePassword = true;
   String status = 'Active';
@@ -1118,6 +1124,8 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
       status: existingEmployee?.status ?? status,
       password: existingEmployee == null ? password.text.trim() : null,
       role: existingEmployee?.role ?? 'employee',
+      joiningDate:
+          existingEmployee == null ? joiningDate.text.trim() : '',
     );
 
     if (existingEmployee != null) {
@@ -1194,7 +1202,37 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
     location.dispose();
     dept.dispose();
     desig.dispose();
+    joiningDate.dispose();
     super.dispose();
+  }
+
+  Widget joiningDateField() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: TextFormField(
+        controller: joiningDate,
+        readOnly: true,
+        decoration: InputDecoration(
+          labelText: 'Joining Date (optional)',
+          suffixIcon: const Icon(Icons.calendar_today),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+        onTap: () async {
+          final now = DateTime.now();
+          final picked = await showDatePicker(
+            context: context,
+            initialDate: now,
+            firstDate: DateTime(1970),
+            lastDate: DateTime(now.year + 5),
+          );
+          if (picked != null) {
+            joiningDate.text = DateFormat('yyyy-MM-dd').format(picked);
+          }
+        },
+      ),
+    );
   }
 
   @override
@@ -1269,6 +1307,9 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
                 formField('Location', location),
                 formField('Department', dept),
                 formField('Designation', desig),
+                // Joining date is create-only: it seeds the JOINED job-history
+                // event and is not part of the ordinary edit whitelist.
+                if (!isEdit) joiningDateField(),
                 // Status is display-only in edit mode (requires dedicated lifecycle endpoint)
                 if (!isEdit)
                   Row(
