@@ -1,17 +1,16 @@
 {
   "compilerOptions": {
-    "module": "commonjs",
+    "module": "nodenext",
     "noImplicitReturns": true,
     "noUnusedLocals": true,
     "outDir": "lib",
     "rootDir": "./src",
-    "ignoreDeprecations": "5.0",
     "sourceMap": true,
     "strict": true,
     "target": "es2021",
     "esModuleInterop": true,
     "resolveJsonModule": true,
-    "moduleResolution": "node",
+    "moduleResolution": "nodenext",
     "skipLibCheck": true,
     "types": ["node", "jest"]
   },
