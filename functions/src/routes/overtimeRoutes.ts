@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getOvertimeHours } from "../controllers/overTimeController";
+import { getOvertimeHours } from "../controllers/overtimecontroller";
 
 const router = Router();
 

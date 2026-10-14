@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 
-import { db } from '../config/firebase';
+import { getDb } from '../config/firebase';
 
 import { trackUsage } from '../services/usageService';
 
@@ -187,7 +187,7 @@ async function createAssignmentsForTask(
   if (audience === 'employee' && assignedTo) {
     employeeIds = [assignedTo.trim()];
   } else if (audience === 'all') {
-    const employeeSnap = await db
+    const employeeSnap = await getDb()
       .collection(COLLECTIONS.USERS)
       .where('companyId', '==', task.companyId)
       .where('role', '==', 'employee')
@@ -212,10 +212,10 @@ async function createAssignmentsForTask(
   const CHUNK = 450;
   for (let i = 0; i < employeeIds.length; i += CHUNK) {
     const chunk = employeeIds.slice(i, i + CHUNK);
-    const batch = db.batch();
+    const batch = getDb().batch();
 
     for (const empid of chunk) {
-      const assignmentRef = db.collection(COLLECTIONS.TASK_ASSIGNMENTS).doc();
+      const assignmentRef = getDb().collection(COLLECTIONS.TASK_ASSIGNMENTS).doc();
       const assignment = makeTaskAssignmentDoc({
         id: assignmentRef.id,
         companyId: task.companyId,
@@ -397,14 +397,14 @@ async function notifyTaskAssigned(req: Request, task: TaskDoc) {
     if (task.audience === 'all') {
       console.log('[ALL EMPLOYEE NOTIFY] Started');
 
-      const employeesSnapshot = await db
+      const employeesSnapshot = await getDb()
         .collection('users')
         .where('companyId', '==', task.companyId)
         .get();
 
       console.log('[ALL EMPLOYEE NOTIFY] Users found:', employeesSnapshot.size);
 
-      const employeeSnap = await db
+      const employeeSnap = await getDb()
         .collection(COLLECTIONS.USERS)
         .where('companyId', '==', task.companyId)
         .where('role', '==', 'employee')
@@ -429,7 +429,7 @@ async function notifyTaskAssigned(req: Request, task: TaskDoc) {
         userIds.map(async (userId) => {
           try {
             // Check device registrations for this user
-            const deviceSnap = await db
+            const deviceSnap = await getDb()
               .collection(COLLECTIONS.DEVICE_REGISTRATIONS)
               .where('companyId', '==', task.companyId)
               .where('userId', '==', userId)
@@ -486,7 +486,7 @@ async function notifyTaskCompleted(
     const actorUserId = (req.user as AuthUser | undefined)?.userId || null;
 
     // Query for both admin and super_admin roles in the same company
-    const adminSnap = await db
+    const adminSnap = await getDb()
       .collection(COLLECTIONS.USERS)
       .where('companyId', '==', companyId)
       .where('role', 'in', ['admin', 'super_admin'])
@@ -621,7 +621,7 @@ export async function createBroadcastTask(req: Request, res: Response) {
       return res.status(400).json({ error: 'assignedTo (empid) is required when audience="employee"' });
     }
 
-    const docRef = db.collection('tasks').doc();
+    const docRef = getDb().collection('tasks').doc();
     const data = makeTaskDoc({
       id: docRef.id,
       title,
@@ -685,7 +685,7 @@ export async function createSingleTask(req: Request, res: Response) {
       return res.status(400).json({ error: 'description is required' });
     }
 
-    const docRef = db.collection('tasks').doc();
+    const docRef = getDb().collection('tasks').doc();
     const data = makeTaskDoc({
       id: docRef.id,
       title,
@@ -777,7 +777,7 @@ export async function createDailyUpdateForSelf(req: Request, res: Response) {
 
 
 
-    const docRef = db.collection('tasks').doc();
+    const docRef = getDb().collection('tasks').doc();
 
 
 
@@ -861,8 +861,8 @@ export async function listTasksForUser(req: Request, res: Response) {
 
     // 1) Fetch all company tasks (for metadata and visibility) and this employee's assignments
     const [companyTasksSnapshot, assignmentSnapshot] = await Promise.all([
-      db.collection('tasks').where('companyId', '==', companyId).get(),
-      db
+      getDb().collection('tasks').where('companyId', '==', companyId).get(),
+      getDb()
         .collection(COLLECTIONS.TASK_ASSIGNMENTS)
         .where('companyId', '==', companyId)
         .where('employeeId', '==', empid)
@@ -968,10 +968,10 @@ export async function listEmployeeTasks(req: Request, res: Response) {
     }
 
     const [taskSnap, assignmentSnap, employeeSnap, userSnap] = await Promise.all([
-      db.collection('tasks').where('companyId', '==', companyId).get(),
-      db.collection(COLLECTIONS.TASK_ASSIGNMENTS).where('companyId', '==', companyId).get(),
-      db.collection(COLLECTIONS.EMPLOYEES).where('companyId', '==', companyId).get(),
-      db.collection(COLLECTIONS.USERS).where('companyId', '==', companyId).get(),
+      getDb().collection('tasks').where('companyId', '==', companyId).get(),
+      getDb().collection(COLLECTIONS.TASK_ASSIGNMENTS).where('companyId', '==', companyId).get(),
+      getDb().collection(COLLECTIONS.EMPLOYEES).where('companyId', '==', companyId).get(),
+      getDb().collection(COLLECTIONS.USERS).where('companyId', '==', companyId).get(),
     ]);
 
     // empid -> display name, and userId -> display name.
@@ -1084,7 +1084,7 @@ export async function getTask(req: Request, res: Response): Promise<Response> {
       return res.status(400).json({ error: 'id is required' });
     }
 
-    const snap = await db.collection('tasks').doc(id).get();
+    const snap = await getDb().collection('tasks').doc(id).get();
     if (!snap.exists) {
       return res.status(404).json({ error: 'Not found' });
     }
@@ -1111,7 +1111,7 @@ export async function getTask(req: Request, res: Response): Promise<Response> {
     // For employees, merge in their own assignment status
     if (!isAuthorizedAdmin && currentUser?.empid) {
       const empid = currentUser.empid;
-      const assignmentSnap = await db
+      const assignmentSnap = await getDb()
         .collection(COLLECTIONS.TASK_ASSIGNMENTS)
         .where('companyId', '==', companyId)
         .where('taskId', '==', id)
@@ -1175,7 +1175,7 @@ export async function getTaskProofUrl(req: Request, res: Response): Promise<Resp
     const empid = ((req.query.empid as string) || '').trim();
 
     // Verify the task exists and belongs to the admin's company
-    const snap = await db.collection('tasks').doc(taskId).get();
+    const snap = await getDb().collection('tasks').doc(taskId).get();
     if (!snap.exists) {
       return res.status(404).json({ error: 'Task not found' });
     }
@@ -1187,7 +1187,7 @@ export async function getTaskProofUrl(req: Request, res: Response): Promise<Resp
     }
 
     // Find the assignment that carries the proof file
-    let query = db
+    let query = getDb()
       .collection(COLLECTIONS.TASK_ASSIGNMENTS)
       .where('companyId', '==', companyId)
       .where('taskId', '==', taskId)
@@ -1252,7 +1252,7 @@ export async function completeTask(req: Request, res: Response): Promise<Respons
       return res.status(400).json({ error: 'id is required' });
     }
 
-    const taskRef = db.collection('tasks').doc(id);
+    const taskRef = getDb().collection('tasks').doc(id);
     const taskSnap = await taskRef.get();
 
     if (!taskSnap.exists) {
@@ -1281,7 +1281,7 @@ export async function completeTask(req: Request, res: Response): Promise<Respons
     }
 
     // Locate (or create on-the-fly for legacy tasks) this employee's assignment
-    const assignmentQuery = await db
+    const assignmentQuery = await getDb()
       .collection(COLLECTIONS.TASK_ASSIGNMENTS)
       .where('companyId', '==', companyId)
       .where('taskId', '==', id)
@@ -1295,7 +1295,7 @@ export async function completeTask(req: Request, res: Response): Promise<Respons
 
     if (assignmentQuery.empty) {
       // Backward-compat: old tasks that don't have an assignment document yet
-      assignmentRef = db.collection(COLLECTIONS.TASK_ASSIGNMENTS).doc();
+      assignmentRef = getDb().collection(COLLECTIONS.TASK_ASSIGNMENTS).doc();
       assignment = makeTaskAssignmentDoc({
         id: assignmentRef.id,
         companyId,

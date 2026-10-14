@@ -11,6 +11,7 @@ import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'employee_job_history_page.dart';
 
 const Color kPrimaryBackgroundTop = Colors.white;
 const Color kPrimaryBackgroundBottom = kPrimaryLight;
@@ -568,16 +569,7 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
             flex: 5,
             child: Center(
               child: Text(
-                'Remove',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 5,
-            child: Center(
-              child: Text(
-                'Edit',
+                'Actions',
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
@@ -585,6 +577,62 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _openJobHistory(Employee e) async {
+    if (e.docId == null || e.docId!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Missing server id for this employee')),
+      );
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EmployeeJobHistoryPage(
+          employeeId: e.docId!,
+          employeeName: e.name,
+          employeeCode: e.id,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showEmployeeActions(Employee e) async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit, color: Colors.blue),
+              title: const Text('Edit Employee'),
+              onTap: () => Navigator.pop(ctx, 'edit'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.history, color: Colors.deepPurple),
+              title: const Text('Job History'),
+              onTap: () => Navigator.pop(ctx, 'history'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete, color: Colors.red),
+              title: const Text('Remove Employee'),
+              onTap: () => Navigator.pop(ctx, 'remove'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (choice == 'edit') {
+      await _editEmployee(e);
+    } else if (choice == 'history') {
+      await _openJobHistory(e);
+    } else if (choice == 'remove') {
+      await _deleteEmployee(e);
+    }
   }
 
   Widget _buildEmployeeRow(Employee e) {
@@ -607,17 +655,8 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
             flex: 5,
             child: Center(
               child: IconButton(
-                icon: const Icon(Icons.delete, color: Colors.red),
-                onPressed: () => _deleteEmployee(e),
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 5,
-            child: Center(
-              child: IconButton(
-                icon: const Icon(Icons.edit, color: Colors.blue),
-                onPressed: () => _editEmployee(e),
+                icon: const Icon(Icons.more_vert),
+                onPressed: () => _showEmployeeActions(e),
               ),
             ),
           ),

@@ -141,4 +141,6 @@ router.put('/:id', roleMiddleware(['admin']), employeeController.updateEmployee)
  */
 router.delete('/:id', roleMiddleware(['admin']), employeeController.deleteEmployee);
 
+router.get('/:id/job-history', roleMiddleware(['admin']), employeeController.getEmployeeJobHistory);
+
 export default router;

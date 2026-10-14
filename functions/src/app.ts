@@ -174,6 +174,7 @@ import billingRoutes from "./routes/billingRoutes";
 import payrollRoutes from "./routes/payrollRoutes";
 import onboardingRoutes from "./routes/onboarding.routes";
 import notificationRoutes from "./routes/notificationRoutes";
+import auditLogRoutes from "./routes/auditLogRoutes";
 
 import * as authController from "./controllers/authController";
 
@@ -297,6 +298,7 @@ app.use("/api/billing", generalRateLimit, billingRoutes);
 app.use("/api/payroll", payrollRoutes);
 app.use("/api/onboarding", onboardingRoutes);
 app.use("/api/notifications", generalRateLimit, notificationRoutes);
+app.use("/api/audit-logs", generalRateLimit, auditLogRoutes);
 
 // Log to confirm payroll routes are registered at startup
 // (keeps placement consistent before the final 404 handler)

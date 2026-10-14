@@ -3,8 +3,11 @@ import { getDb } from '../config/firebase';
 import * as bcrypt from 'bcryptjs';
 import { Timestamp } from 'firebase-admin/firestore';
 import { trackUsage } from '../services/usageService';
+import { COLLECTIONS } from '../constants/collections';
+import { recordEmployeeJobHistory } from '../services/employeeJobHistoryService';
+import { appendAuditEvent } from '../services/auditService';
 
-const EMPLOYEES = 'employees';
+const EMPLOYEES = COLLECTIONS.EMPLOYEES;
 
 interface Employee {
   id?: string;
@@ -165,6 +168,39 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
 
     const ref = await getDb().collection(EMPLOYEES).add(employeeData);
     const doc = await ref.get();
+
+    // Record job history and audit for the new employee
+    const safeEmployeeForAudit = {
+      ...employeeData,
+    } as Record<string, unknown>;
+    if ('password' in safeEmployeeForAudit) {
+      delete safeEmployeeForAudit.password;
+    }
+
+    await getDb().runTransaction(async (transaction) => {
+      recordEmployeeJobHistory({
+        transaction,
+        companyId: tokenCompanyId,
+        employeeId: ref.id,
+        empid: normalizedEmpid,
+        changedBy: currentUserId,
+        before: null,
+        after: safeEmployeeForAudit,
+      });
+
+      appendAuditEvent(transaction, {
+        actorId: currentUserId,
+        companyId: tokenCompanyId,
+        action: 'EMPLOYEE_CREATED',
+        module: 'employee',
+        resourceType: 'employee',
+        resourceId: ref.id,
+        employeeId: ref.id,
+        employeeName: name,
+        before: null,
+        after: safeEmployeeForAudit,
+      });
+    });
 
     // Track usage after successful employee creation
     await trackEmployeeUsage(req, {
@@ -332,7 +368,36 @@ export const updateEmployee = async (req: Request, res: Response): Promise<Respo
         return 'removed';
       }
 
+      const safeBefore = { ...(currentEmployee || {}) } as Record<string, any>;
+      delete safeBefore.password;
+      const safeAfter = { ...safeBefore, ...updates } as Record<string, any>;
+      delete safeAfter.password;
+
       transaction.update(ref, updates);
+
+      recordEmployeeJobHistory({
+        transaction,
+        companyId,
+        employeeId: id,
+        empid: currentEmployee?.empid,
+        changedBy: currentUserId,
+        before: safeBefore,
+        after: safeAfter,
+      });
+
+      appendAuditEvent(transaction, {
+        actorId: currentUserId,
+        companyId,
+        action: 'EMPLOYEE_UPDATED',
+        module: 'employee',
+        resourceType: 'employee',
+        resourceId: id,
+        employeeId: id,
+        employeeName: safeAfter.name ?? currentEmployee?.name ?? null,
+        before: safeBefore,
+        after: safeAfter,
+      });
+
       return 'updated';
     });
 
@@ -390,11 +455,34 @@ export const deleteEmployee = async (req: Request, res: Response): Promise<Respo
         return 'already_removed';
       }
 
+      const safeBefore = { ...(employee || {}) } as Record<string, any>;
+      delete safeBefore.password;
+      const safeAfter = {
+        ...safeBefore,
+        isDeleted: true,
+        deletedAt: Timestamp.now(),
+        deletedBy: actorId,
+      } as Record<string, any>;
+
       transaction.update(ref, {
         isDeleted: true,
         deletedAt: Timestamp.now(),
         deletedBy: actorId,
       });
+
+      appendAuditEvent(transaction, {
+        actorId,
+        companyId,
+        action: 'EMPLOYEE_SOFT_DELETED',
+        module: 'employee',
+        resourceType: 'employee',
+        resourceId: id,
+        employeeId: id,
+        employeeName: safeAfter.name ?? null,
+        before: safeBefore,
+        after: safeAfter,
+      });
+
       return 'removed';
     });
 
@@ -420,5 +508,41 @@ export const deleteEmployee = async (req: Request, res: Response): Promise<Respo
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: 'Failed to remove employee' });
+  }
+};
+
+// Get employee job history (Admin only)
+export const getEmployeeJobHistory = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const companyId = String((req as any).user?.companyId ?? '').trim();
+    const { id } = req.params;
+
+    if (!companyId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const doc = await getDb().collection(EMPLOYEES).doc(id).get();
+
+    if (!doc.exists || doc.data()?.companyId !== companyId) {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+
+    const snapshot = await getDb()
+      .collection(EMPLOYEES)
+      .doc(id)
+      .collection('jobHistory')
+      .where('companyId', '==', companyId)
+      .orderBy('createdAt', 'desc')
+      .get();
+
+    const data = snapshot.docs.map((d) => ({
+      id: d.id,
+      ...d.data(),
+    }));
+
+    return res.status(200).json(data);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Failed to fetch job history' });
   }
 };

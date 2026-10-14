@@ -8,7 +8,8 @@ import 'attendance_report_page.dart';
 import 'payroll_admin_page.dart';
 import 'employee_onboarding_form_page.dart';
 import 'others_page.dart';
-import 'settings_page.dart'; // ✅ Added
+import 'settings_page.dart';
+import 'audit_logs_page.dart';
 import 'package:serv_app/models/company_profile.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -32,6 +33,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     "Employee Onboarding",
     "Others",
     "Settings",
+    "Audit Logs",
   ];
 
   @override
@@ -83,6 +85,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             _buildDrawerItem(Icons.person_add_alt_1, "Employee Onboarding", 5),
             _buildDrawerItem(Icons.chat, "Others", 6),
             _buildDrawerItem(Icons.settings, "Settings", 7),
+            _buildDrawerItem(Icons.history, "Audit Logs", 8),
           ],
         ),
       ),
@@ -156,7 +159,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
       case 6:
         return const OthersPage();
       case 7:
-        return const SettingsPage(); // ✅ Navigate to settings
+        return const SettingsPage();
+      case 8:
+        return const AuditLogsPage();
       default:
         return const Center(child: Text("Unknown page"));
     }
