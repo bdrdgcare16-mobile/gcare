@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -189,7 +190,10 @@ class _LiveAttendancePageState extends State<LiveAttendancePage>
       // Always load live attendance and pending approvals in parallel
       futures.addAll([_fetchLiveAttendance(), _fetchPendingApprovalsCount()]);
 
-      await Future.wait(futures);
+      // Guard against any individual future that never resolves (emulator
+      // connection hang, missing route, etc.); still clear the spinner.
+      await Future.wait(futures)
+          .timeout(const Duration(seconds: 20));
       _ac.forward(from: 0);
 
       final screenEndTime = DateTime.now();
@@ -202,6 +206,10 @@ class _LiveAttendancePageState extends State<LiveAttendancePage>
           'pendingApprovals': _pendingApprovalsCount,
         },
       );
+    } on TimeoutException catch (_) {
+      if (mounted) setState(() => _error = 'Dashboard data timed out. Please pull down to retry.');
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Failed to load dashboard: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -216,7 +224,7 @@ class _LiveAttendancePageState extends State<LiveAttendancePage>
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ${_safe(CompanyData.token)}'
         },
-      );
+      ).timeout(const Duration(seconds: 15));
 
       final endTime = DateTime.now();
       PerformanceLogger.logApiCall(
@@ -295,7 +303,7 @@ class _LiveAttendancePageState extends State<LiveAttendancePage>
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ${_safe(CompanyData.token)}'
         },
-      );
+      ).timeout(const Duration(seconds: 15));
       if (resp.statusCode == 200) {
         final decoded = jsonDecode(resp.body);
         final List<dynamic> data = decoded is List
@@ -325,7 +333,7 @@ class _LiveAttendancePageState extends State<LiveAttendancePage>
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ${_safe(CompanyData.token)}'
         },
-      );
+      ).timeout(const Duration(seconds: 15));
       if (resp.statusCode != 200) return;
       final decoded = jsonDecode(resp.body);
       final List<dynamic> data = decoded is List
