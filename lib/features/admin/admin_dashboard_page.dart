@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:serv_app/config/feature_flags.dart';
 import 'package:serv_app/shared/app_theme.dart';
 import 'package:serv_app/features/users/login_page.dart';
 import 'live_attendance_page.dart';
@@ -9,6 +10,9 @@ import 'payroll_admin_page.dart';
 import 'employee_onboarding_form_page.dart';
 import 'others_page.dart';
 import 'settings_page.dart'; // ✅ Added
+import 'admin_notifications_page.dart';
+import 'admin_theme.dart';
+import 'package:serv_app/services/notification_service.dart';
 import 'package:serv_app/models/company_profile.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -22,29 +26,87 @@ class AdminDashboard extends StatefulWidget {
 
 class _AdminDashboardState extends State<AdminDashboard> {
   int selectedIndex = 0;
+  int _unreadNotifications = 0;
 
-  final List<String> pageTitles = [
-    "Live Attendance",
-    "Request and Leave Approvals",
-    "Employee Management",
-    "Attendance Reports",
-    "Payroll Management",
-    "Employee Onboarding",
-    "Others",
-    "Settings",
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _refreshUnreadCount();
+  }
+
+  Future<void> _refreshUnreadCount() async {
+    final count = await NotificationService.fetchUnreadCount();
+    if (!mounted) return;
+    setState(() => _unreadNotifications = count);
+  }
+
+  List<_AdminDestination> get _destinations => [
+        _AdminDestination(
+          Icons.check_circle,
+          "Live Attendance",
+          (profile) => LiveAttendancePage(companyProfile: profile),
+        ),
+        _AdminDestination(
+          Icons.calendar_today,
+          "Request and Leave Approvals",
+          (_) => const LeaveApprovalsScreen(),
+        ),
+        _AdminDestination(
+          Icons.group,
+          "Employee Management",
+          (_) => const EmployeeListScreen(),
+        ),
+        _AdminDestination(
+          Icons.bar_chart,
+          "Attendance Reports",
+          (_) => const AttendanceReportScreen(initialFilter: ''),
+        ),
+        if (FeatureFlags.showPayrollUI)
+          _AdminDestination(
+            Icons.payments_outlined,
+            "Payroll Management",
+            (_) => const PayrollAdminPage(),
+          ),
+        _AdminDestination(
+          Icons.person_add_alt_1,
+          "Employee Onboarding",
+          (_) => const EmployeeOnboardingFormPage(),
+        ),
+        _AdminDestination(
+          Icons.chat,
+          "Others",
+          (_) => const OthersPage(),
+        ),
+        _AdminDestination(
+          Icons.settings,
+          "Settings",
+          (_) => const SettingsPage(), // ✅ Navigate to settings
+        ),
+      ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Admin Dashboard"),
-        backgroundColor: const Color(0xFF6A1B9A),
+        backgroundColor: kAdminAppBarColor,
         actions: [
-          // IconButton(
-          //   icon: const Icon(Icons.notifications_none),
-          //   onPressed: () {},
-          // ),
+          IconButton(
+            tooltip: 'Notifications',
+            icon: Badge(
+              isLabelVisible: _unreadNotifications > 0,
+              label: Text('$_unreadNotifications'),
+              child: const Icon(Icons.notifications_none),
+            ),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const AdminNotificationsPage(),
+                ),
+              ).then((_) => _refreshUnreadCount());
+            },
+          ),
           PopupMenuButton(
             itemBuilder: (context) => [
               PopupMenuItem(
@@ -74,25 +136,22 @@ class _AdminDashboardState extends State<AdminDashboard> {
         child: ListView(
           children: [
             _buildDrawerHeader(),
-            _buildDrawerItem(Icons.check_circle, "Live Attendance", 0),
-            _buildDrawerItem(
-                Icons.calendar_today, "Request and Leave Approvals", 1),
-            _buildDrawerItem(Icons.group, "Employee Management", 2),
-            _buildDrawerItem(Icons.bar_chart, "Attendance Reports", 3),
-            _buildDrawerItem(Icons.payments_outlined, "Payroll Management", 4),
-            _buildDrawerItem(Icons.person_add_alt_1, "Employee Onboarding", 5),
-            _buildDrawerItem(Icons.chat, "Others", 6),
-            _buildDrawerItem(Icons.settings, "Settings", 7),
+            for (int i = 0; i < _destinations.length; i++)
+              _buildDrawerItem(
+                _destinations[i].icon,
+                _destinations[i].title,
+                i,
+              ),
           ],
         ),
       ),
-      body: _buildPageContent(),
+      body: _destinations[selectedIndex].builder(widget.companyProfile),
     );
   }
 
   Widget _buildDrawerHeader() {
     return UserAccountsDrawerHeader(
-      decoration: const BoxDecoration(color: Color(0xFF6A1B9A)),
+      decoration: const BoxDecoration(color: kAdminAppBarColor),
       accountName: Text(widget.companyProfile.name),
       accountEmail: Text("Admin: ${widget.companyProfile.adminName}"),
       currentAccountPicture: widget.companyProfile.hasLogo
@@ -137,28 +196,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 
-  Widget _buildPageContent() {
-    switch (selectedIndex) {
-      case 0:
-        return LiveAttendancePage(companyProfile: widget.companyProfile);
-      case 1:
-        return const LeaveApprovalsScreen();
-      case 2:
-        return const EmployeeListScreen();
-      case 3:
-        return const AttendanceReportScreen(
-          initialFilter: '',
-        );
-      case 4:
-        return const PayrollAdminPage();
-      case 5:
-        return const EmployeeOnboardingFormPage();
-      case 6:
-        return const OthersPage();
-      case 7:
-        return const SettingsPage(); // ✅ Navigate to settings
-      default:
-        return const Center(child: Text("Unknown page"));
-    }
-  }
+}
+
+class _AdminDestination {
+  final IconData icon;
+  final String title;
+  final Widget Function(CompanyProfile) builder;
+
+  const _AdminDestination(this.icon, this.title, this.builder);
 }

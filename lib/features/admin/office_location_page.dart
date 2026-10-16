@@ -13,6 +13,7 @@ import 'package:serv_app/models/company_data.dart';
 
 import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/features/admin/admin_theme.dart';
 
 const Color kPrimaryBackgroundTop = Colors.white;
 const Color kPrimaryBackgroundBottom = kPrimaryLight;
@@ -433,7 +434,7 @@ class _OfficeLocationPageState extends State<OfficeLocationPage> {
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
-          backgroundColor: kAppBarColor,
+          backgroundColor: kAdminAppBarColor,
           title: const Text('Office Location',
               style: TextStyle(color: kTextColor)),
           leading: const BackButton(color: kTextColor),

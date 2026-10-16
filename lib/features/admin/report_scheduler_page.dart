@@ -9,6 +9,7 @@ import 'package:serv_app/services/api_service.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 // ignore: avoid_web_libraries_in_flutter
+import 'package:serv_app/features/admin/admin_theme.dart';
 import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
@@ -271,7 +272,7 @@ class _ReportSchedulerPageState extends State<ReportSchedulerPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: kAppBarColor,
+        backgroundColor: kAdminAppBarColor,
         title:
             const Text('Report Scheduler', style: TextStyle(color: kTextColor)),
         leading: IconButton(

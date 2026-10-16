@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -11,6 +12,8 @@ import 'package:serv_app/services/api_service.dart';
 import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/models/company_profile.dart';
 import 'package:serv_app/utils/performance_logger.dart';
+import 'package:serv_app/utils/office_presence.dart';
+import 'package:serv_app/features/admin/tracking_status.dart';
 
 final String _apiBase = ApiConfig.baseUrl;
 
@@ -48,6 +51,18 @@ class AttendanceRecord {
   final bool late, early;
   final int permissionCount;
 
+  // Check-in/out location & office-presence classification (from backend)
+  final String? branchName;
+  final double? checkInLatitude;
+  final double? checkInLongitude;
+  final double? checkInAccuracy;
+  final double? checkOutLatitude;
+  final double? checkOutLongitude;
+  final double? checkOutAccuracy;
+  final String? officePresence;
+  final String? checkOutOfficePresence;
+  final String? otherLocation;
+
   AttendanceRecord({
     required this.empid,
     required this.name,
@@ -57,6 +72,16 @@ class AttendanceRecord {
     required this.late,
     required this.early,
     required this.permissionCount,
+    this.branchName,
+    this.checkInLatitude,
+    this.checkInLongitude,
+    this.checkInAccuracy,
+    this.checkOutLatitude,
+    this.checkOutLongitude,
+    this.checkOutAccuracy,
+    this.officePresence,
+    this.checkOutOfficePresence,
+    this.otherLocation,
   });
 
   factory AttendanceRecord.fromJson(Map<String, dynamic> j) {
@@ -78,6 +103,16 @@ class AttendanceRecord {
       late: late,
       early: early,
       permissionCount: permissionCount,
+      branchName: j['branchName']?.toString(),
+      checkInLatitude: (j['checkInLatitude'] as num?)?.toDouble(),
+      checkInLongitude: (j['checkInLongitude'] as num?)?.toDouble(),
+      checkInAccuracy: (j['checkInAccuracy'] as num?)?.toDouble(),
+      checkOutLatitude: (j['checkOutLatitude'] as num?)?.toDouble(),
+      checkOutLongitude: (j['checkOutLongitude'] as num?)?.toDouble(),
+      checkOutAccuracy: (j['checkOutAccuracy'] as num?)?.toDouble(),
+      officePresence: j['officePresence']?.toString(),
+      checkOutOfficePresence: j['checkOutOfficePresence']?.toString(),
+      otherLocation: j['otherLocation']?.toString(),
     );
   }
 }
@@ -96,13 +131,15 @@ class _EmployeeMeta {
 class _CheckedInRow {
   final String empid, name, date, checkIn;
   final String? dept, shiftGroup;
+  final String? officePresence;
   _CheckedInRow(
       {required this.empid,
       required this.name,
       required this.date,
       required this.checkIn,
       this.dept,
-      this.shiftGroup});
+      this.shiftGroup,
+      this.officePresence});
 }
 
 class _AItem {
@@ -138,6 +175,15 @@ class _LiveAttendancePageState extends State<LiveAttendancePage>
   late AnimationController _ac;
   late Animation<double> _fade;
 
+  // ── live tracking (Phase 2A) ─────────────────────────────────────────
+  // 60s UI refresh only - the 15-minute GPS collection interval on
+  // employee devices is unchanged. A silent refresh never shows the full
+  // loader and never clobbers a populated dashboard with an error state.
+  static const Duration _kAutoRefresh = Duration(seconds: 60);
+  Timer? _autoRefreshTimer;
+  bool _silentRefreshInFlight = false;
+  Map<String, TrackingLiveRow> _trackingByEmpId = const {};
+
   // ── lifecycle ────────────────────────────────────────────────────────
   Future<void> _debugFirebaseAuth() async {
     try {
@@ -160,12 +206,62 @@ class _LiveAttendancePageState extends State<LiveAttendancePage>
     _fade = CurvedAnimation(parent: _ac, curve: Curves.easeOut);
     _debugFirebaseAuth();
     _fetchAll();
+    _autoRefreshTimer = Timer.periodic(_kAutoRefresh, (_) {
+      _silentRefresh();
+    });
   }
 
   @override
   void dispose() {
+    _autoRefreshTimer?.cancel();
     _ac.dispose();
     super.dispose();
+  }
+
+  /// Periodic refresh while the dashboard is visible: attendance rows and
+  /// per-employee tracking status. Silent - no loader, no error takeover,
+  /// and never overlapping an in-flight refresh.
+  Future<void> _silentRefresh() async {
+    if (_silentRefreshInFlight || _isLoading) return;
+    _silentRefreshInFlight = true;
+    try {
+      await Future.wait([
+        _fetchLiveAttendance(silent: true),
+        _fetchTrackingLive(),
+      ]);
+    } finally {
+      _silentRefreshInFlight = false;
+    }
+  }
+
+  /// Company-wide tracking summaries for today (device-local date, same
+  /// convention as /tracking/day). Any failure keeps the last known map.
+  Future<void> _fetchTrackingLive() async {
+    try {
+      final dateIso = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final resp = await http.get(
+        Uri.parse('${ApiService.baseUrl}/tracking/live')
+            .replace(queryParameters: {'dateIso': dateIso}),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${_safe(CompanyData.token)}'
+        },
+      ).timeout(const Duration(seconds: 15));
+      if (resp.statusCode != 200 || !mounted) return;
+      final body = jsonDecode(resp.body);
+      final rows = (body is Map && body['data'] is Map)
+          ? (body['data']['rows'] as List? ?? const [])
+          : const [];
+      final map = <String, TrackingLiveRow>{};
+      for (final e in rows) {
+        final row =
+            TrackingLiveRow.fromJson(Map<String, dynamic>.from(e as Map));
+        if (row.empid.isNotEmpty) map[row.empid] = row;
+      }
+      setState(() => _trackingByEmpId = map);
+    } catch (_) {
+      // Keep last-known statuses - a dropped refresh must not blank the UI.
+    }
   }
 
   // ── data ─────────────────────────────────────────────────────────────
@@ -186,8 +282,13 @@ class _LiveAttendancePageState extends State<LiveAttendancePage>
         futures.add(_fetchEmployeesMeta().then((_) => _employeesLoaded = true));
       }
 
-      // Always load live attendance and pending approvals in parallel
-      futures.addAll([_fetchLiveAttendance(), _fetchPendingApprovalsCount()]);
+      // Always load live attendance, tracking status, and pending approvals
+      // in parallel
+      futures.addAll([
+        _fetchLiveAttendance(),
+        _fetchPendingApprovalsCount(),
+        _fetchTrackingLive(),
+      ]);
 
       await Future.wait(futures);
       _ac.forward(from: 0);
@@ -207,7 +308,7 @@ class _LiveAttendancePageState extends State<LiveAttendancePage>
     }
   }
 
-  Future<void> _fetchLiveAttendance() async {
+  Future<void> _fetchLiveAttendance({bool silent = false}) async {
     final startTime = DateTime.now();
     try {
       final resp = await http.get(
@@ -230,7 +331,9 @@ class _LiveAttendancePageState extends State<LiveAttendancePage>
       );
 
       if (resp.statusCode != 200) {
-        if (!mounted) return;
+        // Silent auto-refresh failures keep the last known dashboard - a
+        // transient blip must not hide the data an admin already has.
+        if (!mounted || silent) return;
         setState(() => _error = 'Error ${resp.statusCode}: ${resp.body}');
         return;
       }
@@ -250,7 +353,7 @@ class _LiveAttendancePageState extends State<LiveAttendancePage>
         statusCode: 0,
         error: e.toString(),
       );
-      if (!mounted) return;
+      if (!mounted || silent) return;
       setState(() => _error = 'Failed to load: $e');
     }
   }
@@ -1169,6 +1272,70 @@ class _LiveAttendancePageState extends State<LiveAttendancePage>
                 TextStyle(color: c, fontSize: 11, fontWeight: FontWeight.w700)),
       );
 
+  // Office-presence badge (Inside Office / Outside Office / Location
+  // Uncertain). Returns null when the record carries no classification.
+  Widget? _presenceBadge(String? presence) {
+    final label = officePresenceLabel(presence);
+    if (label == null) return null;
+    return _badge(label, officePresenceColor(presence));
+  }
+
+  /// GPS tracking status + freshness for one employee. The backend
+  /// computes the status - 'Status Unknown' when we have no live row,
+  /// never claims Live merely because a tracking doc exists.
+  Widget _trackingBadge(String empid) {
+    final row = _trackingByEmpId[empid];
+    if (row == null) return _badge('Status Unknown', _C.muted);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        _badge(
+            trackingStatusLabel(row.status), _trackingStatusColor(row.status)),
+        const SizedBox(height: 2),
+        // GPS freshness is the real "are fixes arriving" signal: it covers
+        // valid fixes the route filter skipped, so a stationary employee
+        // still reads as fresh rather than stale.
+        Text(trackingGpsFreshnessLabel(
+            row.lastGpsFixAt ?? row.lastPointAt ?? row.lastUpdateAt),
+            style: const TextStyle(fontSize: 10, color: _C.muted)),
+        // When the device is alive but GPS is stale, show the contact
+        // line so admins see "alive but no fix", not a generic gap.
+        if (row.lastHeartbeatAt != null &&
+            (row.lastGpsFixAt == null ||
+                row.lastHeartbeatAt!
+                        .difference(row.lastGpsFixAt!)
+                        .inMinutes >
+                    15))
+          Text(trackingContactLabel(row.lastHeartbeatAt),
+              style: const TextStyle(fontSize: 10, color: _C.amber)),
+        if (row.suspiciousCount > 0)
+          const Text('Suspicious location',
+              style: TextStyle(fontSize: 10, color: _C.amber)),
+      ],
+    );
+  }
+
+  Color _trackingStatusColor(String status) {
+    switch (status) {
+      case 'healthy':
+      case 'active':
+        return _C.green;
+      case 'gps_delayed':
+      case 'stale':
+        return _C.amber;
+      case 'gps_unavailable':
+      case 'gps_disabled':
+      case 'permission_revoked':
+      case 'interrupted':
+        return _C.red;
+      case 'checked_out':
+        return _C.lv500;
+      default:
+        return _C.muted;
+    }
+  }
+
   Widget _emptyState(String msg, IconData ic, Color c) => SizedBox(
         height: 180,
         child: Center(
@@ -1212,7 +1379,8 @@ class _LiveAttendancePageState extends State<LiveAttendancePage>
           date: todayYmd,
           checkIn: r.checkIn!,
           dept: m?.dept,
-          shiftGroup: m?.shiftGroup);
+          shiftGroup: m?.shiftGroup,
+          officePresence: r.officePresence);
     }).toList();
 
     _sheet(
@@ -1227,10 +1395,23 @@ class _LiveAttendancePageState extends State<LiveAttendancePage>
         separatorBuilder: (_, __) => const SizedBox(height: 10),
         itemBuilder: (ctx, i) {
           final e = rows[i];
+          final presenceBadge = _presenceBadge(e.officePresence);
           return _empRow(
             name: e.name,
             sub: '${e.empid}  ·  ${e.dept ?? '-'}',
-            trail: _badge(e.checkIn, _C.green),
+            trail: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _trackingBadge(e.empid),
+                const SizedBox(width: 6),
+                if (presenceBadge != null) ...[
+                  presenceBadge,
+                  const SizedBox(width: 6),
+                ],
+                _badge(e.checkIn, _C.green),
+              ],
+            ),
             extra: e.shiftGroup,
             onTap: () {
               AttendanceRecord? rec;
@@ -1248,11 +1429,11 @@ class _LiveAttendancePageState extends State<LiveAttendancePage>
                 'checkOut': rec?.checkOut,
                 'department': e.dept ?? '-',
                 'shift': e.shiftGroup ?? '-',
-                'location': '-',
-                'latitude': null,
-                'longitude': null,
+                'location': rec?.branchName ?? '-',
+                'latitude': rec?.checkInLatitude,
+                'longitude': rec?.checkInLongitude,
                 'status': rec?.status ?? '-',
-                'geofence': '-',
+                'geofence': rec?.otherLocation ?? '-',
               };
               Navigator.of(context, rootNavigator: true).push(
                 MaterialPageRoute(
@@ -1315,10 +1496,25 @@ class _LiveAttendancePageState extends State<LiveAttendancePage>
               separatorBuilder: (_, __) => const SizedBox(height: 10),
               itemBuilder: (ctx, i) {
                 final r = list[i];
+                final presenceBadge = _presenceBadge(r.officePresence);
                 return _empRow(
                   name: r.name,
                   sub: 'ID: ${r.empid}',
-                  trail: _badge(r.status, _statusColor(r.status)),
+                  trail: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (r.checkIn != null) ...[
+                        _trackingBadge(r.empid),
+                        const SizedBox(width: 6),
+                      ],
+                      if (presenceBadge != null) ...[
+                        presenceBadge,
+                        const SizedBox(width: 6),
+                      ],
+                      _badge(r.status, _statusColor(r.status)),
+                    ],
+                  ),
                   onTap: () {
                     final detail = <String, dynamic>{
                       'id': r.empid,
@@ -1328,11 +1524,11 @@ class _LiveAttendancePageState extends State<LiveAttendancePage>
                       'checkOut': r.checkOut,
                       'department': '-',
                       'shift': '-',
-                      'location': '-',
-                      'latitude': null,
-                      'longitude': null,
+                      'location': r.branchName ?? '-',
+                      'latitude': r.checkInLatitude,
+                      'longitude': r.checkInLongitude,
                       'status': r.status,
-                      'geofence': '-',
+                      'geofence': r.otherLocation ?? '-',
                     };
                     Navigator.of(context, rootNavigator: true).push(
                       MaterialPageRoute(

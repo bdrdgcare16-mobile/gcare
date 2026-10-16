@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:serv_app/config/feature_flags.dart';
 import 'package:serv_app/features/users/my_attendance_page.dart';
 import 'package:serv_app/features/users/my_track_page.dart';
 import 'package:serv_app/features/users/my_request_page.dart';
@@ -90,15 +91,16 @@ class MyServPage extends StatelessWidget {
           Navigator.push(context, MaterialPageRoute(builder: (_) => const UserRewardsPage()));
         },
       ),
-      _ServItemData(
-        imagePath: 'assets/images/reports.png',
-        label: 'Payslip',
-        iconBg: const Color(0xFFE8E0F5),
-        onTap: () {
-          if (!context.mounted) return;
-          Navigator.push(context, MaterialPageRoute(builder: (_) => const EmployeePayslipPage()));
-        },
-      ),
+      if (FeatureFlags.showPayrollUI)
+        _ServItemData(
+          imagePath: 'assets/images/reports.png',
+          label: 'Payslip',
+          iconBg: const Color(0xFFE8E0F5),
+          onTap: () {
+            if (!context.mounted) return;
+            Navigator.push(context, MaterialPageRoute(builder: (_) => const EmployeePayslipPage()));
+          },
+        ),
     ];
 
     return Scaffold(

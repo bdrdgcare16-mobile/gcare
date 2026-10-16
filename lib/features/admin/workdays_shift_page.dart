@@ -11,6 +11,7 @@ import 'create_shift_page.dart';
 
 import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/features/admin/admin_theme.dart';
 
 // Theme Colors
 const Color kPrimaryBackgroundTop = Colors.white;
@@ -170,7 +171,7 @@ class _WorkdaysShiftPageState extends State<WorkdaysShiftPage> {
       backgroundColor: kPrimaryBackgroundTop,
       appBar: AppBar(
         title: const Text("Workdays & Shifts"),
-        backgroundColor: kAppBarColor,
+        backgroundColor: kAdminAppBarColor,
         foregroundColor: kTextColor,
         actions: [
           IconButton(
@@ -335,7 +336,7 @@ class _WorkdaysShiftPageState extends State<WorkdaysShiftPage> {
                         ],
                       ),
                     ),
-        ),
+          ),
       ),
     );
   }

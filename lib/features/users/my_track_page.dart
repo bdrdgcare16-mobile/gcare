@@ -7,6 +7,7 @@ import 'dart:math' as math;
 import 'package:serv_app/models/company_data.dart';
 import 'package:flutter/foundation.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/services/tracking_post_result.dart';
 
 void _log(Object msg) {
   if (kDebugMode) {
@@ -25,10 +26,21 @@ const Color kTextColor = Colors.white;
 class _TrackPoint {
   final double lat;
   final double lng;
+  // The fix's own capture instant (capturedAt) when the record carries it,
+  // else server receipt time. Ordering and marker labels must reflect when
+  // the position was MEASURED, not when the upload arrived - a queued
+  // offline upload received an hour late belongs in sequence, not at the
+  // end of the route.
   final DateTime ts;
   const _TrackPoint({required this.lat, required this.lng, required this.ts});
   LatLng get ll => LatLng(lat, lng);
 }
+
+/// Consecutive stored fixes farther apart than this are a DATA GAP, not a
+/// walked segment: the connecting line is drawn dashed grey so a missing
+/// interval is never presented as a verified straight-line route.
+/// ~2 missed 15-min cycles plus Android scheduling slack.
+const Duration _kTrackGapThreshold = Duration(minutes: 30);
 
 // Haversine (meters)
 double _distM(LatLng a, LatLng b) {
@@ -160,6 +172,9 @@ class _MyTrackPageState extends State<MyTrackPage> {
   // show end marker only after checkout
   bool _sessionEnded = false;
 
+  // non-empty when the drawn route contains data gaps
+  String _gapNotice = '';
+
   final DateFormat _timeFmt = DateFormat('hh:mm a');
 
   @override
@@ -178,12 +193,19 @@ class _MyTrackPageState extends State<MyTrackPage> {
 
     // Call API once when page opens
     _loadAndDrawPath();
+    // Reload once when a tracking point is confirmed stored (e.g. the
+    // check-in seed finishing after this page opened) - no polling.
+    trackingPointPersisted.addListener(_onTrackingPointPersisted);
   }
 
-  String _dateIso() {
-    final d = selectedDate ?? DateTime.now();
-    return '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  void _onTrackingPointPersisted() {
+    if (!mounted || _dateIso() != trackingDateIso()) return;
+    debugPrint('[MY_TRACK] tracking point persisted - reloading');
+    _loadAndDrawPath();
   }
+
+  // Same local-date key the tracking writers use.
+  String _dateIso() => trackingDateIso(selectedDate);
 
   List<_TrackPoint> _parseTrackPoints(List<dynamic> raw) {
     final pts = <_TrackPoint>[];
@@ -207,7 +229,11 @@ class _MyTrackPageState extends State<MyTrackPage> {
           (pointMap['location']?['lng'] as num?)?.toDouble() ??
           (pointMap['coordinates']?[1] as num?)?.toDouble();
 
-      final tsRaw = pointMap['ts'] ??
+      // Capture time first (when the fix was measured); server receipt
+      // time only as a fallback for legacy records without capturedAt.
+      final tsRaw = pointMap['capturedAt'] ??
+          pointMap['capturedAtUtc'] ??
+          pointMap['ts'] ??
           pointMap['timestamp'] ??
           pointMap['time'] ??
           pointMap['createdAt'];
@@ -297,6 +323,57 @@ class _MyTrackPageState extends State<MyTrackPage> {
     }
 
     return markers;
+  }
+
+  /// Splits a chronological route into recorded segments and gap bridges.
+  /// Returns (polylines, gapCount). A gap (> [_kTrackGapThreshold] between
+  /// consecutive fixes) is drawn as a faint dashed connector so the map is
+  /// honest about missing data instead of showing it as a walked line.
+  (Set<Polyline>, int) _buildRoutePolylines(List<_TrackPoint> points) {
+    if (points.length < 2) return (const <Polyline>{}, 0);
+    final polylines = <Polyline>{};
+    var segment = <_TrackPoint>[points.first];
+    var segIndex = 0;
+    var gapCount = 0;
+
+    for (var i = 1; i < points.length; i++) {
+      final prev = points[i - 1];
+      final cur = points[i];
+      final isGap =
+          cur.ts.difference(prev.ts).compareTo(_kTrackGapThreshold) > 0;
+      if (isGap) {
+        gapCount++;
+        if (segment.length >= 2) {
+          polylines.add(Polyline(
+            polylineId: PolylineId('route_seg$segIndex'),
+            points: segment.map((p) => p.ll).toList(growable: false),
+            width: 5,
+            color: const Color(0xFFB39DDB),
+          ));
+          segIndex++;
+        }
+        // Visually muted gap bridge: no recorded data between these fixes.
+        polylines.add(Polyline(
+          polylineId: PolylineId('route_gap$i'),
+          points: [prev.ll, cur.ll],
+          width: 3,
+          color: const Color(0xFF9E9E9E),
+          patterns: [PatternItem.dash(16), PatternItem.gap(12)],
+        ));
+        segment = [prev, cur];
+      } else {
+        segment.add(cur);
+      }
+    }
+    if (segment.length >= 2) {
+      polylines.add(Polyline(
+        polylineId: PolylineId('route_seg$segIndex'),
+        points: segment.map((p) => p.ll).toList(growable: false),
+        width: 5,
+        color: const Color(0xFFB39DDB),
+      ));
+    }
+    return (polylines, gapCount);
   }
 
   // --- Tracking Events Functions ---
@@ -588,6 +665,7 @@ class _MyTrackPageState extends State<MyTrackPage> {
 
       // Debug logs
       _log('TRACK INIT');
+      debugPrint('[MY_TRACK] selected date=${_dateIso()}');
 
       final res = await http.get(
         uri,
@@ -643,9 +721,11 @@ class _MyTrackPageState extends State<MyTrackPage> {
       if (pm is List) {
         raw = pm;
       } else if (pm is Map) {
+        // Points are re-sorted by timestamp in _parseTrackPoints, so a
+        // non-numeric key must not throw here.
         final entries = pm.entries.toList()
-          ..sort((a, b) => int.tryParse(a.key.toString())!
-              .compareTo(int.tryParse(b.key.toString())!));
+          ..sort((a, b) => (int.tryParse(a.key.toString()) ?? 0)
+              .compareTo(int.tryParse(b.key.toString()) ?? 0));
         raw = entries.map((e) => e.value).toList();
       } else {
         raw = const [];
@@ -665,6 +745,7 @@ class _MyTrackPageState extends State<MyTrackPage> {
         setState(() {
           _polylines = {};
           _markers = {};
+          _gapNotice = '';
           _center ??= const LatLng(12.9716, 77.5946);
           _emptyStateMessage = 'No tracking points available for this date.';
         });
@@ -673,16 +754,15 @@ class _MyTrackPageState extends State<MyTrackPage> {
 
       final latLngs = simplified.map((p) => p.ll).toList(growable: false);
 
-      final Set<Polyline> polylines = (latLngs.length >= 2)
-          ? {
-              Polyline(
-                polylineId: const PolylineId('route'),
-                points: latLngs,
-                width: 5,
-                color: const Color(0xFFB39DDB),
-              ),
-            }
-          : {};
+      // Gap-aware route: contiguous recorded stretches are solid purple;
+      // missing intervals (> _kTrackGapThreshold) are dashed grey so the
+      // map never implies an unrecorded walk actually happened.
+      final route = _buildRoutePolylines(simplified);
+      final Set<Polyline> polylines = route.$1;
+      _gapNotice = route.$2 > 0
+          ? '${route.$2} tracking gap${route.$2 > 1 ? 's' : ''} '
+              '(no location data) - shown as dashed grey lines'
+          : '';
 
       final markers = _buildMarkers(simplified);
 
@@ -818,6 +898,27 @@ class _MyTrackPageState extends State<MyTrackPage> {
                 child: _buildTrackingEventsSection(),
               ),
 
+              // Data-gap notice: missing intervals are drawn dashed, never
+              // presented as a verified walked route.
+              if (_gapNotice.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.info_outline,
+                          size: 16, color: Colors.black54),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          _gapNotice,
+                          style: const TextStyle(
+                              fontSize: 12, color: Colors.black54),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
               // Map
               Expanded(
                 child: Padding(
@@ -834,7 +935,9 @@ class _MyTrackPageState extends State<MyTrackPage> {
 
                         // Animate camera to show the loaded path after map is ready
                         if (_polylines.isNotEmpty) {
-                          final pts = _polylines.first.points;
+                          final pts = _polylines
+                              .expand((pl) => pl.points)
+                              .toList(growable: false);
                           if (pts.isNotEmpty) {
                             Future.microtask(() async {
                               if (_mapCtrl != null &&
@@ -914,6 +1017,7 @@ class _MyTrackPageState extends State<MyTrackPage> {
 
   @override
   void dispose() {
+    trackingPointPersisted.removeListener(_onTrackingPointPersisted);
     // Only dispose GoogleMapController if it was properly initialized
     if (_mapCtrl != null && _mapControllerInitialized) {
       _mapCtrl!.dispose();

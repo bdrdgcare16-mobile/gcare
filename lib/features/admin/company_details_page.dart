@@ -10,6 +10,7 @@ import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/services/api_service.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:serv_app/models/company_profile.dart';
+import 'package:serv_app/features/admin/admin_theme.dart';
 
 // Theme colors (mapped to shared `app_theme`)
 const Color kPrimaryBackgroundTop = Colors.white;
@@ -222,7 +223,7 @@ class _CompanyDetailsFormPageState extends State<CompanyDetailsFormPage> {
     return Scaffold(
       backgroundColor: kPrimaryBackgroundTop,
       appBar: AppBar(
-        backgroundColor: kAppBarColor,
+        backgroundColor: kAdminAppBarColor,
         title: const Text(
           'Company Details',
           style: TextStyle(color: kTextColor),

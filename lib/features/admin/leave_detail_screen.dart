@@ -7,6 +7,7 @@ import 'package:serv_app/shared/app_theme.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/features/admin/admin_theme.dart';
 
 final String apiBase = ApiService.baseUrl;
 
@@ -463,7 +464,7 @@ class _RequestDetailsCardState extends State<RequestDetailsCard> {
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(62),
         child: AppBar(
-          backgroundColor: kAppBarBg,
+          backgroundColor: kAdminAppBarColor,
           elevation: 0,
           automaticallyImplyLeading: false,
           leading: IconButton(

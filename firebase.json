@@ -1,3 +1,4 @@
+
 {
   "flutter": {
     "platforms": {
@@ -26,10 +27,21 @@
       }
     }
   },
+  "functions": {
+    "source": "functions"
+  },
   "emulators": {
+    "auth": {
+      "host": "127.0.0.1",
+      "port": 9099
+    },
     "functions": {
       "host": "0.0.0.0",
       "port": 5002
+    },
+    "firestore": {
+      "host": "127.0.0.1",
+      "port": 8080
     }
   },
   "firestore": {

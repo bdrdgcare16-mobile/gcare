@@ -17,6 +17,7 @@ import 'package:serv_app/features/users/background_tasks.dart';
 import 'package:serv_app/services/connectivity_service.dart';
 import 'package:serv_app/services/fcm_test_service.dart';
 import 'package:serv_app/widgets/network_gate.dart';
+import 'package:serv_app/config/api_config.dart';
 import 'firebase_options_prod.dart';
 
 bool get _isAndroid => !kIsWeb && Platform.isAndroid;
@@ -41,6 +42,12 @@ Future<void> startApp({
   required String environmentName,
 }) async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Must run before anything else: every API call (including the very
+  // first /auth/me or /auth/firebase-login) reads ApiConfig.baseUrl, which
+  // needs to know which Firebase project this entry point initialized
+  // before any of that can fire.
+  ApiConfig.configureEnvironment(isProd: environmentName == 'PROD');
 
   try {
     if (_isAndroid) {
@@ -186,10 +193,15 @@ Future<void> initBackgroundService() async {
 Future<void> startFgTracking({
   required String empid,
   required String token,
+  // Fresh check-in re-pins the tracking session date to today; recovery
+  // paths keep the existing pin so an overnight shift keeps writing to
+  // its original tracking document.
+  bool newSession = false,
 }) async {
   if (!_isAndroid) return;
   try {
-    await setTrackingIdentity(empid: empid, token: token);
+    await setTrackingIdentity(
+        empid: empid, token: token, newSession: newSession);
     await startForegroundTracking();
   } catch (e) {
     debugPrint('startFgTracking error: $e');

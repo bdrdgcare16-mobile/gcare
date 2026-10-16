@@ -13,6 +13,7 @@ import 'package:serv_app/html_stub.dart'
 import 'package:serv_app/features/admin/globals_page.dart';
 import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/features/admin/admin_theme.dart';
 
 // ✅ Colors (centralized)
 const Color kPrimaryBackgroundTop = Colors.white;
@@ -559,7 +560,7 @@ class _LeavePageState extends State<LeavePage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Leave & Holiday"),
-        backgroundColor: kAppBarColor,
+        backgroundColor: kAdminAppBarColor,
       ),
       // Ensure the gradient shows everywhere (no plain scaffold color bleed)
       backgroundColor: Colors.transparent,

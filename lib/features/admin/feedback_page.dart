@@ -8,6 +8,7 @@ import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/features/admin/admin_theme.dart';
 
 const Color kPrimaryBackgroundTop = Colors.white;
 const Color kPrimaryBackgroundBottom = kPrimaryLight;
@@ -105,15 +106,6 @@ class _FeedbackPageState extends State<FeedbackPage> {
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        flexibleSpace: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [kAppBarColor, kButtonColor],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
         title: Row(
           children: [
             IconButton(
@@ -133,7 +125,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
         ),
         toolbarHeight: 60,
         elevation: 0,
-        backgroundColor: Colors.transparent,
+        backgroundColor: kAdminAppBarColor,
       ),
       body: Container(
         decoration: const BoxDecoration(

@@ -11,6 +11,7 @@ import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/features/admin/admin_theme.dart';
 
 const Color kPrimaryBackgroundTop = Colors.white;
 const Color kPrimaryBackgroundBottom = kPrimaryLight;
@@ -1163,7 +1164,7 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
           isEdit ? 'Edit Employee' : 'Create Employee',
           style: const TextStyle(fontSize: 16),
         ),
-        backgroundColor: kAppBarColor,
+        backgroundColor: kAdminAppBarColor,
         foregroundColor: Colors.white,
       ),
       body: Container(

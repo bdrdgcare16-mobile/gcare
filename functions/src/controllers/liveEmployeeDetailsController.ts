@@ -15,9 +15,23 @@ type AttDoc = {
   checkOut?: string | null;
   checkInLatitude?: number | null;
   checkInLongitude?: number | null;
+  checkInAccuracy?: number | null;
+  checkOutLatitude?: number | null;
+  checkOutLongitude?: number | null;
+  checkOutAccuracy?: number | null;
   expectedLatitude?: number | null;
   expectedLongitude?: number | null;
   expectedRadius?: number | null;
+  withinRadius?: boolean | null;
+  checkoutWithinRadius?: boolean | null;
+  distanceFromBranch?: number | null;
+  checkoutDistanceFromBranch?: number | null;
+  otherLocation?: string | null;
+  checkInOfficePresence?: string | null;
+  checkOutOfficePresence?: string | null;
+  checkInLocationStatus?: string | null;
+  checkOutLocationStatus?: string | null;
+  companyId?: string;
   status?: string;
 };
 
@@ -41,9 +55,20 @@ export async function liveEmployeeDetails(req: Request, res: Response) {
     }
 
     const dateIso = pickDate(req);
+    const reqCompanyId = String((req as any).user?.companyId || '').trim();
+    if (!reqCompanyId) {
+      return res.status(403).json({
+        status: 'error',
+        message: 'companyId missing in token',
+      });
+    }
 
+    // Tenant isolation: both queries are company-scoped, so records belonging
+    // to another company - and legacy documents with no companyId (ownership
+    // cannot be verified) - are never returned.
     const attendanceSnap = await db
       .collection('attendance')
+      .where('companyId', '==', reqCompanyId)
       .where('empid', '==', empid)
       .where('date', '==', dateIso)
       .limit(1)
@@ -51,12 +76,12 @@ export async function liveEmployeeDetails(req: Request, res: Response) {
 
     const employeeSnap = await db
       .collection('employees')
+      .where('companyId', '==', reqCompanyId)
       .where('empid', '==', empid)
       .limit(1)
       .get();
 
     const employeeData = !employeeSnap.empty ? employeeSnap.docs[0].data() : null;
-
     if (attendanceSnap.empty) {
       return res.json({
         ok: true,
@@ -86,6 +111,13 @@ export async function liveEmployeeDetails(req: Request, res: Response) {
     }
 
     const d = attendanceSnap.docs[0].data() as AttDoc;
+
+    // Defense-in-depth: ownership must be explicit on the record.
+    if (String(d.companyId ?? '') !== reqCompanyId) {
+      return res
+        .status(404)
+        .json({ status: 'error', message: 'Attendance record not found' });
+    }
 
     const lat = Number(d.checkInLatitude ?? NaN);
     const lng = Number(d.checkInLongitude ?? NaN);
@@ -146,6 +178,19 @@ export async function liveEmployeeDetails(req: Request, res: Response) {
         geofence: radius ? `${radius} m` : '-',
         latitude: Number.isFinite(lat) ? lat : null,
         longitude: Number.isFinite(lng) ? lng : null,
+        checkInAccuracy: d.checkInAccuracy ?? null,
+        checkOutLatitude: d.checkOutLatitude ?? null,
+        checkOutLongitude: d.checkOutLongitude ?? null,
+        checkOutAccuracy: d.checkOutAccuracy ?? null,
+        withinRadius: d.withinRadius ?? null,
+        checkoutWithinRadius: d.checkoutWithinRadius ?? null,
+        distanceFromBranch: d.distanceFromBranch ?? null,
+        checkoutDistanceFromBranch: d.checkoutDistanceFromBranch ?? null,
+        otherLocation: d.otherLocation ?? null,
+        officePresence: d.checkInOfficePresence ?? null,
+        checkOutOfficePresence: d.checkOutOfficePresence ?? null,
+        checkInLocationStatus: d.checkInLocationStatus ?? null,
+        checkOutLocationStatus: d.checkOutLocationStatus ?? null,
         expectedLatitude: Number.isFinite(expLat) ? expLat : null,
         expectedLongitude: Number.isFinite(expLng) ? expLng : null,
         status,

@@ -13,6 +13,7 @@ import 'package:serv_app/features/admin/globals_page.dart';
 import 'package:serv_app/services/api_service.dart';
 
 import 'package:serv_app/config/api_config.dart';
+import 'package:serv_app/features/admin/admin_theme.dart';
 
 const Color kPrimaryBackgroundTop = Colors.white;
 const Color kPrimaryBackgroundBottom = kPrimaryLight;
@@ -222,7 +223,7 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
     if (_loadingAuth) {
       return Scaffold(
         appBar: AppBar(
-            title: const Text('Add Leave Type'), backgroundColor: kAppBarColor),
+            title: const Text('Add Leave Type'), backgroundColor: kAdminAppBarColor),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
@@ -231,7 +232,7 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
 
     return Scaffold(
       appBar: AppBar(
-          title: const Text('Add Leave Type'), backgroundColor: kAppBarColor),
+          title: const Text('Add Leave Type'), backgroundColor: kAdminAppBarColor),
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(

@@ -11,6 +11,7 @@ import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/services/api_service.dart';
 import 'package:serv_app/services/onboarding_service.dart';
 import 'dev/onboarding_dummy_data.dart';
+import 'package:serv_app/features/admin/admin_theme.dart';
 
 class EmployeeOnboardingFormPage extends StatefulWidget {
   const EmployeeOnboardingFormPage({super.key});
@@ -132,7 +133,7 @@ class ImagePreviewPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        backgroundColor: Colors.black,
+        backgroundColor: kAdminAppBarColor,
         iconTheme: const IconThemeData(color: Colors.white),
         title: const Text(
           'Image Preview',
@@ -170,7 +171,7 @@ class PdfPreviewPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: const Color(0xFF8C6EAF),
+        backgroundColor: kAdminAppBarColor,
         title: const Text(
           'PDF Preview',
           style: TextStyle(color: Colors.white),

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +13,9 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import 'package:serv_app/services/api_service.dart';
 import 'package:serv_app/models/company_data.dart';
+import 'package:serv_app/utils/office_presence.dart';
+import 'package:serv_app/features/admin/admin_theme.dart';
+import 'package:serv_app/features/admin/tracking_status.dart';
 
 // Theme
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -89,6 +93,15 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
   // Stored check-in coordinates (attendance.checkInLatitude/Longitude)
   double? checkInLat;
   double? checkInLng;
+  double? checkInAccuracy;
+
+  // Stored check-out coordinates & office-presence classification
+  double? checkOutLat;
+  double? checkOutLng;
+  double? checkOutAccuracy;
+  double? distanceFromBranch;
+  String? officePresence;
+  String? checkOutOfficePresence;
 
   // Branch (expected) coordinates (attendance.expectedLatitude/Longitude)
   double? expectedLat;
@@ -108,6 +121,13 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
   bool _trackingLoaded = false; // red end pin only if true
   bool _showTrackingEvents = false;
   List<Map<String, dynamic>> _trackingEvents = [];
+
+  // ── live status (Phase 2A/2E) ────────────────────────────────────────
+  // 60s auto-refresh while the page shows TODAY's tracking session. The
+  // status itself comes from the backend (trackingStatus in /tracking/day)
+  // so this page can never disagree with the live dashboard.
+  static const Duration _kAutoRefresh = Duration(seconds: 60);
+  Timer? _autoRefreshTimer;
 
   // Date picker state
   DateTime? selectedDate;
@@ -132,9 +152,30 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
         "${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}";
 
     _loadLiveDetails();
+    // Load tracking immediately so the status card + history are visible
+    // without pressing "Geolocation" first. Silent: an absent or failed
+    // load must not block the attendance details that already loaded.
+    _loadTrackingDay(silent: true, fitCamera: true);
+    _autoRefreshTimer = Timer.periodic(_kAutoRefresh, (_) {
+      _autoRefresh();
+    });
   }
 
-  void _renderTrackingPath(Map<String, dynamic> data) {
+  bool _viewingToday() => _dateIso() ==
+      DateFormat('yyyy-MM-dd').format(DateTime.now());
+
+  /// Periodic refresh while today's session can still change. Stops on
+  /// checkout (session ended) or when a past date is selected - nothing
+  /// left to update.
+  Future<void> _autoRefresh() async {
+    if (!mounted || !_viewingToday() || _sessionEnded) return;
+    await _loadLiveDetails(silent: true);
+    await _loadTrackingDay(silent: true, fitCamera: false);
+    if (_sessionEnded) _autoRefreshTimer?.cancel();
+  }
+
+  void _renderTrackingPath(Map<String, dynamic> data,
+      {bool fitCamera = true, bool notifyEmpty = true}) {
     _sessionEnded =
         (data['endedAt'] != null && '${data['endedAt']}'.isNotEmpty);
 
@@ -163,9 +204,11 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
     }
 
     if (pts.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No path data found for this day.')),
-      );
+      if (notifyEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No path data found for this day.')),
+        );
+      }
       return;
     }
 
@@ -228,18 +271,20 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
         ..add(poly);
     });
 
-    _fitCameraToAll(latLngs, padding: 72.0);
+    if (fitCamera) _fitCameraToAll(latLngs, padding: 72.0);
   }
 
   // ----------- Load live details (attendance for the given emp/date) -----------
-  Future<void> _loadLiveDetails() async {
+  Future<void> _loadLiveDetails({bool silent = false}) async {
     if (_loadingDetails) return;
     _loadingDetails = true;
 
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
 
     try {
       final headers = {
@@ -281,6 +326,17 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
         // Server returns check-in lat/lng in top-level latitude/longitude
         checkInLat = _toDoubleOrNull(data['latitude']);
         checkInLng = _toDoubleOrNull(data['longitude']);
+        checkInAccuracy = _toDoubleOrNull(data['checkInAccuracy']);
+
+        // Check-out fix + office-presence classification
+        checkOutLat = _toDoubleOrNull(data['checkOutLatitude']);
+        checkOutLng = _toDoubleOrNull(data['checkOutLongitude']);
+        checkOutAccuracy = _toDoubleOrNull(data['checkOutAccuracy']);
+        distanceFromBranch = _toDoubleOrNull(
+            data['distanceFromBranch'] ?? data['geofenceMeters']);
+        officePresence = data['officePresence']?.toString();
+        checkOutOfficePresence =
+            data['checkOutOfficePresence']?.toString();
 
         // If backend provided expected coordinates & branch name, store them
         expectedLat = _toDoubleOrNull(data['expectedLatitude']);
@@ -301,10 +357,13 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
         debugPrint('[EMP_DETAIL] Failed to load employee details');
       }
 
-      setState(() => _error = 'Failed to load employee details');
+      // Silent refreshes keep the last known details on screen.
+      if (!silent) {
+        setState(() => _error = 'Failed to load employee details');
+      }
     } finally {
       _loadingDetails = false;
-      if (mounted) setState(() => _loading = false);
+      if (mounted && !silent) setState(() => _loading = false);
     }
   }
 
@@ -331,6 +390,10 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
       final type = event['type']?.toString();
       return type == 'poor_gps' ||
           type == 'gps_disabled' ||
+          type == 'location_disabled' ||
+          type == 'location_enabled' ||
+          type == 'permission_revoked' ||
+          type == 'suspicious_location' ||
           type == 'account_logged_out';
     }).toList();
 
@@ -375,6 +438,10 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
         return 'Account Logged Out';
       case 'location_enabled':
         return 'Location Enabled by User';
+      case 'permission_revoked':
+        return 'Location Permission Revoked';
+      case 'suspicious_location':
+        return 'Suspicious Location';
       default:
         return type ?? 'Unknown Event';
     }
@@ -403,7 +470,37 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
       return 'Location Enabled by User';
     }
 
+    if (type == 'permission_revoked') {
+      return 'Location permission was revoked or is unavailable. '
+          'Tracking cannot record GPS points until it is restored.';
+    }
+
+    // Server-generated flag events carry their own factual message
+    // ("Tracking point flagged: mock_location, impossible_speed").
+    if (type == 'suspicious_location') {
+      return event['message']?.toString() ??
+          'A tracking point was flagged for review.';
+    }
+
     return event['message']?.toString() ?? _formatTrackingEventType(type);
+  }
+
+  IconData _trackingEventIcon(String? type) {
+    switch (type) {
+      case 'gps_disabled':
+      case 'location_disabled':
+        return Icons.location_off;
+      case 'location_enabled':
+        return Icons.location_on;
+      case 'permission_revoked':
+        return Icons.gps_off;
+      case 'suspicious_location':
+        return Icons.warning_amber_rounded;
+      case 'account_logged_out':
+        return Icons.logout;
+      default:
+        return Icons.gps_not_fixed;
+    }
   }
 
   String? _trackingEventDurationText(int index) {
@@ -542,12 +639,13 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Icon(
-                                      event['type']?.toString() ==
-                                              'gps_disabled'
-                                          ? Icons.location_off
-                                          : Icons.gps_not_fixed,
+                                      _trackingEventIcon(
+                                          event['type']?.toString()),
                                       size: 24,
-                                      color: kButtonColor,
+                                      color: event['type']?.toString() ==
+                                              'suspicious_location'
+                                          ? Colors.orange.shade800
+                                          : kButtonColor,
                                     ),
                                     const SizedBox(width: 10),
                                     Expanded(
@@ -634,21 +732,30 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
   ///    Start: green default marker (index 0)
   ///    Interior points (1..N-1): orange pins with local time
   ///    End: red pin only if the session ended (endedAt present)
-  Future<void> _showLastTrackingPath() async {
+  Future<void> _showLastTrackingPath() =>
+      _loadTrackingDay(silent: false, fitCamera: true);
+
+  /// Fetches /tracking/day for the selected date. Silent mode (auto-load,
+  /// auto-refresh) never shows snackbars/spinners and keeps the last known
+  /// data on failure.
+  Future<void> _loadTrackingDay(
+      {required bool silent, bool fitCamera = true}) async {
     if (_isLoadingPath) return;
-    setState(() => _isLoadingPath = true);
+    _isLoadingPath = true;
+    if (!silent) setState(() {});
 
     // Use selected date from date picker
     final selectedDateIso = _dateIso();
 
     // Always fetch fresh data when date changes (cache is cleared in _pickDate)
     // Only use cache if we're loading the same date again without changing it
-    if (_trackingLoaded && _cachedTrackingDay != null) {
+    if (!silent && _trackingLoaded && _cachedTrackingDay != null) {
       final data = _cachedTrackingDay!;
       _trackingEvents = _getTrackingEvents(data);
       _showTrackingEvents = true;
-      _renderTrackingPath(data);
-      setState(() => _isLoadingPath = false);
+      _renderTrackingPath(data, fitCamera: fitCamera);
+      _isLoadingPath = false;
+      if (!silent) setState(() {});
       return;
     }
 
@@ -721,13 +828,18 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
       _trackingLoaded = true;
       _showTrackingEvents = true;
 
-      _renderTrackingPath(data);
-      setState(() => _isLoadingPath = false);
+      _renderTrackingPath(data,
+          fitCamera: fitCamera, notifyEmpty: !silent);
+      _isLoadingPath = false;
+      if (!silent) setState(() {});
     } catch (e) {
-      setState(() => _isLoadingPath = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Geo load failed: $e')),
-      );
+      _isLoadingPath = false;
+      if (!silent) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Geo load failed: $e')),
+        );
+      }
     }
   }
 
@@ -797,23 +909,156 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
 
   @override
   void dispose() {
+    _autoRefreshTimer?.cancel();
     _mapController?.dispose();
     dateController.dispose();
     super.dispose();
   }
 
   // ---------------- UI helpers ----------------
+
+  /// GPS tracking status card (Phase 2E): server-computed status, last
+  /// successful update freshness, latest recorded location, and a
+  /// suspicious-activity warning when flagged evidence exists. Hidden
+  /// until the first tracking-day load finishes.
+  Widget _buildTrackingStatusCard() {
+    if (!_trackingLoaded || _cachedTrackingDay == null) {
+      return const SizedBox.shrink();
+    }
+    final data = _cachedTrackingDay!;
+    final tStatus = (data['trackingStatus'] ?? 'unknown').toString();
+    final lastUpdate = _parseEventTs(data['lastUpdateAt']);
+    // Separate freshness signals: last valid device fix vs last contact.
+    // A stationary employee has a fresh fix but an old stored point.
+    final lastGpsFix = _parseEventTs(
+        data['lastGpsFixAt'] ?? data['lastLocationAt'] ?? data['lastUpdateAt']);
+    final lastHeartbeat = _parseEventTs(data['lastHeartbeatAt']);
+
+    final path = (data['pathMap'] is List) ? data['pathMap'] as List : [];
+    Map<String, dynamic>? lastPt;
+    for (var i = path.length - 1; i >= 0; i--) {
+      final m = Map<String, dynamic>.from(path[i] as Map);
+      if (_toDoubleOrNull(m['lat']) != null &&
+          _toDoubleOrNull(m['lng']) != null) {
+        lastPt = m;
+        break;
+      }
+    }
+
+    final hasSuspicious = _trackingEvents
+        .any((e) => e['type']?.toString() == 'suspicious_location');
+
+    final color = _trackingStatusColor(tStatus);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.35)),
+        boxShadow: const [BoxShadow(blurRadius: 4, color: Colors.black12)],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(Icons.my_location, size: 16, color: color),
+            const SizedBox(width: 8),
+            Text(
+              trackingStatusLabel(tStatus),
+              style: TextStyle(
+                  fontSize: 13, fontWeight: FontWeight.w700, color: color),
+            ),
+            const Spacer(),
+            Text(
+              trackingGpsFreshnessLabel(lastGpsFix ?? lastUpdate),
+              style: const TextStyle(fontSize: 11, color: Colors.black45),
+            ),
+          ]),
+          // Contact line only when it adds information: the device is
+          // alive but GPS is stale -> "alive but no fix", never offline.
+          if (lastHeartbeat != null &&
+              (lastGpsFix == null ||
+                  lastHeartbeat.difference(lastGpsFix).inMinutes > 15)) ...[
+            const SizedBox(height: 4),
+            Text(
+              trackingContactLabel(lastHeartbeat),
+              style: TextStyle(fontSize: 11, color: Colors.orange.shade800),
+            ),
+          ],
+          if (lastPt != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Latest location: '
+              '${_toDoubleOrNull(lastPt['lat'])!.toStringAsFixed(5)}, '
+              '${_toDoubleOrNull(lastPt['lng'])!.toStringAsFixed(5)}'
+              '  ·  ${_fmtPointTime(lastPt['ts'])}',
+              style:
+                  const TextStyle(fontSize: 12, color: Colors.black87),
+            ),
+          ],
+          if (hasSuspicious) ...[
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange.shade300),
+              ),
+              child: const Text(
+                'Suspicious location activity flagged for review. '
+                'See Tracking Events for details.',
+                style: TextStyle(fontSize: 12, color: Colors.black87),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _fmtPointTime(dynamic tsRaw) {
+    final ts = _parseEventTs(tsRaw);
+    return ts == null ? '-' : _timeFmt.format(ts);
+  }
+
+  Color _trackingStatusColor(String status) {
+    switch (status) {
+      case 'healthy':
+      case 'active':
+        return Colors.green.shade700;
+      case 'gps_delayed':
+      case 'stale':
+        return Colors.orange.shade800;
+      case 'gps_unavailable':
+      case 'gps_disabled':
+      case 'permission_revoked':
+      case 'interrupted':
+        return Colors.red.shade700;
+      case 'checked_out':
+        return kButtonColor;
+      default:
+        return Colors.grey.shade600;
+    }
+  }
+
   String _fmt(String? v, {String dash = '-'}) =>
       (v == null || v.trim().isEmpty) ? dash : v;
 
   String _fmtNum(num? v) => (v == null) ? '-' : v.toString();
+
+  String _fmtMeters(num? v) =>
+      (v == null) ? '-' : '${v.toStringAsFixed(1)} m';
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: kPrimaryBackgroundTop,
       appBar: AppBar(
-        backgroundColor: kAppBarColor,
+        backgroundColor: kAdminAppBarColor,
         foregroundColor: kTextColor,
         title: Text('Employee ID: $empid'),
         actions: [
@@ -872,7 +1117,40 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                       _DetailRow(label: 'Latitude', value: _fmtNum(checkInLat)),
                       _DetailRow(
                           label: 'Longitude', value: _fmtNum(checkInLng)),
+                      _DetailRow(
+                        label: 'Check-in GPS Accuracy',
+                        value: _fmtMeters(checkInAccuracy),
+                      ),
+                      _DetailRow(
+                        label: 'Distance from Office',
+                        value: _fmtMeters(distanceFromBranch),
+                      ),
+                      _DetailRow(
+                        label: 'Office Presence',
+                        value:
+                            _fmt(officePresenceLabel(officePresence)),
+                      ),
+                      if (checkOutLat != null || checkOutLng != null) ...[
+                        _DetailRow(
+                            label: 'Check-out Latitude',
+                            value: _fmtNum(checkOutLat)),
+                        _DetailRow(
+                            label: 'Check-out Longitude',
+                            value: _fmtNum(checkOutLng)),
+                        _DetailRow(
+                          label: 'Check-out GPS Accuracy',
+                          value: _fmtMeters(checkOutAccuracy),
+                        ),
+                        _DetailRow(
+                          label: 'Check-out Office Presence',
+                          value: _fmt(officePresenceLabel(
+                              checkOutOfficePresence)),
+                        ),
+                      ],
                       _DetailRow(label: 'Status', value: _fmt(status)),
+
+                      const SizedBox(height: 12),
+                      _buildTrackingStatusCard(),
 
                       const SizedBox(height: 16),
 

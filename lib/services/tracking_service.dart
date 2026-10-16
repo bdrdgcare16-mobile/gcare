@@ -7,8 +7,11 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:serv_app/services/api_service.dart';
 import 'package:serv_app/services/connectivity_service.dart';
+import 'package:serv_app/services/tracking_events.dart';
+import 'package:serv_app/services/tracking_payload.dart';
+import 'package:serv_app/services/tracking_post_result.dart';
 
-/// Foreground-only tracker that guarantees one save every 20 minutes,
+/// Foreground-only tracker that guarantees one save every 15 minutes,
 /// trying hard to get ≤ 5 m accuracy before posting.
 ///
 /// Start when employee checks in; stop on check out.
@@ -22,6 +25,8 @@ class TrackingService {
   StreamSubscription<Position>? _positionStream; // kept as-is
   StreamSubscription<bool>? _connectivitySubscription; // connectivity listener
   bool? _lastConnectivityState; // track last known state to detect transitions
+  StreamSubscription<ServiceStatus>?
+      _serviceStatusSub; // GPS OFF/ON detection
 
   // Cadence & thresholds
   static const Duration kInterval = Duration(minutes: 15);
@@ -39,7 +44,12 @@ class TrackingService {
     required this.empId,
   });
 
-  Future<void> startAfterCheckIn() async {
+  /// [initialPosition]: the GPS fix already validated and submitted by the
+  /// attendance check-in flow. When provided, the service skips its own
+  /// initial capture burst - posting the same fix again would be throttled
+  /// by the backend (<15 min) anyway, and re-sampling wastes 2+ minutes of
+  /// GPS time per check-in.
+  Future<void> startAfterCheckIn({Position? initialPosition}) async {
     // Prevent duplicate tracking sessions
     if (_periodic != null || _positionStream != null) {
       if (kDebugMode) {
@@ -54,24 +64,19 @@ class TrackingService {
     await _ensureLocationPermission();
     await _syncPendingLocations();
 
-    // (Optional) make sure a tracking doc/session exists server-side
-    try {
-      await http.post(
-        Uri.parse('${ApiService.baseUrl}/tracking/check-in'),
-        headers: _headers(),
-        body: jsonEncode({'empid': empId}),
-      );
-      if (kDebugMode) {
-        print('[TrackingService] check-in session created');
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('[TrackingService] check-in session creation failed: $e');
-      }
-    }
+    // The tracking session is created by the caller (attendance page) before
+    // this service starts. A second /tracking/check-in here is redundant, and
+    // older backends reset pathMap on it - wiping the just-persisted seed.
 
-    // Immediate first capture after check-in
-    if (!_sending) {
+    // Immediate first capture after check-in - skipped when the caller
+    // supplied the check-in position whose persistence it already confirmed.
+    if (initialPosition != null) {
+      if (kDebugMode) {
+        print(
+            '[TrackingService] initial capture skipped - check-in seed persistence confirmed '
+            '(acc=${initialPosition.accuracy.toStringAsFixed(1)}m)');
+      }
+    } else if (!_sending) {
       _sending = true;
       try {
         await _captureBestFixAndSend();
@@ -85,7 +90,7 @@ class TrackingService {
 
     // ✅ FIXED: Periodic location posting is now delegated to Foreground Service
     // Foreground Service runs in a background isolate and continues when app minimizes.
-    // This eliminates duplicate 20-min periodic posts (TrackingService was redundant).
+    // This eliminates duplicate 15-min periodic posts (TrackingService was redundant).
     // TrackingService now focuses on:
     // - Initial location capture at check-in (done above)
     // - Pending sync on connectivity restore (below)
@@ -102,6 +107,18 @@ class TrackingService {
     // ✅ NEW: Start listening to connectivity changes to trigger sync on offline→online
     _listenToConnectivityChanges();
 
+    // GPS OFF/ON detection while tracking is active. Clear any stale state
+    // from a previous session, then seed non-destructively: whichever
+    // isolate seeds first wins, and a transition observed between session
+    // start and the seeds is preserved rather than overwritten.
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.remove(kGpsServiceStateKey);
+    } catch (_) {}
+    await seedGpsServiceState(onlyIfAbsent: true);
+    await syncPendingTrackingEvents(empId, jwtToken);
+    _listenToGpsServiceStatus();
+
     if (kDebugMode) {
       print(
           '[TrackingService] started with connectivity listener (periodic posting delegated to FG service)');
@@ -114,6 +131,16 @@ class TrackingService {
     }
 
     await _syncPendingLocations();
+    await syncPendingTrackingEvents(empId, jwtToken);
+
+    // Cancel GPS service-status listener (no events after check-out)
+    if (_serviceStatusSub != null) {
+      await _serviceStatusSub!.cancel();
+      _serviceStatusSub = null;
+      if (kDebugMode) {
+        print('[TrackingService] GPS service-status listener cancelled');
+      }
+    }
 
     // Cancel connectivity subscription
     if (_connectivitySubscription != null) {
@@ -303,7 +330,7 @@ class TrackingService {
 
   // ---------- Core: capture best and POST ----------
   /// Called once at check-in to capture initial location with high accuracy.
-  /// Periodic capture (every 20 minutes) is now handled by Foreground Service.
+  /// Periodic capture (every 15 minutes) is now handled by Foreground Service.
   /// This method ensures the first location is posted as soon as possible after check-in.
   Future<void> _captureBestFixAndSend() async {
     await _syncPendingLocations();
@@ -390,14 +417,22 @@ class TrackingService {
   }
 
   Future<void> _postPos(Position p, {required String tag}) async {
-    final payload = {
-      'empid': empId,
-      'lat': p.latitude,
-      'lng': p.longitude,
-      'accuracy': p.accuracy,
-      'source': tag,
-      'ts': DateTime.now().toIso8601String(),
-    };
+    if (p.isMocked) {
+      debugPrint(
+          '[TrackingService] mock-location provider reported ($tag) - posting flagged');
+    }
+    final payload = buildTrackingPointPayloadFromPosition(
+      empid: empId,
+      position: p,
+      source: tag,
+      // Capture-instant identity, not producer identity: a fix the
+      // foreground service also submitted must dedupe server-side
+      // instead of being flagged as a replayed timestamp.
+      pointId: trackingPointIdFor(p.timestamp),
+      // Pinned session date keeps an overnight shift writing to the same
+      // tracking document instead of a new midnight-rollover doc.
+      dateIso: await trackingSessionDateIso(),
+    );
 
     try {
       final response = await http.post(
@@ -405,18 +440,28 @@ class TrackingService {
         headers: _headers(),
         body: jsonEncode(payload),
       );
+      final result = TrackingPostResult.fromResponse(response);
 
       if (kDebugMode) {
         print(
-          '[TrackingService] posted acc=${p.accuracy.toStringAsFixed(1)}m ($tag), status=${response.statusCode}',
+          '[TrackingService] posted acc=${p.accuracy.toStringAsFixed(1)}m ($tag), $result',
         );
       }
 
-      if (response.statusCode < 200 || response.statusCode >= 300) {
+      if (!result.httpOk) {
         if (kDebugMode) {
           print('[TrackingService] post failed, queuing payload');
         }
         await _enqueuePendingLocation(payload);
+      } else if (result.recentPointExists) {
+        // Only a backend-confirmed point lets the FG service skip a
+        // would-be-throttled capture (<15 min since last stored position).
+        final prefs = await _prefs();
+        await prefs.setInt(
+            kLastPersistedPosMsKey, DateTime.now().millisecondsSinceEpoch);
+        if (result.persisted) trackingPointPersisted.value++;
+      } else if (kDebugMode) {
+        print('[TrackingService] point skip reason=${result.status}');
       }
     } catch (e) {
       if (kDebugMode) {
@@ -432,14 +477,18 @@ class TrackingService {
   Future<List<Map<String, dynamic>>> _loadPendingLocations() async {
     final prefs = await _prefs();
     final raw = prefs.getStringList(_kPendingLocationsKey) ?? <String>[];
+    // Corrupted entries are dropped silently here; the FG-service copy of
+    // this loader logs them. `mocked` and other metadata ride inside the
+    // JSON map untouched.
     return raw
-        .map((entry) => jsonDecode(entry) as Map<String, dynamic>)
+        .map((entry) => decodePendingLocation(entry))
+        .whereType<Map<String, dynamic>>()
         .toList();
   }
 
   Future<void> _savePendingLocations(List<Map<String, dynamic>> items) async {
     final prefs = await _prefs();
-    final encoded = items.map((item) => jsonEncode(item)).toList();
+    final encoded = items.map(encodePendingLocation).toList();
     await prefs.setStringList(_kPendingLocationsKey, encoded);
   }
 
@@ -453,12 +502,30 @@ class TrackingService {
     final pending = await _loadPendingLocations();
     if (pending.isEmpty) return;
 
+    // Do not upload after logout. A live 'token' entry is the canonical
+    // signed-in signal; logout() removes it. This also covers a
+    // TrackingService instance whose stopAfterCheckOut() was never called
+    // (e.g. logout while still checked in).
+    final prefs = await _prefs();
+    if ((prefs.getString('token') ?? '').isEmpty) {
+      if (kDebugMode) {
+        print('[TrackingService] no active session - pending sync skipped');
+      }
+      return;
+    }
+
     if (kDebugMode) {
       print('[TrackingService] syncing ${pending.length} pending location(s)');
     }
 
     final kept = <Map<String, dynamic>>[];
     for (final item in pending) {
+      // Only upload records owned by this employee; other accounts' records
+      // stay queued for their own session.
+      if (item['empid']?.toString() != empId) {
+        kept.add(item);
+        continue;
+      }
       try {
         final response = await http.post(
           Uri.parse('${ApiService.baseUrl}/tracking/pos'),
@@ -510,7 +577,9 @@ class TrackingService {
         // Only sync if not already in a periodic/manual sync
         if (!_sending) {
           _sending = true;
-          _syncPendingLocations().then((_) {
+          _syncPendingLocations()
+              .then((_) => syncPendingTrackingEvents(empId, jwtToken))
+              .then((_) {
             _sending = false;
             if (kDebugMode) {
               print('[TrackingService] connectivity-triggered sync completed');
@@ -534,6 +603,37 @@ class TrackingService {
 
     if (kDebugMode) {
       print('[TrackingService] connectivity listener started');
+    }
+  }
+
+  /// Watches Android location-service state while tracking is active and
+  /// emits location_disabled / location_enabled events on transitions.
+  /// Transitions are deduped against the shared prefs store, so a state
+  /// already recorded by the FG-service isolate is never re-reported.
+  void _listenToGpsServiceStatus() {
+    // getServiceStatusStream is unsupported on web (throws
+    // UnsupportedError). Web has no device-level GPS toggle - permission
+    // state covers it.
+    if (kIsWeb) return;
+    _serviceStatusSub?.cancel();
+    _serviceStatusSub =
+        Geolocator.getServiceStatusStream().listen((status) {
+      final enabled = status == ServiceStatus.enabled;
+      if (kDebugMode) {
+        print('[TrackingService] GPS service status changed: enabled=$enabled');
+      }
+      recordGpsServiceTransition(
+        enabled: enabled,
+        empid: empId,
+        token: jwtToken,
+      );
+    }, onError: (Object e) {
+      if (kDebugMode) {
+        print('[TrackingService] service-status stream error: $e');
+      }
+    });
+    if (kDebugMode) {
+      print('[TrackingService] GPS service-status listener started');
     }
   }
 

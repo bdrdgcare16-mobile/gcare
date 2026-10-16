@@ -22,6 +22,12 @@ if (keystorePropertiesFile.exists()) {
     println("Warning: key.properties not found at: ${keystorePropertiesFile.absolutePath}")
 }
 
+// The release signingConfig block below is evaluated eagerly for every build.
+// Only fail for a missing key.properties when a release build is requested,
+// so debug builds work on machines without the release keystore.
+val releaseRequested =
+    gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
+
 android {
     namespace = "com.serv.serv_app"
     compileSdk = flutter.compileSdkVersion
@@ -69,7 +75,7 @@ android {
 
                 println("Using release keystore: ${storeFile?.absolutePath}")
                 println("Using key alias: $keyAlias")
-            } else {
+            } else if (releaseRequested) {
                 throw GradleException("key.properties file not found. Release build cannot be signed.")
             }
         }
@@ -97,4 +103,8 @@ android {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
+    // Same artifact/version geolocator_android already pulls in transitively
+    // (as an `implementation` dep, so not exposed to app code by default).
+    // Needed only by the temporary NativeGpsDiagnostic comparison tool.
+    implementation("com.google.android.gms:play-services-location:21.2.0")
 }

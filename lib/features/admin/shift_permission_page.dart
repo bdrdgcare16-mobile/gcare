@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:serv_app/shared/app_theme.dart';
+import 'package:serv_app/features/admin/admin_theme.dart';
 
 // Theme Colors
 const Color kPrimaryBackgroundTop = Colors.white;
@@ -47,7 +48,7 @@ class _ShiftPermissionPageState extends State<ShiftPermissionPage> {
       backgroundColor: kPrimaryBackgroundTop,
       appBar: AppBar(
         title: const Text("Shift Permissions"),
-        backgroundColor: kAppBarColor,
+        backgroundColor: kAdminAppBarColor,
         foregroundColor: kTextColor,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),

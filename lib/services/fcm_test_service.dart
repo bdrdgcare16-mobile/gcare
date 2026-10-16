@@ -15,6 +15,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:serv_app/core/app_navigator.dart';
 import 'package:serv_app/features/users/background_tasks.dart' as bg;
 import 'package:serv_app/features/users/task_details_page.dart';
+import 'package:serv_app/features/admin/admin_notifications_page.dart';
 import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/services/api_service.dart';
 
@@ -138,13 +139,28 @@ class FcmTestService {
 
     // Type-based routing only; the destination screen re-fetches the
     // entity from the backend and re-checks authorization there.
+    final nav = AppNavigator.state;
+    if (nav == null) return;
+
     if (type == 'TASK_ASSIGNED' &&
         entityType == 'task' &&
         entityId.isNotEmpty) {
-      final nav = AppNavigator.state;
-      if (nav == null) return;
       nav.push(
         MaterialPageRoute(builder: (_) => TaskDetailsPage(taskId: entityId)),
+      );
+      return;
+    }
+
+    // GPS OFF/ON admin alerts (tracking_event) and request lifecycle
+    // notifications open the notification history screen, which lists the
+    // record and navigates onward to the employee's day detail.
+    if (entityType == 'tracking_event' ||
+        type == 'LOCATION_DISABLED' ||
+        type == 'LOCATION_ENABLED' ||
+        type.startsWith('REQUEST_') ||
+        type.endsWith('_REQUEST')) {
+      nav.push(
+        MaterialPageRoute(builder: (_) => const AdminNotificationsPage()),
       );
     }
   }

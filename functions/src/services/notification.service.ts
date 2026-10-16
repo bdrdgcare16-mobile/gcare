@@ -11,7 +11,15 @@ export type NotificationType =
   | 'HALF_DAY_REQUEST'
   | 'COMP_OFF_REQUEST'
   | 'REQUEST_APPROVED'
-  | 'REQUEST_REJECTED';
+  | 'REQUEST_REJECTED'
+  | 'LOCATION_DISABLED'
+  | 'LOCATION_ENABLED'
+  | 'PERMISSION_REVOKED'
+  | 'SUSPICIOUS_LOCATION'
+  | 'TRACKING_INTERRUPTED'
+  | 'TRACKING_RECOVERED'
+  | 'TRACKING_GPS_DELAYED'
+  | 'TRACKING_GPS_RECOVERED';
 
 interface CreateAndSendParams {
   companyId: string;
@@ -88,6 +96,10 @@ export async function createAndSend(
     body,
     entityType,
     entityId,
+    // Persist the navigation metadata too: the admin history screen needs
+    // it (empid/dateIso) and the pendingAdminNotify reconciliation uses
+    // data.eventTs as the exact dedupe key.
+    data: data || {},
     isRead: false,
     pushStatus: 'pending',
     createdAt: FieldValue.serverTimestamp(),
@@ -347,6 +359,379 @@ export async function notifyCompanyAdminsOfRequest(params: {
     );
     return { sent: 0, failed: 0 };
   }
+}
+
+/**
+ * Notify all Company Admins (admin + super_admin) of the employee's own
+ * company when GPS is switched off or back on during active tracking.
+ * Company isolation is inherited from getCompanyAdmins + createAndSend
+ * (both filter strictly by companyId). Never throws.
+ */
+export async function notifyCompanyAdminsOfTrackingEvent(params: {
+  companyId: string;
+  empid: string;
+  employeeName: string;
+  eventType: 'location_disabled' | 'location_enabled' | 'permission_revoked';
+  eventTs: string;
+  dateIso: string;
+}): Promise<{ sent: number; failed: number; records: number }> {
+  const { companyId, empid, employeeName, eventType, eventTs, dateIso } = params;
+
+  try {
+    const admins = await getCompanyAdmins(companyId);
+    if (admins.length === 0) {
+      console.log('[TRACKING NOTIFICATION] No admins for company', companyId);
+      return { sent: 0, failed: 0, records: 0 };
+    }
+
+    const off = eventType === 'location_disabled';
+    const revoked = eventType === 'permission_revoked';
+    const type: NotificationType = revoked
+      ? 'PERMISSION_REVOKED'
+      : (off ? 'LOCATION_DISABLED' : 'LOCATION_ENABLED');
+    const title = revoked
+      ? 'Location Permission Revoked'
+      : (off ? 'Employee GPS Turned Off' : 'Employee GPS Restored');
+    const body = revoked
+      ? `Location permission was revoked for ${employeeName} (${empid}) during tracking at ${eventTs}.`
+      : off
+        ? `${employeeName} (${empid}) turned OFF location services during tracking at ${eventTs}.`
+        : `${employeeName} (${empid}) turned location services back ON at ${eventTs}.`;
+    const entityId = `${empid}_${dateIso}`;
+
+    let totalSent = 0;
+    let totalFailed = 0;
+    let records = 0;
+
+    await Promise.all(
+      admins.map(async (admin) => {
+        try {
+          const result = await createAndSend({
+            companyId,
+            recipientUserId: admin.userId,
+            type,
+            title,
+            body,
+            entityType: 'tracking_event',
+            entityId,
+            data: { empid, eventType, eventTs, dateIso },
+          });
+          // A notification record now exists regardless of push outcome -
+          // callers use `records` to know the in-app history was written.
+          records++;
+          totalSent += result.sent;
+          totalFailed += result.failed;
+        } catch (e: any) {
+          totalFailed += 1;
+          console.error('[TRACKING NOTIFICATION] Failed admin notify:',
+            admin.userId, e?.message || String(e));
+        }
+      })
+    );
+
+    console.log('[TRACKING NOTIFICATION RESULT]', {
+      companyId, empid, eventType, adminCount: admins.length,
+      sent: totalSent, failed: totalFailed, records,
+    });
+    return { sent: totalSent, failed: totalFailed, records };
+  } catch (err: any) {
+    console.error('[TRACKING NOTIFICATION] error:', err?.message || String(err));
+    return { sent: 0, failed: 0, records: 0 };
+  }
+}
+
+/**
+ * Notify all Company Admins when a stored tracking point was flagged as
+ * suspicious (mock provider, impossible speed, replay). The caller dedupes
+ * per flag kind per session, so a persistent spoofer produces one alert
+ * per anomaly class - not one per point. Wording is deliberately factual:
+ * flags are evidence for review, never an accusation of fraud.
+ * Never throws.
+ */
+export async function notifyCompanyAdminsOfSuspiciousLocation(params: {
+  companyId: string;
+  empid: string;
+  employeeName: string;
+  flags: string[];
+  eventTs: string;
+  dateIso: string;
+}): Promise<{ sent: number; failed: number; records: number }> {
+  const { companyId, empid, employeeName, flags, eventTs, dateIso } = params;
+  if (!flags.length) return { sent: 0, failed: 0, records: 0 };
+
+  try {
+    const admins = await getCompanyAdmins(companyId);
+    if (admins.length === 0) {
+      console.log('[SUSPICIOUS NOTIFY] No admins for company', companyId);
+      return { sent: 0, failed: 0, records: 0 };
+    }
+
+    const title = 'Suspicious Location Flagged';
+    const body =
+      `${employeeName} (${empid}): tracking point flagged for review ` +
+      `(${flags.join(', ')}) at ${eventTs}.`;
+    const entityId = `${empid}_${dateIso}`;
+
+    let totalSent = 0;
+    let totalFailed = 0;
+    let records = 0;
+
+    await Promise.all(
+      admins.map(async (admin) => {
+        try {
+          const result = await createAndSend({
+            companyId,
+            recipientUserId: admin.userId,
+            type: 'SUSPICIOUS_LOCATION',
+            title,
+            body,
+            entityType: 'tracking_event',
+            entityId,
+            data: { empid, eventType: 'suspicious_location', eventTs, dateIso },
+          });
+          records++;
+          totalSent += result.sent;
+          totalFailed += result.failed;
+        } catch (e: any) {
+          totalFailed += 1;
+          console.error('[SUSPICIOUS NOTIFY] Failed admin notify:',
+            admin.userId, e?.message || String(e));
+        }
+      })
+    );
+
+    console.log('[SUSPICIOUS NOTIFY RESULT]', {
+      companyId, empid, flags, adminCount: admins.length,
+      sent: totalSent, failed: totalFailed, records,
+    });
+    return { sent: totalSent, failed: totalFailed, records };
+  } catch (err: any) {
+    console.error('[SUSPICIOUS NOTIFY] error:', err?.message || String(err));
+    return { sent: 0, failed: 0, records: 0 };
+  }
+}
+
+/**
+ * Notify all Company Admins when a live tracking session misses location
+ * updates past the heartbeat threshold ("Tracking Interrupted"), or when
+ * contact resumes after an alerted interruption ("Tracking Resumed").
+ *
+ * Wording deliberately avoids asserting a cause: a gap can mean Doze,
+ * airplane mode, dead battery, app swipe-kill, force-stop, or a network
+ * outage - the message only reports that updates stopped/resumed.
+ * Company isolation inherited from getCompanyAdmins + createAndSend.
+ * Never throws.
+ */
+export async function notifyCompanyAdminsOfTrackingInterruption(params: {
+  companyId: string;
+  empid: string;
+  employeeName: string;
+  /** interrupted/recovered = device-contact gaps; gps_delayed/gps_recovered
+   *  = device alive but producing no valid GPS fix. */
+  kind: 'interrupted' | 'recovered' | 'gps_delayed' | 'gps_recovered';
+  /** ISO timestamp - interruption: last contact; recovered: resume time. */
+  sinceTs: string;
+  dateIso: string;
+}): Promise<{ sent: number; failed: number; records: number }> {
+  const { companyId, empid, employeeName, kind, sinceTs, dateIso } = params;
+
+  try {
+    const admins = await getCompanyAdmins(companyId);
+    if (admins.length === 0) {
+      console.log('[HEARTBEAT NOTIFY] No admins for company', companyId);
+      return { sent: 0, failed: 0, records: 0 };
+    }
+
+    const gpsGap = kind === 'gps_delayed' || kind === 'gps_recovered';
+    const type: NotificationType =
+      kind === 'interrupted' ? 'TRACKING_INTERRUPTED'
+      : kind === 'recovered' ? 'TRACKING_RECOVERED'
+      : kind === 'gps_delayed' ? 'TRACKING_GPS_DELAYED'
+      : 'TRACKING_GPS_RECOVERED';
+    const title =
+      kind === 'interrupted' ? 'Tracking Interrupted'
+      : kind === 'recovered' ? 'Tracking Resumed'
+      : kind === 'gps_delayed' ? 'GPS Updates Delayed'
+      : 'GPS Updates Recovered';
+    const body =
+      kind === 'interrupted'
+        ? `Location updates missing for ${employeeName} (${empid}) since ${sinceTs}. ` +
+          'The app may be closed, offline, out of battery, or GPS may be off.'
+      : kind === 'recovered'
+        ? `${employeeName} (${empid}) location updates resumed at ${sinceTs}.`
+      : kind === 'gps_delayed'
+        ? `${employeeName} (${empid}) has no valid GPS fix since ${sinceTs}, ` +
+          'but the tracking service is still running. GPS may be obstructed, ' +
+          'unavailable, or unable to get a lock.'
+        : `${employeeName} (${empid}) GPS fixes resumed at ${sinceTs}.`;
+    const entityId = gpsGap
+      ? `${empid}_${dateIso}_gps` : `${empid}_${dateIso}`;
+
+    let totalSent = 0;
+    let totalFailed = 0;
+    let records = 0;
+
+    await Promise.all(
+      admins.map(async (admin) => {
+        try {
+          const result = await createAndSend({
+            companyId,
+            recipientUserId: admin.userId,
+            type,
+            title,
+            body,
+            entityType: 'tracking_heartbeat',
+            entityId,
+            data: { empid, kind, sinceTs, dateIso },
+          });
+          records++;
+          totalSent += result.sent;
+          totalFailed += result.failed;
+        } catch (e: any) {
+          totalFailed += 1;
+          console.error('[HEARTBEAT NOTIFY] Failed admin notify:',
+            admin.userId, e?.message || String(e));
+        }
+      })
+    );
+
+    console.log('[HEARTBEAT NOTIFY RESULT]', {
+      companyId, empid, kind, adminCount: admins.length,
+      sent: totalSent, failed: totalFailed, records,
+    });
+    return { sent: totalSent, failed: totalFailed, records };
+  } catch (err: any) {
+    console.error('[HEARTBEAT NOTIFY] error:', err?.message || String(err));
+    return { sent: 0, failed: 0, records: 0 };
+  }
+}
+
+/**
+ * Reconciliation sweep for tracking sessions whose admin notification never
+ * materialized. POST /tracking/event flags a doc with pendingAdminNotify
+ * (boolean) + pendingAdminNotifyEvent (details) ONLY when zero notification
+ * records were created (sent=0 && failed=0), so a sweep can never duplicate
+ * an existing record - it additionally dedupes on (type, entityId,
+ * data.eventTs) before notifying. Bounded per call so it can run lazily
+ * inside GET /notifications without unbounded latency; leftover flags are
+ * picked up by the next sweep. Never throws.
+ */
+export async function reconcilePendingAdminNotifies(
+  companyId: string,
+  { limit = 25 }: { limit?: number } = {},
+): Promise<{ scanned: number; notified: number; cleared: number }> {
+  const out = { scanned: 0, notified: 0, cleared: 0 };
+  if (!companyId) return out;
+
+  let snap;
+  try {
+    snap = await db
+      .collection('tracking')
+      .where('companyId', '==', companyId)
+      .where('pendingAdminNotify', '==', true)
+      .limit(limit)
+      .get();
+  } catch (err: any) {
+    console.error('[RECONCILE NOTIFY] query failed:', err?.message || String(err));
+    return out;
+  }
+
+  out.scanned = snap.size;
+  const clearFlags = (ref: FirebaseFirestore.DocumentReference) =>
+    ref.update({
+      pendingAdminNotify: FieldValue.delete(),
+      pendingAdminNotifyEvent: FieldValue.delete(),
+    });
+
+  for (const docSnap of snap.docs) {
+    try {
+      // A closed session must never emit a delayed GPS-off alert - the
+      // admin already knows tracking ended; the pending flag is stale.
+      if (docSnap.data()?.endedAt != null) {
+        await clearFlags(docSnap.ref);
+        out.cleared++;
+        continue;
+      }
+
+      const evt = docSnap.data()?.pendingAdminNotifyEvent;
+      const empid = String(evt?.empid ?? docSnap.data()?.empid ?? '').trim();
+      const dateIso = String(evt?.dateIso ?? docSnap.data()?.dateIso ?? '').trim();
+      const rawType = String(evt?.type ?? '');
+      const type = rawType === 'location_enabled' || rawType === 'permission_revoked'
+        ? rawType : 'location_disabled';
+      const ts = String(evt?.ts ?? '');
+
+      if (!empid || !dateIso || !ts) {
+        // Flag with no usable event payload - clear it, there is nothing to send.
+        await clearFlags(docSnap.ref);
+        out.cleared++;
+        continue;
+      }
+
+      // Exact dedupe: a notification record already covering THIS event
+      // (same employee+day entityId and same event timestamp) means a
+      // previous send did land - just clear the stale flag.
+      const entityId = `${empid}_${dateIso}`;
+      const notifType: NotificationType =
+        type === 'permission_revoked' ? 'PERMISSION_REVOKED'
+          : type === 'location_disabled' ? 'LOCATION_DISABLED' : 'LOCATION_ENABLED';
+      const existing = await db
+        .collection(COLLECTIONS.NOTIFICATIONS)
+        .where('companyId', '==', companyId)
+        .where('entityType', '==', 'tracking_event')
+        .where('entityId', '==', entityId)
+        .where('type', '==', notifType)
+        .get();
+      const alreadyNotified = existing.docs.some(
+        (n) => (n.data() as any)?.data?.eventTs === ts,
+      );
+
+      if (alreadyNotified) {
+        await clearFlags(docSnap.ref);
+        out.cleared++;
+        continue;
+      }
+
+      let employeeName = empid;
+      try {
+        const empSnap = await db
+          .collection(COLLECTIONS.EMPLOYEES)
+          .where('companyId', '==', companyId)
+          .where('empid', '==', empid)
+          .limit(1)
+          .get();
+        const n = empSnap.docs[0]?.data()?.name;
+        if (n) employeeName = String(n);
+      } catch (_) { /* name lookup is best-effort */ }
+
+      const result = await notifyCompanyAdminsOfTrackingEvent({
+        companyId,
+        empid,
+        employeeName,
+        eventType: type,
+        eventTs: ts,
+        dateIso,
+      });
+      // records>0 means notification history exists now (push outcome is
+      // irrelevant to history); 0 means still no admins - keep the flag so
+      // a later sweep retries after an admin is onboarded.
+      if (result.records > 0) {
+        await clearFlags(docSnap.ref);
+        out.notified++;
+      }
+    } catch (err: any) {
+      console.error(
+        '[RECONCILE NOTIFY] doc failed (kept for next sweep):',
+        docSnap.id,
+        err?.message || String(err),
+      );
+    }
+  }
+
+  if (out.scanned) {
+    console.log('[RECONCILE NOTIFY]', { companyId, ...out });
+  }
+  return out;
 }
 
 /**

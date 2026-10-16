@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -8,14 +9,21 @@ import 'package:geolocator/geolocator.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
-import 'package:intl/intl.dart';
 import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/features/users/background_tasks.dart';
 import 'package:serv_app/services/tracking_service.dart';
+import 'package:serv_app/services/tracking_payload.dart';
+import 'package:serv_app/services/tracking_post_result.dart';
+import 'package:serv_app/services/connectivity_service.dart';
+import 'package:serv_app/services/tracking_retry_policy.dart';
 import 'package:serv_app/main_common.dart';
 import 'package:serv_app/services/api_service.dart';
 import 'package:serv_app/utils/performance_logger.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:serv_app/utils/office_presence.dart';
+import 'package:serv_app/utils/battery_optimization.dart';
+import 'package:serv_app/debug/native_gps_diagnostic.dart';
+import 'package:permission_handler/permission_handler.dart'
+    hide ServiceStatus;
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -23,6 +31,20 @@ void _log(String message) {
   if (kDebugMode) {
     debugPrint('[${DateTime.now().toIso8601String()}] $message');
   }
+}
+
+/// Diagnostic fix logger: accuracy, fix timestamp (device-local ISO),
+/// capture age, and mocked flag. geolocator's Position model does not
+/// surface the originating provider (GPS/NETWORK/FUSED) to Dart at all -
+/// noted explicitly so a "200m" reading can't be mistaken for
+/// network-provider output without evidence. Use NativeGpsDiagnostic for
+/// provider-level comparison.
+void _logGpsFix(String label, Position p) {
+  if (!kDebugMode) return;
+  final age = DateTime.now().difference(p.timestamp);
+  debugPrint('[GPS_FIX] $label: accuracy=${p.accuracy.toStringAsFixed(1)}m, '
+      'fixTimestamp=${p.timestamp.toIso8601String()}, age=${age.inSeconds}s, '
+      'mocked=${p.isMocked}, provider=unavailable via geolocator');
 }
 
 // ==== Colors ====
@@ -73,11 +95,22 @@ class AttendanceScreen extends StatefulWidget {
 
 class _AttendanceScreenState extends State<AttendanceScreen>
     with WidgetsBindingObserver {
+  // TEMPORARY DIAGNOSTIC ONLY: guards _runGpsDiagnosticComparison against
+  // duplicate/overlapping taps. Unrelated to check-in/check-out state.
+  bool _gpsDiagnosticRunning = false;
   bool isFaceRegistered = false;
   bool isShiftSelected = false;
   bool isCheckedIn = false;
   bool isTimerRunning = false;
   bool _locationPermissionGranted = false;
+
+  // Device location-service state detected at page open. null = not yet
+  // checked (treated as enabled for UI to avoid a false flash).
+  bool? _locationServiceEnabled;
+  bool _preciseLocationGranted = true;
+  bool _locationDialogOpen = false;
+  bool _suppressLocationDialog = false;
+  StreamSubscription<ServiceStatus>? _pageGpsStatusSub;
   bool _isLoadingUserInfo = false;
   List<Map<String, String>>? _cachedReasons;
   bool _reasonsLoading = false;
@@ -186,7 +219,20 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
 
     _checkUserFaceRegistration();
-    _checkLocationPermission();
+    // Detect device Location ON/OFF immediately - before the employee taps
+    // an attendance button - and keep the state live while the page is
+    // open so toggling Location updates the warning/buttons in place.
+    _checkLocationStatusOnOpen();
+    if (!kIsWeb) {
+      // getServiceStatusStream is unsupported on web (throws
+      // UnsupportedError). The browser has no OS-level location toggle -
+      // permission state alone is checked by _checkLocationStatusOnOpen.
+      _pageGpsStatusSub =
+          Geolocator.getServiceStatusStream().listen((status) {
+        debugPrint('[GPS] service status changed on attendance page: $status');
+        _checkLocationStatusOnOpen();
+      }, onError: (_) {});
+    }
   }
 
   // Load cached check-in time and start timer immediately if found
@@ -221,13 +267,39 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _pageGpsStatusSub?.cancel();
     _timer?.cancel();
+    _trackingRetryTimer?.cancel();
+    _trackingRecoverySub?.cancel();
+    _trackingRecoverySub = null;
+    _warmupRetryTimer?.cancel();
+    // Force: dispose must never defer - the acquisition result is moot
+    // once the page is gone, so the provider subscription dies now.
+    _stopGpsWarmup(force: true);
+    _gpsSharedStream?.close();
+    // TEMPORARY DIAGNOSTIC: if a raw GPS_PROVIDER capture is still running
+    // when this page is disposed, stop it immediately rather than let it
+    // run for up to 25s against a gone widget. Fire-and-forget: the native
+    // side (NativeGpsDiagnostic.onDetachedFromEngine) already tears it down
+    // too, this just does it sooner if only the page (not the engine) went
+    // away.
+    if (_gpsDiagnosticRunning) {
+      unawaited(NativeGpsDiagnostic.cancelRawGpsCapture());
+    }
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      // Stop warming while the page is not visible (battery).
+      _stopGpsWarmup();
+    }
     if (state == AppLifecycleState.resumed) {
+      // Recheck Location ON/OFF on return (e.g. from Location Settings) -
+      // dismisses the warning, refreshes button state and starts warm-up.
+      _checkLocationStatusOnOpen();
       if (_authInProgress) return;
 
       // ✅ SAFETY: Use cached future to prevent duplicate auth/me calls
@@ -269,6 +341,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     await prefs.remove(_key(_kCheckedInKeyBase));
     await prefs.remove(_key(_kCheckInDateKeyBase));
     await prefs.remove(_key(_kCheckInTimeKeyBase));
+    // Also drop the cached check-in time so a failed/rolled-back check-in
+    // cannot resurface as a ghost "In:" time on the next page load.
+    await _clearCheckInCache();
   }
 
   Future<void> _restoreCheckInFromPrefs() async {
@@ -613,10 +688,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       _lastStatusFetch = DateTime.now();
 
       final list = List<Map<String, dynamic>>.from(jsonDecode(res.body));
+      final wantEmp = userId.trim().toLowerCase();
       final me = list.firstWhere(
-        (e) => (e['empid']?.toString() ?? '') == userId,
+        (e) =>
+            (e['empid']?.toString().trim().toLowerCase() ?? '') == wantEmp,
         orElse: () => const {},
       );
+      if (me.isEmpty) {
+        debugPrint(
+            '[Attendance] /live returned ${list.length} rows, none matched empid=$userId');
+      }
 
       final checkIn = (me['checkIn']) as String?;
       final checkOut = (me['checkOut']) as String?;
@@ -637,14 +718,21 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           isCheckedIn = false;
           _checkInSource = '';
         });
+        // Checked-in state just resolved to false - warm-up may have been
+        // skipped at page open while stale prefs said checked-in.
+        unawaited(_maybeStartGpsWarmup());
         return;
       }
 
       if (checkIn != null && checkIn.isNotEmpty) {
         // User is checked in - apply check-in data and start timer
         _applyCheckedInFromServer(checkIn);
-        await _saveCheckInToPrefs();
+        // Persist the SERVER-confirmed time, not the local clock.
+        await _saveCheckInToPrefs(at: _checkInTime);
         debugPrint('[Timer] Timer started');
+        // Idempotent tracking reconciliation: if the service isn't actually
+        // running (fresh start, killed process, failed init), recover it.
+        unawaited(_ensureTrackingActive());
         return;
       }
 
@@ -656,6 +744,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         isCheckedIn = false;
         _checkInSource = '';
       });
+      unawaited(_maybeStartGpsWarmup());
     } catch (e) {
       final endTime = DateTime.now();
       PerformanceLogger.logApiCall(
@@ -736,6 +825,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             '[Attendance] Server check-in time matches current, no timer adjustment needed');
         // Just ensure cache is up to date
         _cacheCheckInTime(checkInDateTime);
+        // The server still reports an active check-in - the UI must reflect
+        // it even when _checkInTime already matched (e.g. it survived a
+        // local state reset). Leaving isCheckedIn=false here would wrongly
+        // re-enable the Check-In button.
+        if (!isCheckedIn && mounted) {
+          setState(() {
+            isCheckedIn = true;
+            isTimerRunning = true;
+          });
+        }
       }
     } catch (_) {
       _startWorkTimer();
@@ -753,6 +852,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       hours = "00";
       minutes = "00";
       seconds = "00";
+      // Clear the retained check-in time too - a stale _checkInTime that
+      // equals the server time makes _applyCheckedInFromServer take the
+      // "no change" branch and could suppress the checked-in state.
+      _checkInTime = null;
+      _checkOutTime = null;
     });
   }
 
@@ -857,8 +961,32 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     bool quiet = false,
     String actionLabel = 'check-in',
     double maxAccuracyMeters = 50.0,
-    Duration overallTimeout = const Duration(seconds: 25),
+    // Total budget for ALL phases (initial fix + stream improvement).
+    // Indoor GPS convergence typically takes 20-40s; the previous 25s budget
+    // (plus an unaccounted 10s initial fix) was too tight indoors.
+    Duration overallTimeout = const Duration(seconds: 60),
+    // Under the flexible attendance policy the final decision (below)
+    // accepts ANY fresh, non-mocked fix regardless of accuracy - the
+    // backend classifies office presence from accuracy vs the geofence. So
+    // once a candidate fix exists, there is no reason to make the employee
+    // wait out the full overallTimeout hoping for <=maxAccuracyMeters: that
+    // reproduced a ~60-64s wait even when a usable fix arrived in seconds.
+    // This grace window still gives GPS a real chance to converge to a
+    // precise fix first; only after it elapses does a degraded-but-fresh
+    // fix get accepted early. Freshness (<=5min) and mock-location
+    // rejection are unchanged - only the accuracy gate for this flexible
+    // path is relaxed, and only after waiting this long.
+    Duration flexibleAcceptAfter = const Duration(seconds: 15),
   }) async {
+    // Prevent concurrent acquisition requests (e.g. double retry, check-in
+    // while a check-out acquisition is running).
+    if (_gpsAcquisitionInProgress) {
+      _showSingleError(quiet,
+          'Location request already in progress. Please wait a moment.');
+      return null;
+    }
+    _gpsAcquisitionInProgress = true;
+
     debugPrint('[GPS] Acquisition started');
     debugPrint('[GPS] Required accuracy: ≤${maxAccuracyMeters}m');
     debugPrint('[GPS] Overall timeout: ${overallTimeout.inSeconds}s');
@@ -872,6 +1000,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (!hasPermission) {
       _log('[GPS] Permission denied or unavailable, cannot continue');
       debugPrint('[GPS] Final failure reason: permission denied');
+      _gpsAcquisitionInProgress = false;
       _showSingleError(
           quiet, 'Location permission is required for attendance.');
       return null;
@@ -884,9 +1013,70 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (!serviceEnabled) {
       _log('[GPS] Service disabled before current location request');
       debugPrint('[GPS] Final failure reason: GPS service disabled');
+      _gpsAcquisitionInProgress = false;
       _showSingleError(quiet,
           'GPS is turned off. Please enable location services and try again.');
       return null;
+    }
+
+    // Step 3: On Android 12+, whileInUse may be approximate-only. Under the
+    // flexible attendance policy coarse fixes are still recorded, so keep
+    // acquiring instead of failing fast; the backend classifies them as
+    // Location Uncertain when the geofence boundary cannot be established.
+    try {
+      final accStatus = await Geolocator.getLocationAccuracy();
+      debugPrint('[GPS] Location accuracy status: $accStatus');
+      if (accStatus == LocationAccuracyStatus.reduced) {
+        debugPrint('[GPS] Precise location off - continuing with approximate fixes');
+      }
+    } catch (_) {
+      // getLocationAccuracy unsupported on this platform - continue.
+    }
+
+    // Stage 0 - warm-up fast path: the page's shared stream may already hold
+    // a converged fix that satisfies the threshold (GPS warmed while the
+    // page sat open). Same acceptance rules as last-known.
+    final warm = _warmBest;
+    if (warm != null) {
+      final age = DateTime.now().difference(warm.timestamp);
+      debugPrint(
+          '[GPS] Warm-up position: acc=${warm.accuracy.toStringAsFixed(1)}m, '
+          'age=${age.inSeconds}s, mocked=${warm.isMocked}');
+      _logGpsFix('warm-up fast path', warm);
+      if (!warm.isMocked &&
+          !age.isNegative &&
+          age <= _kLastKnownMaxAge &&
+          warm.accuracy <= maxAccuracyMeters) {
+        debugPrint('[GPS] Warm-up position accepted (fast path)');
+        _gpsAcquisitionInProgress = false;
+        return warm;
+      }
+    }
+
+    // Stage 1 - fast path: reuse Fused Location's most recent fix when it is
+    // fresh (<60s), meets the accuracy threshold and is not mocked. Fixes
+    // produced moments ago (e.g. a tracking tick or an earlier attempt) are
+    // just as trustworthy as a new capture and skip the whole wait.
+    try {
+      final lastKnown = await Geolocator.getLastKnownPosition();
+      if (lastKnown != null) {
+        final age = DateTime.now().difference(lastKnown.timestamp);
+        debugPrint(
+            '[GPS] Last-known: acc=${lastKnown.accuracy.toStringAsFixed(1)}m, '
+            'age=${age.inSeconds}s, mocked=${lastKnown.isMocked}');
+        _logGpsFix('last-known fast path', lastKnown);
+        if (!lastKnown.isMocked &&
+            !age.isNegative &&
+            age <= _kLastKnownMaxAge &&
+            lastKnown.accuracy <= maxAccuracyMeters) {
+          debugPrint('[GPS] Last-known accepted (fast path)');
+          _gpsAcquisitionInProgress = false;
+          return lastKnown;
+        }
+        debugPrint('[GPS] Last-known rejected - acquiring fresh fix');
+      }
+    } catch (_) {
+      // No usable last-known - continue to fresh acquisition.
     }
 
     // Show single loading state
@@ -894,8 +1084,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Getting your location...'),
-          duration: Duration(seconds: 30),
+          content: Text(
+              'Getting your location... GPS may take up to a minute indoors.'),
+          duration: Duration(seconds: 60),
           backgroundColor: Colors.blue,
         ),
       );
@@ -904,109 +1095,238 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     Position? bestPosition;
     StreamSubscription<Position>? positionStreamSubscription;
     final startTime = DateTime.now();
+    // Single deadline for the WHOLE acquisition: the initial fix consumes
+    // part of the budget and the stream gets whatever remains.
+    final deadline = startTime.add(overallTimeout);
     bool acquisitionComplete = false;
 
+    debugPrint('[GPS] Acquisition source: '
+        '${_gpsWarmSub != null ? "shared warm stream" : "direct probe"}; '
+        'tracking=${_tracking != null}');
+
     try {
-      // Step 3: Get initial fresh position
-      debugPrint('[GPS] Getting initial fresh position...');
-      try {
-        final initialPosition = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.bestForNavigation,
-          timeLimit: const Duration(seconds: 10),
-          forceAndroidLocationManager: false,
-        );
+      // Step 3: Get initial fresh position - only when no shared stream is
+      // running. When warm-up already holds an active subscription the
+      // stream phase below receives the same provider flow, and a second
+      // getCurrentPosition probe just burns up to 10s of the deadline.
+      if (_gpsWarmSub == null) {
+        debugPrint('[GPS] Getting initial fresh position...');
+        try {
+          final initialPosition = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.bestForNavigation,
+            timeLimit: const Duration(seconds: 10),
+            forceAndroidLocationManager: false,
+          );
 
-        final positionAge =
-            DateTime.now().difference(initialPosition.timestamp);
-        debugPrint(
-            '[GPS] Initial position: accuracy=${initialPosition.accuracy.toStringAsFixed(1)}m, age=${positionAge.inSeconds}s');
-
-        // Validate freshness (reject if older than 5 minutes)
-        if (positionAge.inMinutes > 5) {
+          final positionAge =
+              DateTime.now().difference(initialPosition.timestamp);
           debugPrint(
-              '[GPS] Initial position too old (${positionAge.inMinutes}min), will stream for fresh position');
-        } else {
-          bestPosition = initialPosition;
-          debugPrint(
-              '[GPS] Best accuracy so far=${bestPosition!.accuracy.toStringAsFixed(1)}m');
+              '[GPS] Initial position: accuracy=${initialPosition.accuracy.toStringAsFixed(1)}m, age=${positionAge.inSeconds}s');
+          _logGpsFix('initial fresh fix', initialPosition);
 
-          // If already accurate enough, accept immediately
-          if (bestPosition!.accuracy <= maxAccuracyMeters) {
-            debugPrint('[GPS] Position accepted immediately');
-            _log(
-                '[GPS] Position accepted: accuracy ${bestPosition!.accuracy.toStringAsFixed(1)}m ≤ threshold ${maxAccuracyMeters}m');
-            acquisitionComplete = true;
-            return bestPosition;
+          // Reject mock locations outright (attendance security).
+          if (initialPosition.isMocked) {
+            debugPrint('[GPS] Initial position is mocked - rejecting');
+          } else
+          // Validate freshness (reject if older than 5 minutes)
+          if (positionAge.inMinutes > 5) {
+            debugPrint(
+                '[GPS] Initial position too old (${positionAge.inMinutes}min), will stream for fresh position');
+          } else {
+            bestPosition = initialPosition;
+            debugPrint(
+                '[GPS] Best accuracy so far=${bestPosition!.accuracy.toStringAsFixed(1)}m');
+
+            // If already accurate enough, accept immediately
+            if (bestPosition!.accuracy <= maxAccuracyMeters) {
+              debugPrint('[GPS] Position accepted immediately');
+              _log(
+                  '[GPS] Position accepted: accuracy ${bestPosition!.accuracy.toStringAsFixed(1)}m ≤ threshold ${maxAccuracyMeters}m');
+              acquisitionComplete = true;
+              return bestPosition;
+            }
           }
+        } catch (e) {
+          debugPrint('[GPS] Initial position fetch failed: $e');
+          // Continue to stream-based approach
         }
-      } catch (e) {
-        debugPrint('[GPS] Initial position fetch failed: $e');
-        // Continue to stream-based approach
+      } else {
+        debugPrint(
+            '[GPS] Skipping initial probe - shared stream already running');
       }
 
-      // Step 4: If not immediately accurate, start streaming for improvement
+      // Step 4: If not immediately accurate, stream for improvement using
+      // whatever time remains in the overall budget (the initial fix already
+      // consumed part of it).
       if (!acquisitionComplete) {
-        debugPrint(
-            '[GPS] Starting location stream for continuous improvement...');
+        final remaining = deadline.difference(DateTime.now());
+        if (remaining <= Duration.zero) {
+          debugPrint('[GPS] Overall timeout reached during initial fix');
+        } else {
+          debugPrint(
+              '[GPS] Starting location stream for continuous improvement '
+              '(${remaining.inSeconds}s left)...');
 
-        final locationSettings = const LocationSettings(
-          accuracy: LocationAccuracy.bestForNavigation,
-          distanceFilter: 0,
-        );
-
-        final completer = Completer<Position?>();
-        final timeoutTimer = Timer(overallTimeout, () {
-          if (!acquisitionComplete && !completer.isCompleted) {
-            debugPrint('[GPS] Overall timeout reached');
-            completer.complete(bestPosition);
+          // Extended indoor acquisition - tell the user why it is taking a
+          // while and how long it can take.
+          if (!quiet && mounted) {
+            ScaffoldMessenger.of(context)
+              ..clearSnackBars()
+              ..showSnackBar(
+                SnackBar(
+                  content: Text(
+                      'Still improving GPS accuracy indoors - up to ${remaining.inSeconds}s left.'),
+                  duration: remaining,
+                  backgroundColor: Colors.blue,
+                ),
+              );
           }
-        });
 
-        positionStreamSubscription =
-            Geolocator.getPositionStream(locationSettings: locationSettings)
-                .listen(
-          (position) {
-            if (acquisitionComplete || completer.isCompleted) return;
+          // Explicit 1s cadence - matches the warm-up stream settings.
+          final locationSettings = AndroidSettings(
+            accuracy: LocationAccuracy.bestForNavigation,
+            distanceFilter: 0,
+            intervalDuration: Duration(seconds: 1),
+          );
 
-            final positionAge = DateTime.now().difference(position.timestamp);
-            debugPrint(
-                '[GPS] Position: accuracy=${position.accuracy.toStringAsFixed(1)}m, age=${positionAge.inSeconds}s');
+          // Single shared pipeline: join the page's warm-up stream rather
+          // than opening a second concurrent GPS subscription. If the
+          // warm-up stream is not running (stopped, permission granted
+          // late), fall back to a direct stream as before.
+          _ensureSharedGpsStream();
+          final Stream<Position> sharedOrDirect =
+              (_gpsWarmSub != null && _gpsSharedStream != null)
+                  ? _gpsSharedStream!.stream
+                  : Geolocator.getPositionStream(
+                      locationSettings: locationSettings);
 
-            // Validate freshness
-            if (positionAge.inMinutes > 5) {
-              debugPrint('[GPS] Position too old, skipping');
-              return;
-            }
+          double lastReportedAccuracy = double.infinity;
+          DateTime lastProgressAt = DateTime.now();
+          // Diagnostic counters: how many truly new GNSS fixes the provider
+          // delivered vs cached repeats (same fix timestamp re-delivered).
+          int uniqueFixes = 0;
+          int cachedRepeats = 0;
+          DateTime? lastFixTs;
+          final streamStartAt = DateTime.now();
 
-            // Track best position
-            if (bestPosition == null ||
-                position.accuracy < bestPosition!.accuracy) {
-              bestPosition = position;
-              debugPrint(
-                  '[GPS] Best accuracy so far=${bestPosition!.accuracy.toStringAsFixed(1)}m');
-            }
-
-            // Accept immediately if accuracy is good enough
-            if (position.accuracy <= maxAccuracyMeters) {
-              debugPrint('[GPS] Position accepted');
-              _log(
-                  '[GPS] Position accepted: accuracy ${position.accuracy.toStringAsFixed(1)}m ≤ threshold ${maxAccuracyMeters}m');
-              acquisitionComplete = true;
-              timeoutTimer.cancel();
-              completer.complete(position);
-            }
-          },
-          onError: (error) {
-            if (!completer.isCompleted) {
-              debugPrint('[GPS] Stream error: $error');
+          final completer = Completer<Position?>();
+          final timeoutTimer = Timer(remaining, () {
+            if (!acquisitionComplete && !completer.isCompleted) {
+              debugPrint('[GPS] Overall timeout reached '
+                  '(stream fixes: $uniqueFixes unique, '
+                  '$cachedRepeats cached-repeat)');
               completer.complete(bestPosition);
             }
-          },
-        );
+          });
 
-        // Wait for completion (either good position or timeout)
-        bestPosition = await completer.future;
-        timeoutTimer.cancel();
+          // Flexible-policy responsiveness: after a shorter grace window,
+          // accept whatever fresh non-mocked fix has been seen so far
+          // instead of waiting out the full budget. Only fires if the full
+          // timeout is further away than the grace window, and only acts
+          // if a candidate fix actually exists yet - a device with no fix
+          // at all still waits for the full budget for its first fix.
+          Timer? flexibleTimer;
+          if (remaining > flexibleAcceptAfter) {
+            flexibleTimer = Timer(flexibleAcceptAfter, () {
+              if (acquisitionComplete || completer.isCompleted) return;
+              if (bestPosition == null) return;
+              debugPrint('[GPS] Flexible accept after '
+                  '${flexibleAcceptAfter.inSeconds}s grace: '
+                  'accuracy=${bestPosition!.accuracy.toStringAsFixed(1)}m '
+                  '(degraded - presence decided server-side)');
+              acquisitionComplete = true;
+              timeoutTimer.cancel();
+              completer.complete(bestPosition);
+            });
+          }
+
+          positionStreamSubscription =
+              sharedOrDirect.listen(
+            (position) {
+              if (acquisitionComplete || completer.isCompleted) return;
+
+              final isRepeat = position.timestamp == lastFixTs;
+              if (isRepeat) {
+                cachedRepeats++;
+              } else {
+                lastFixTs = position.timestamp;
+                uniqueFixes++;
+              }
+
+              final positionAge =
+                  DateTime.now().difference(position.timestamp);
+              debugPrint(
+                  '[GPS] Position: accuracy=${position.accuracy.toStringAsFixed(1)}m, '
+                  'age=${positionAge.inSeconds}s${isRepeat ? ' [cached-repeat]' : ''}');
+              if (!isRepeat) _logGpsFix('stream fix #$uniqueFixes', position);
+
+              // Reject mock locations outright (attendance security).
+              if (position.isMocked) {
+                debugPrint('[GPS] Mock location detected - skipping');
+                return;
+              }
+
+              // Validate freshness
+              if (positionAge.inMinutes > 5) {
+                debugPrint('[GPS] Position too old, skipping');
+                return;
+              }
+
+              // Track best position
+              if (bestPosition == null ||
+                  position.accuracy < bestPosition!.accuracy) {
+                bestPosition = position;
+                debugPrint(
+                    '[GPS] Best accuracy so far=${bestPosition!.accuracy.toStringAsFixed(1)}m');
+
+                // Progress feedback while accuracy converges indoors
+                // (throttled: >=3s apart, >=10m improvement).
+                if (!quiet &&
+                    mounted &&
+                    bestPosition!.accuracy <= lastReportedAccuracy - 10 &&
+                    DateTime.now().difference(lastProgressAt) >=
+                        const Duration(seconds: 3)) {
+                  lastReportedAccuracy = bestPosition!.accuracy;
+                  lastProgressAt = DateTime.now();
+                  ScaffoldMessenger.of(context)
+                    ..clearSnackBars()
+                    ..showSnackBar(
+                      SnackBar(
+                        content: Text(
+                            'Improving accuracy: ${bestPosition!.accuracy.toStringAsFixed(0)}m - need ${maxAccuracyMeters.toStringAsFixed(0)}m or better'),
+                        duration: const Duration(seconds: 4),
+                        backgroundColor: Colors.blue,
+                      ),
+                    );
+                }
+              }
+
+              // Accept immediately if accuracy is good enough
+              if (position.accuracy <= maxAccuracyMeters) {
+                debugPrint('[GPS] Position accepted '
+                    '(+${DateTime.now().difference(streamStartAt).inMilliseconds}ms stream, '
+                    '$uniqueFixes unique fixes)');
+                _log(
+                    '[GPS] Position accepted: accuracy ${position.accuracy.toStringAsFixed(1)}m ≤ threshold ${maxAccuracyMeters}m');
+                acquisitionComplete = true;
+                timeoutTimer.cancel();
+                flexibleTimer?.cancel();
+                completer.complete(position);
+              }
+            },
+            onError: (error) {
+              if (!completer.isCompleted) {
+                debugPrint('[GPS] Stream error: $error');
+                completer.complete(bestPosition);
+              }
+            },
+          );
+
+          // Wait for completion (either good position or timeout)
+          bestPosition = await completer.future;
+          timeoutTimer.cancel();
+          flexibleTimer?.cancel();
+        }
       }
 
       // Step 5: Final decision
@@ -1021,25 +1341,18 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         return null;
       }
 
-      if (finalPosition.accuracy <= maxAccuracyMeters) {
-        debugPrint('[GPS] Final result: valid position obtained');
-        debugPrint(
-            '[GPS] Final accuracy: ${finalPosition.accuracy.toStringAsFixed(1)}m');
-        debugPrint('[GPS] Attendance API will be called: true');
-        _log(
-            '[GPS] Final: Position accepted with accuracy ${finalPosition.accuracy.toStringAsFixed(1)}m');
-        return finalPosition;
-      }
-
-      debugPrint('[GPS] Final result: position rejected due to low accuracy');
+      // Flexible attendance: the best non-mocked fix is always accepted and
+      // recorded with its real reported accuracy. The backend classifies
+      // office presence (inside/outside/uncertain) from accuracy vs the
+      // geofence boundary, so a poor indoor fix is never rejected here.
+      debugPrint('[GPS] Final result: valid position obtained');
       debugPrint(
-          '[GPS] Best accuracy achieved: ${finalPosition.accuracy.toStringAsFixed(1)}m');
-      debugPrint('[GPS] Attendance API will be called: false');
+          '[GPS] Final accuracy: ${finalPosition.accuracy.toStringAsFixed(1)}m');
+      debugPrint('[GPS] Attendance API will be called: true');
       _log(
-          '[GPS] Final: Best accuracy ${finalPosition.accuracy.toStringAsFixed(1)}m > threshold ${maxAccuracyMeters}m');
-      _showSingleError(quiet,
-          'Unable to get an accurate location. Please move to an open area and try again.');
-      return null;
+          '[GPS] Final: Position accepted with accuracy ${finalPosition.accuracy.toStringAsFixed(1)}m'
+          '${finalPosition.accuracy > maxAccuracyMeters ? ' (degraded - presence decided server-side)' : ''}');
+      return finalPosition;
     } catch (e) {
       debugPrint('[GPS] Unexpected error occurred');
       _log('[GPS] Final: Unexpected error occurred');
@@ -1053,6 +1366,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         debugPrint('[GPS] Location stream cancelled');
       }
       acquisitionComplete = true;
+      _gpsAcquisitionInProgress = false;
 
       // Clear loading state
       if (!quiet && mounted) {
@@ -1158,17 +1472,89 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
   }
 
-  Future<void> _checkLocationPermission() async {
-    final permission = await Geolocator.checkPermission();
-    final granted = permission == LocationPermission.always ||
-        permission == LocationPermission.whileInUse;
-    debugPrint(
-        '[GPS] Initial location permission status: $permission, granted=$granted');
-    if (mounted) {
-      setState(() {
-        _locationPermissionGranted = granted;
-      });
+  /// Unified Location status check used at page open, on app resume and on
+  /// service-status stream changes. Updates the OFF warning and button
+  /// state, purges stale warm-up fixes when Location turns off, and starts
+  /// warm-up when Location is available. Never requests permission and
+  /// never launches Settings by itself.
+  Future<void> _checkLocationStatusOnOpen() async {
+    bool enabled;
+    LocationPermission permission;
+    try {
+      enabled = await Geolocator.isLocationServiceEnabled();
+      permission = await Geolocator.checkPermission();
+    } catch (_) {
+      return;
     }
+    var precise = true;
+    try {
+      precise = (await Geolocator.getLocationAccuracy()) !=
+          LocationAccuracyStatus.reduced;
+    } catch (_) {}
+    if (!mounted) return;
+
+    setState(() {
+      _locationServiceEnabled = enabled;
+      _locationPermissionGranted =
+          permission == LocationPermission.always ||
+              permission == LocationPermission.whileInUse;
+      _preciseLocationGranted = precise;
+    });
+    debugPrint(
+        '[GPS] page-open status: service=$enabled permission=$permission precise=$precise');
+
+    if (!enabled) {
+      // Purge any stale warm-up fix - a position captured before Location
+      // was switched off must never be reused for attendance.
+      _warmBest = null;
+      _stopGpsWarmup();
+      _maybeShowLocationRequiredDialog();
+    } else {
+      _suppressLocationDialog = false; // next OFF may prompt again
+      _dismissLocationDialogIfShowing();
+      _maybeStartGpsWarmup();
+      _scheduleWarmupRetry(); // one-shot cover for transient guard races
+    }
+  }
+
+  /// Shows the one-shot Location Required dialog. Guarded so rebuilds and
+  /// repeated status events can never stack dialogs, and so a user who
+  /// chose "Not Now" is not re-prompted until the state flips on again.
+  void _maybeShowLocationRequiredDialog() {
+    if (_locationDialogOpen || _suppressLocationDialog || !mounted) return;
+    _locationDialogOpen = true;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Location Required'),
+        content: const Text(
+            "Please enable your device's Location service to use Manual or Biometric Attendance."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Not Now'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              Geolocator.openLocationSettings();
+            },
+            child: const Text('Open Location Settings'),
+          ),
+        ],
+      ),
+    ).then((_) {
+      _locationDialogOpen = false;
+      // Do not re-prompt while Location stays off; the on-page warning
+      // remains visible. Cleared when Location turns back on.
+      if (_locationServiceEnabled == false) _suppressLocationDialog = true;
+    });
+  }
+
+  void _dismissLocationDialogIfShowing() {
+    if (!_locationDialogOpen || !mounted) return;
+    Navigator.of(context, rootNavigator: true).pop();
+    _locationDialogOpen = false;
   }
 
   Future<bool> _ensurePermissionDemo({bool quiet = false}) async {
@@ -1241,18 +1627,21 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Location Permission Required'),
-          content: const Text(
-              'Location permission is disabled for this app. Please enable it from App Settings.'),
+          content: Text(kIsWeb
+              ? 'Location permission is blocked for this site. Enable it in your browser site settings, then try again.'
+              : 'Location permission is disabled for this app. Please enable it from App Settings.'),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(context, false),
                 child: const Text('Cancel')),
             TextButton(
               onPressed: () async {
-                await Geolocator.openAppSettings();
+                // openAppSettings is unsupported on web - the browser site
+                // settings cannot be opened programmatically.
+                if (!kIsWeb) await Geolocator.openAppSettings();
                 if (context.mounted) Navigator.pop(context, true);
               },
-              child: const Text('Open Settings'),
+              child: Text(kIsWeb ? 'Retry' : 'Open Settings'),
             ),
           ],
         ),
@@ -1298,17 +1687,33 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
       final list = (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
 
-      final match = list.firstWhere(
-        (m) =>
-            (m['branchName'] ?? m['name'] ?? '')
-                .toString()
-                .trim()
-                .toLowerCase() ==
-            location.trim().toLowerCase(),
-        orElse: () => const {},
-      );
+      bool nameMatches(Map<String, dynamic> m) =>
+          (m['branchName'] ?? m['name'] ?? '')
+              .toString()
+              .trim()
+              .toLowerCase() ==
+          location.trim().toLowerCase();
 
-      if (match.isEmpty) return null;
+      final match = list.firstWhere(nameMatches, orElse: () => const {});
+
+      if (match.isEmpty) {
+        debugPrint(
+            '[Branch] No officeLocations record matches employee location "$location" '
+            '(${list.length} records fetched)');
+        return null;
+      }
+
+      // Dev-only diagnostic (coords masked to ~1km). Helps verify which
+      // officeLocations record the geofence check resolved to.
+      final matchCount = list.where(nameMatches).length;
+      debugPrint(
+          '[Branch] employee location="$location" matched '
+          '${match['docId'] ?? match['id'] ?? '?'} '
+          'name=${match['branchName'] ?? match['name']} '
+          'coords≈${(match['latitude'] as num?)?.toStringAsFixed(2)},'
+          '${(match['longitude'] as num?)?.toStringAsFixed(2)} '
+          'radius=${match['radius']}'
+          '${matchCount > 1 ? ' ($matchCount same-name records - newest used)' : ''}');
 
       final branch = _Branch(
         (match['branchName'] ?? match['name'] ?? '').toString(),
@@ -1335,20 +1740,15 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     return Geolocator.distanceBetween(lat1, lng1, lat2, lng2);
   }
 
-  Future<bool> _confirmOutside(
-    double distance,
-    double radius,
-    String branchName, {
+  Future<bool> _confirmOutside({
     String actionLabel = 'check-in',
   }) async {
     return await showDialog<bool>(
           context: context,
           builder: (c) => AlertDialog(
-            title: const Text('Other location'),
+            title: const Text('Outside Office Location'),
             content: Text(
-              'You are outside the office location for $branchName.\n\n'
-              'Distance from branch: ${distance.toStringAsFixed(1)}m\n'
-              'Allowed radius: ${radius.toStringAsFixed(1)}m\n\n'
+              'You are outside your office location. '
               'Do you want to proceed with $actionLabel?',
             ),
             actions: [
@@ -1683,6 +2083,191 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   bool _isManualLoading = false;
   bool _isBiometricLoading = false;
 
+  // Prevents concurrent GPS acquisitions (check-in/check-out/retry overlap)
+  bool _gpsAcquisitionInProgress = false;
+
+  // GPS warm-up: a single shared position stream that keeps Fused Location
+  // hot while the page is visible so check-in can reuse a recently
+  // converged <=50m fix instead of cold-starting GNSS on tap. Never
+  // uploads positions, never requests permission, never starts tracking;
+  // auto-stops to bound battery use.
+  StreamSubscription<Position>? _gpsWarmSub;
+  StreamController<Position>? _gpsSharedStream;
+  Position? _warmBest;
+  double? _shownWarmAccuracy; // last accuracy shown in the readiness row
+  Timer? _warmStopTimer;
+  Timer? _warmupRetryTimer;
+  // Diagnostics: unique vs cached-repeat fix accounting per warm session.
+  // Identical position timestamps = the provider re-delivered a cached fix
+  // rather than a new GNSS sample (key device-side convergence metric).
+  int _warmFixUnique = 0;
+  int _warmFixRepeats = 0;
+  DateTime? _warmLastFixTs;
+  static const Duration _kWarmupMaxDuration = Duration(minutes: 4);
+
+  /// Starts the shared warm stream when safe: authenticated, permission
+  /// already granted (non-intrusive check only), service enabled, page
+  /// mounted and not already checked in (tracking keeps GPS warm anyway).
+  /// Every early return is logged - a silently skipped warm-up was a
+  /// first-attempt check-in regression (cold GNSS on tap).
+  Future<void> _maybeStartGpsWarmup() async {
+    if (!mounted) {
+      debugPrint('[GPS] warm-up skipped: not mounted');
+      return;
+    }
+    if (_gpsWarmSub != null) return; // already running
+    if (isCheckedIn) {
+      // isCheckedIn can be transiently true while cached prefs are
+      // reconciled by _loadTodayStatus - the false-resolution path calls
+      // this again, so skipping here is safe.
+      debugPrint('[GPS] warm-up skipped: checked in (or status pending)');
+      return;
+    }
+    if (CompanyData.token.isEmpty) {
+      debugPrint('[GPS] warm-up skipped: no auth token yet');
+      return;
+    }
+    try {
+      final perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        debugPrint('[GPS] warm-up skipped: permission $perm');
+        return; // Never trigger a permission prompt from warm-up.
+      }
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        debugPrint('[GPS] warm-up skipped: location service off');
+        return;
+      }
+      try {
+        final acc = await Geolocator.getLocationAccuracy();
+        if (acc == LocationAccuracyStatus.reduced) {
+          debugPrint('[GPS] warm-up skipped: approximate-only location');
+          return; // Approximate-only fixes can never reach <=50m.
+        }
+      } catch (_) {}
+    } catch (e) {
+      debugPrint('[GPS] warm-up skipped: status check error $e');
+      return;
+    }
+    _ensureSharedGpsStream();
+  }
+
+  /// Idempotently creates the single underlying GPS subscription and its
+  /// broadcast fan-out. Both warm-up and check-in acquisition listen to
+  /// the same stream, so at most one GPS subscription exists per page.
+  void _ensureSharedGpsStream() {
+    if (_gpsWarmSub != null || !mounted) return;
+    _gpsSharedStream ??= StreamController<Position>.broadcast();
+    _warmFixUnique = 0;
+    _warmFixRepeats = 0;
+    _warmLastFixTs = null;
+    debugPrint('[GPS] Warm-up stream started '
+        '(bestForNavigation, 1s interval, distanceFilter=0)');
+    // AndroidSettings with an explicit 1s interval: the default update
+    // cadence converges too slowly to reach <=50m within one page visit.
+    _gpsWarmSub = Geolocator.getPositionStream(
+      locationSettings: AndroidSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 0,
+        intervalDuration: Duration(seconds: 1),
+      ),
+    ).listen(
+      (p) {
+        if (!p.isMocked) _warmBest = p; // keep freshest valid fix
+        if (_gpsSharedStream?.isClosed == false) _gpsSharedStream?.add(p);
+        if (p.timestamp == _warmLastFixTs) {
+          _warmFixRepeats++;
+        } else {
+          _warmLastFixTs = p.timestamp;
+          _warmFixUnique++;
+          final age = DateTime.now().difference(p.timestamp);
+          debugPrint('[GPS] warm fix #$_warmFixUnique '
+              'acc=${p.accuracy.toStringAsFixed(1)}m '
+              'age=${age.inSeconds}s');
+        }
+        // Refresh the on-page GPS-readiness indicator when accuracy
+        // improves meaningfully or crosses the 50m threshold.
+        final acc = p.isMocked ? null : p.accuracy;
+        if (mounted && acc != null &&
+            (_shownWarmAccuracy == null ||
+                acc <= _shownWarmAccuracy! - 5 ||
+                (acc <= 50) != (_shownWarmAccuracy! <= 50))) {
+          setState(() => _shownWarmAccuracy = acc);
+        }
+      },
+      onError: (Object e) => debugPrint('[GPS] Warm-up stream error: $e'),
+    );
+    _warmStopTimer?.cancel();
+    _warmStopTimer = Timer(_kWarmupMaxDuration, () {
+      if (_gpsAcquisitionInProgress) {
+        // Do not cut the stream out from under an active acquisition -
+        // self-renewing recheck until the acquisition flag clears.
+        _warmStopTimer = Timer(
+            const Duration(seconds: 75), () => _stopGpsWarmup());
+        return;
+      }
+      _stopGpsWarmup();
+    });
+  }
+
+  /// Stops the shared warm stream. Deferral applies only to transient
+  /// stops (lifecycle hide, 4-minute cap) while an acquisition consumes
+  /// the stream; [force] (dispose/logout) cancels immediately.
+  ///
+  /// [force] is only ever passed `true` from [dispose]. At that point the
+  /// State is being torn down, so this must release the subscription/timer
+  /// without touching widget state at all - checking `mounted` is not
+  /// sufficient on its own, since the State's element is not detached until
+  /// after `dispose()` returns, so `mounted` still reads `true` for the
+  /// remainder of the dispose() call. Skipping setState whenever `force` is
+  /// set keeps cleanup unconditional while non-dispose callers (lifecycle
+  /// hide, warm-up cap, etc.) keep refreshing the on-page accuracy badge as
+  /// before.
+  void _stopGpsWarmup({bool force = false}) {
+    _warmStopTimer?.cancel();
+    _warmStopTimer = null;
+    if (_gpsWarmSub != null && _gpsAcquisitionInProgress && !force) {
+      // An acquisition is consuming this stream - cancelling now would
+      // starve it until the deadline. Re-entering this method keeps the
+      // recheck alive until the flag clears, so the stream can never be
+      // left running permanently.
+      _warmStopTimer = Timer(
+          const Duration(seconds: 75), () => _stopGpsWarmup());
+      return;
+    }
+    if (_gpsWarmSub != null) {
+      debugPrint('[GPS] Warm-up stream stopped '
+          '(unique fixes=$_warmFixUnique, cached-repeats=$_warmFixRepeats)');
+      _gpsWarmSub!.cancel();
+      _gpsWarmSub = null;
+    }
+    if (!force && mounted && _shownWarmAccuracy != null) {
+      setState(() => _shownWarmAccuracy = null);
+    }
+  }
+
+  /// One delayed retry for warm-up at page open: covers transient guard
+  /// failures (token not yet hydrated, permission check racing plugin
+  /// init) that previously left GNSS cold until the check-in tap.
+  void _scheduleWarmupRetry() {
+    _warmupRetryTimer?.cancel();
+    _warmupRetryTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted &&
+          _gpsWarmSub == null &&
+          _locationServiceEnabled == true &&
+          !isCheckedIn) {
+        debugPrint('[GPS] warm-up retry attempt');
+        _maybeStartGpsWarmup();
+      }
+    });
+  }
+
+  // Freshness policy for the fast-path last-known fix: a position produced
+  // within the last 60s by Fused Location (e.g. a recent tracking tick or a
+  // prior check-out attempt) is trustworthy if it also meets the accuracy
+  // threshold and is not mocked.
+  static const Duration _kLastKnownMaxAge = Duration(seconds: 60);
+
 // Helper function to determine user-friendly error messages
   String _getUserFriendlyErrorMessage(dynamic error) {
     final errorString = error.toString().toLowerCase();
@@ -1728,15 +2313,18 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (_isManualLoading || _isBiometricLoading) return;
     debugPrint('[Attendance] Manual attendance button pressed');
 
-    final canProceed = await _canProceedWithCheckIn();
-    if (!canProceed) return;
-
-    if (!mounted) return;
-
+    // Set the in-flight guard synchronously BEFORE the first await. Setting
+    // it after _canProceedWithCheckIn() left a window where a second tap
+    // could slip past the check and run a duplicate check-in flow.
     _isManualLoading = true;
     setState(() {});
 
     try {
+      final canProceed = await _canProceedWithCheckIn();
+      if (!canProceed) return;
+
+      if (!mounted) return;
+
       await _performCheckIn('manual');
     } finally {
       if (mounted) {
@@ -1750,13 +2338,15 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   Future<void> _authenticateAndCheckIn() async {
     if (_isManualLoading || _isBiometricLoading) return;
 
-    final canProceed = await _canProceedWithCheckIn();
-    if (!canProceed) return;
-
+    // Same synchronous in-flight guard as the manual path: set before the
+    // first await so a concurrent tap cannot start a second flow.
     _isBiometricLoading = true;
     setState(() {});
 
     try {
+      final canProceed = await _canProceedWithCheckIn();
+      if (!canProceed) return;
+
       _authInProgress = true;
 
       // Check biometric availability before authentication
@@ -1819,6 +2409,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       setState(() {});
     } finally {
       _authInProgress = false;
+      // Always release the in-flight guard - including the success path,
+      // which previously left _isBiometricLoading stuck true (locking both
+      // check-in buttons if the user was not checked in afterwards).
+      _isBiometricLoading = false;
+      if (mounted) setState(() {});
     }
   }
 
@@ -1874,8 +2469,15 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 //    This prevents the popup from opening if this method is called from anywhere else.
   Future<void> _performCheckIn(String type) async {
     debugPrint('[GPS] Check-in started (type=$type)');
-    final canProceed = await _canProceedWithCheckIn();
-    if (!canProceed) return;
+    final perfSw = Stopwatch()..start();
+    // Cheap local re-check only: the entry handlers already ran the full
+    // _canProceedWithCheckIn() (local state + /attendance/live). Calling it
+    // again here would double the API round-trip on every tap. The backend
+    // 409 remains the authoritative duplicate guard.
+    if (isCheckedIn) {
+      _showInfoDialog('Already checked in today');
+      return;
+    }
 
     // Ensure shift times are loaded before validation
     if (_shiftTimes == null) {
@@ -1904,11 +2506,15 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     _log(
         '[ManualAttendance] Starting location acquisition for manual check-in');
     debugPrint('[GPS] Final result: pending');
+    // Branch geofence data does not depend on the GPS fix - fetch it in
+    // parallel with acquisition so its network latency is hidden.
+    final branchFuture = _fetchMyBranch();
     final pos = await _getHighAccuracyPosition(
       actionLabel: 'check-in',
       maxAccuracyMeters: 50.0,
     );
-    debugPrint('[GPS] Final result: ${pos == null ? 'null' : 'valid'}');
+    debugPrint('[GPS] Final result: ${pos == null ? 'null' : 'valid'} '
+        '(${perfSw.elapsedMilliseconds}ms)');
     if (pos == null) {
       _log('[ManualAttendance] Location acquisition failed and returned null');
       debugPrint('[GPS] Final failure reason: location null');
@@ -1916,7 +2522,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       return;
     }
 
-    final branch = await _fetchMyBranch();
+    final branch = await branchFuture;
+    debugPrint('[Perf] branch lookup done (${perfSw.elapsedMilliseconds}ms)');
 
     bool within = true;
     double distance = 0.0;
@@ -1936,24 +2543,24 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       );
       within = distance <= branch.radius;
 
-      if (!within) {
-        final ok = await _confirmOutside(
-          distance,
-          branch.radius,
-          branch.name,
-          actionLabel: 'check-in',
-        );
+      // Dev-only diagnostic (coords masked to ~1km).
+      debugPrint(
+          '[Branch] device≈${pos.latitude.toStringAsFixed(2)},'
+          '${pos.longitude.toStringAsFixed(2)} '
+          'distance=${distance.toStringAsFixed(1)}m radius=${branch.radius}');
+
+      // The popup only appears when the fix is confidently outside: the
+      // reported accuracy radius must clear the geofence boundary entirely.
+      // Ambiguous fixes are recorded silently and the backend classifies
+      // office presence as 'uncertain'.
+      final confidentlyOutside = distance - pos.accuracy > branch.radius;
+      if (confidentlyOutside) {
+        final ok = await _confirmOutside(actionLabel: 'check-in');
         if (!ok) return;
       }
     } else {
-      final ok = await _confirmOutside(
-        0,
-        0,
-        location.isEmpty ? 'Unknown' : location,
-        actionLabel: 'check-in',
-      );
-
-      if (!ok) return;
+      // No geofence configured for this branch - record automatically; the
+      // backend marks office presence 'uncertain' and logs the event.
       within = false;
     }
 
@@ -1969,6 +2576,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       'longitude': pos.longitude,
       'accuracy': pos.accuracy,
       'source': type,
+      // UTC timestamp of the accepted GPS fix itself (ISO 8601), required by
+      // the deployed backend's locationTimestamp validation.
+      'locationTimestamp': pos.timestamp.toUtc().toIso8601String(),
       'branchName': branchName,
       'expectedLatitude': expLat,
       'expectedLongitude': expLng,
@@ -1991,23 +2601,18 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       prevS: seconds,
     );
 
-    final now = DateTime.now();
+    // Do NOT mark checked-in or persist check-in time yet. The backend is
+    // authoritative: on success _loadTodayStatus() applies the server time
+    // (and writes prefs/cache). Persisting here would leave a ghost
+    // "checked in" state behind if the request fails.
     setState(() {
       _isAttendanceStatusLoading = true;
       _hasAttendanceApiConfirmed = false;
-      isCheckedIn = true;
-      _checkInSource = type.toLowerCase();
-      _checkInTime = now;
-      _checkOutTime = null;
     });
-    _startWorkTimer();
-    await _saveCheckInToPrefs();
-    await _cacheCheckInTime(
-        now); // Cache check-in time after successful check-in
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Checking in… syncing in background')),
+      const SnackBar(content: Text('Location verified. Checking in…')),
     );
 
     try {
@@ -2031,6 +2636,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               responseData['message'] ??
               'Check-in failed')
           .toString();
+      debugPrint('[Perf] attendance API responded ${res.statusCode} '
+          '(${perfSw.elapsedMilliseconds}ms)');
 
       // Duplicate same-day check-in must rollback immediately.
       if (res.statusCode == 409 || code == 'ALREADY_CHECKED_IN') {
@@ -2056,31 +2663,63 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       if (res.statusCode == 200 || res.statusCode == 201) {
         debugPrint('[TRACKING] Check-in success - Starting tracking flow');
 
-        unawaited(_trackingCheckInAndSeed(pos));
-        unawaited(_ensureNotificationPermission());
-        unawaited(_maybePromptBatteryOptimization());
-        unawaited(startFgTracking(empid: userId, token: CompanyData.token));
-        unawaited(
-          scheduleBackgroundTracking(empid: userId, token: CompanyData.token),
-        );
+        // Use the authoritative check-in time committed by the backend
+        // (checkIn = HH:mm:ss IST / checkInTsUtc = ISO-8601 UTC, written in
+        // the same write). Never invent a client timestamp as a substitute.
+        final serverCheckIn = (responseData['checkIn'] ?? '').toString();
+        final serverCheckInTsUtc =
+            (responseData['checkInTsUtc'] ?? '').toString();
+        if (serverCheckIn.isNotEmpty) {
+          _applyCheckedInFromServer(serverCheckIn);
+        } else if (serverCheckInTsUtc.isNotEmpty) {
+          final ts = DateTime.tryParse(serverCheckInTsUtc)?.toLocal();
+          if (ts != null) {
+            _applyCheckedInFromServer(
+                '${ts.hour.toString().padLeft(2, '0')}:'
+                '${ts.minute.toString().padLeft(2, '0')}:'
+                '${ts.second.toString().padLeft(2, '0')}');
+          }
+        }
 
-        _tracking ??= TrackingService(
-          apiBase: _apiBase,
-          jwtToken: CompanyData.token,
-          empId: userId,
-        );
-        unawaited(_tracking!.startAfterCheckIn());
-
-        debugPrint(
-            '[TRACKING] Tracking start functions called - UI state: isCheckedIn=$isCheckedIn, isTrackingStarted=false');
-
-        _lastStatusFetch = null;
-        await _loadTodayStatus();
+        if (_checkInTime != null) {
+          // Authoritative time applied - persist exactly that timestamp and
+          // skip the redundant status fetch.
+          await _saveCheckInToPrefs(at: _checkInTime);
+          _lastStatusFetch = DateTime.now();
+        } else {
+          // Older backend omitted the timestamp - brief confirming state,
+          // then reconcile via the authoritative status endpoint.
+          if (mounted) {
+            setState(() {
+              isCheckedIn = true;
+              _isAttendanceStatusLoading = true;
+            });
+          }
+          _lastStatusFetch = null;
+          await _loadTodayStatus();
+        }
 
         if (!mounted) return;
+        setState(() {
+          isCheckedIn = true;
+          isTimerRunning = true;
+          if (_checkInSource.isEmpty) _checkInSource = type.toLowerCase();
+          _checkOutTime = null;
+          _isAttendanceStatusLoading = false;
+          _hasAttendanceApiConfirmed = true;
+        });
+        _startWorkTimer();
+        debugPrint('[Perf] UI confirmed at ${perfSw.elapsedMilliseconds}ms');
+        final presenceLabel = officePresenceLabel(
+            responseData['officePresence']?.toString());
         _showSuccessDialog(
-          responseData['message']?.toString() ?? 'Checked in successfully!',
+          (responseData['message']?.toString() ?? 'Checked in successfully!') +
+              (presenceLabel != null ? '\n$presenceLabel' : ''),
         );
+
+        // Tracking now owns location capture - release the warm-up stream.
+        _stopGpsWarmup();
+        _initTrackingAfterCheckIn(pos);
         return;
       }
 
@@ -2101,6 +2740,19 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       });
       _showErrorDialog(message);
     } catch (e) {
+      // A timeout/network failure is ambiguous - the write may actually have
+      // landed. Reconcile with the authoritative status before declaring
+      // failure; if the server shows the check-in, treat it as success.
+      _lastStatusFetch = null;
+      await _loadTodayStatus();
+      if (isCheckedIn) {
+        if (!mounted) return;
+        _stopGpsWarmup();
+        _initTrackingAfterCheckIn(pos);
+        _showSuccessDialog('Checked in successfully!');
+        return;
+      }
+
       await _rollbackAfterFailedCheckIn(
         wasCheckedIn: prevState.wasCheckedIn,
         wasTimerRunning: prevState.wasTimerRunning,
@@ -2118,6 +2770,188 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       });
       _showErrorDialog(_getUserFriendlyErrorMessage(e));
     }
+  }
+
+  // ── Tracking startup state machine ──────────────────────────────────────
+  // Persisted states: not_started / starting / active / failed / recovering.
+  // Bound to (empid, session date) so a different employee's or day's state
+  // is never recovered after a logout/login on the same device.
+  static const String _trkNotStarted = 'not_started';
+  static const String _trkStarting = 'starting';
+  static const String _trkActive = 'active';
+  static const String _trkFailed = 'failed';
+  static const String _trkRecovering = 'recovering';
+  bool _trackingInitInFlight = false;
+  int _trackingInitAttempts = 0;
+  Timer? _trackingRetryTimer;
+  // One-shot listener armed when timed retries are exhausted while offline
+  // (or fail). The next offline->online transition re-runs reconciliation.
+  StreamSubscription<bool>? _trackingRecoverySub;
+
+  /// After the bounded backoff retries are exhausted, a failed tracking
+  /// init would otherwise stay dead until the employee reopens this page.
+  /// Arm a single connectivity listener instead: the first offline->online
+  /// transition retries reconciliation once. Cancelled on success,
+  /// check-out, or page disposal.
+  void _listenForTrackingRecovery() {
+    if (_trackingRecoverySub != null) return;
+    _trackingRecoverySub = ConnectivityService.I.online$.listen((online) {
+      if (!online) return;
+      _trackingRecoverySub?.cancel();
+      _trackingRecoverySub = null;
+      if (!mounted || !isCheckedIn) return;
+      unawaited(_ensureTrackingActive());
+    });
+  }
+
+  Future<void> _setTrackingState(String state) async {
+    final sp = await _prefs();
+    await sp.setString(kTrackingStateKey, state);
+    await sp.setString(kTrackingStateEmpKey, userId);
+    await sp.setString(kTrackingStateDateKey, _todayYmd());
+  }
+
+  Future<void> _clearTrackingState() async {
+    _trackingRetryTimer?.cancel();
+    _trackingRecoverySub?.cancel();
+    _trackingRecoverySub = null;
+    _trackingInitAttempts = 0;
+    final sp = await _prefs();
+    await sp.remove(kTrackingStateKey);
+    await sp.remove(kTrackingStateEmpKey);
+    await sp.remove(kTrackingStateDateKey);
+  }
+
+  /// Non-blocking tracking startup after a CONFIRMED check-in. Returns
+  /// immediately - init runs with persisted state, bounded retries and a
+  /// visible failure indicator. Attendance confirmation never waits on it.
+  void _initTrackingAfterCheckIn(Position? pos) {
+    unawaited(_runTrackingInit(pos, isRecovery: false));
+    unawaited(_ensureNotificationPermission());
+    unawaited(_maybePromptBatteryOptimization());
+  }
+
+  /// Idempotent init: one attempt at a time. Seeding with the validated
+  /// attendance position is awaited ONLY inside here (so `bg_last_pos_ms`
+  /// lands before the foreground service's immediate tick), then the FG
+  /// service, Workmanager and TrackingService launch in order.
+  Future<void> _runTrackingInit(Position? pos,
+      {required bool isRecovery}) async {
+    if (_trackingInitInFlight) return;
+    _trackingInitInFlight = true;
+    final sw = Stopwatch()..start();
+    try {
+      await _setTrackingState(isRecovery ? _trkRecovering : _trkStarting);
+
+      if (pos != null) {
+        // Validated attendance position - seed once, no second GPS burst.
+        await _trackingCheckInAndSeed(pos);
+      } else {
+        // Recovery: ensure the backend session exists. Never seed a stored
+        // or stale position - a live capture is only done by the services.
+        await _trackingSessionCheckIn();
+      }
+      debugPrint('[Perf] tracking session up (${sw.elapsedMilliseconds}ms)');
+
+      // A fresh check-in re-pins the tracking session date to today;
+      // recovery keeps the existing pin so overnight shifts stay on their
+      // original tracking document.
+      await startFgTracking(
+          empid: userId,
+          token: CompanyData.token,
+          newSession: !isRecovery);
+      // A persisted flag does not prove the Android service is alive.
+      if (!await isForegroundTrackingRunning()) {
+        throw StateError('foreground service did not start');
+      }
+      debugPrint('[Perf] FG service up (${sw.elapsedMilliseconds}ms)');
+
+      await scheduleBackgroundTracking(
+          empid: userId, token: CompanyData.token);
+      _tracking ??= TrackingService(
+        apiBase: _apiBase,
+        jwtToken: CompanyData.token,
+        empId: userId,
+      );
+      await _tracking!.startAfterCheckIn(initialPosition: pos);
+
+      await _setTrackingState(_trkActive);
+      _trackingInitAttempts = 0;
+      _trackingRecoverySub?.cancel();
+      _trackingRecoverySub = null;
+      debugPrint('[Perf] tracking active (${sw.elapsedMilliseconds}ms)');
+      if (isRecovery && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Live tracking active')),
+        );
+      }
+    } catch (e) {
+      debugPrint('[TRACKING] init failed: $e');
+      await _setTrackingState(_trkFailed);
+      _scheduleTrackingRetry();
+      if (!mounted) return;
+      if (_trackingInitAttempts >= kMaxTrackingInitAttempts) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Checked in - tracking could not start. Reopen the app to retry.')));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Checked in - tracking needs attention. Retrying in background.')));
+      }
+    } finally {
+      _trackingInitInFlight = false;
+    }
+  }
+
+  /// Bounded backoff retry: max 3 attempts (5s/15s/45s). Never retries after
+  /// check-out/logout - isCheckedIn is reconciled with the authoritative
+  /// status before the timer fires.
+  void _scheduleTrackingRetry() {
+    _trackingRetryTimer?.cancel();
+    final delay = trackingInitRetryDelay(_trackingInitAttempts);
+    if (delay == null) {
+      debugPrint('[TRACKING] retry limit reached - arming reconnect recovery');
+      _listenForTrackingRecovery();
+      return;
+    }
+    _trackingInitAttempts++;
+    _trackingRetryTimer = Timer(delay, () async {
+      if (!mounted || !isCheckedIn) return;
+      // Do not burn a retry attempt while offline: the init cannot get past
+      // the session check-in call without connectivity. Wait for the
+      // offline->online transition instead.
+      final online = await ConnectivityService.I.isOnline
+          .catchError((_) => true); // unknown -> try anyway
+      if (!online) {
+        _listenForTrackingRecovery();
+        return;
+      }
+      unawaited(_runTrackingInit(null, isRecovery: true));
+    });
+  }
+
+  /// Idempotent reconciliation: called after the authoritative attendance
+  /// status confirms an active check-in (app launch, login, page return,
+  /// lifecycle resume). Recovers tracking if it isn't actually running.
+  Future<void> _ensureTrackingActive() async {
+    if (!isCheckedIn || _trackingInitInFlight || userId.isEmpty) return;
+    try {
+      final sp = await _prefs();
+      final owner = sp.getString(kTrackingStateEmpKey);
+      final date = sp.getString(kTrackingStateDateKey);
+      // A different employee's or day's recovery state must never be reused.
+      if (owner != userId || date != _todayYmd()) {
+        await _clearTrackingState();
+        unawaited(_runTrackingInit(null, isRecovery: true));
+        return;
+      }
+      final state = sp.getString(kTrackingStateKey) ?? _trkNotStarted;
+      if (state == _trkActive && await isForegroundTrackingRunning()) {
+        return; // healthy - nothing to do
+      }
+      unawaited(_runTrackingInit(null, isRecovery: true));
+    } catch (_) {}
   }
 
   Future<void> _authenticateAndCheckOut() async {
@@ -2193,6 +3027,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         }
       }
 
+      final branchFuture = _fetchMyBranch();
       final pos = await _getHighAccuracyPosition(
         quiet: silent,
         actionLabel: 'check-out',
@@ -2203,7 +3038,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         return;
       }
 
-      final branch = await _fetchMyBranch();
+      final branch = await branchFuture;
       bool within = true;
       double distance = 0.0;
       String branchName = location;
@@ -2231,13 +3066,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             '[CHECKOUT RADIUS] Radius: ${branch.radius.toStringAsFixed(2)}m');
         debugPrint('[CHECKOUT RADIUS] Within radius: $within');
 
-        if (!within) {
-          final ok = await _confirmOutside(
-            distance,
-            branch.radius,
-            branch.name,
-            actionLabel: 'check-out',
-          );
+        // Same rule as check-in: prompt only when the fix is confidently
+        // outside the geofence (accuracy radius fully clears the boundary).
+        final confidentlyOutside =
+            distance - pos.accuracy > branch.radius;
+        if (confidentlyOutside) {
+          final ok = await _confirmOutside(actionLabel: 'check-out');
 
           if (!ok) {
             if (!silent) {
@@ -2247,21 +3081,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           }
         }
       } else {
-        debugPrint('[CHECKOUT RADIUS] Branch not found. Asking confirmation.');
-
-        final ok = await _confirmOutside(
-          0,
-          0,
-          location.isEmpty ? 'Unknown location' : location,
-          actionLabel: 'check-out',
-        );
-
-        if (!ok) {
-          if (!silent) {
-            _showInfoDialog('Checkout cancelled');
-          }
-          return;
-        }
+        debugPrint('[CHECKOUT RADIUS] Branch not found - recording anyway.');
 
         within = false;
         branchName = location.isEmpty ? 'Unknown location' : location;
@@ -2275,6 +3095,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         'latitude': pos.latitude,
         'longitude': pos.longitude,
         'accuracy': pos.accuracy,
+        // UTC timestamp of the accepted GPS fix itself (ISO 8601).
+        'locationTimestamp': pos.timestamp.toUtc().toIso8601String(),
         'branchName': branchName,
         'expectedLatitude': expLat,
         'expectedLongitude': expLng,
@@ -2304,9 +3126,20 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       );
 
       if (res.statusCode == 200) {
+        // Stop retries/recovery BEFORE clearing checked-in state.
+        await _clearTrackingState();
         await stopFgTracking();
         await cancelBackgroundTracking(empid: userId);
         await _tracking?.stopAfterCheckOut();
+        // Close the tracking doc while the pinned session date is still
+        // readable (overnight check-outs need it; the backend also closes
+        // server-side and scans the previous day as a fallback).
+        await _trackingCheckOut();
+        // Drop the tracking-specific persisted identity so a sticky-restarted
+        // service isolate finds empty credentials and self-disables. The
+        // login session ('token', 'empid') is untouched - the employee stays
+        // signed in; only tracking attribution keys are cleared.
+        await clearTrackingSessionIdentity();
 
         _stopWorkTimer();
         await _clearCheckInFromPrefs();
@@ -2316,7 +3149,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           _checkOutTime = DateTime.now();
           _checkInSource = '';
         });
-        await _trackingCheckOut();
       } else {
         final msg =
             (jsonDecode(res.body)['error'] ?? jsonDecode(res.body)['message'])
@@ -2333,44 +3165,125 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
   }
 
-  Future<void> _trackingCheckInAndSeed(Position pos) async {
+  /// POST /tracking/check-in only - ensures the backend session exists.
+  /// Idempotent server-side; throws on failure so the startup state machine
+  /// can detect and retry.
+  Future<void> _trackingSessionCheckIn() async {
     final token = CompanyData.token;
-    if (token.isEmpty || userId.isEmpty) return;
-
-    debugPrint('[TRACKING] Starting tracking check-in');
-
-    try {
-      final base = '${ApiService.baseUrl}/tracking';
-
-      final checkInRes = await http.post(
-        Uri.parse('$base/check-in'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-          'x-empid': userId,
-        },
-        body: jsonEncode({}),
-      );
-
-      debugPrint(
-          '[TRACKING] Check-in API response status: ${checkInRes.statusCode}');
-
-      final posRes = await http.post(
-        Uri.parse('$base/pos'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-          'x-empid': userId,
-        },
-        body: jsonEncode({'lat': pos.latitude, 'lng': pos.longitude}),
-      );
-
-      debugPrint(
-          '[TRACKING] Position API response status: ${posRes.statusCode}');
-      debugPrint('[TRACKING] Tracking check-in completed successfully');
-    } catch (e) {
-      debugPrint('[TRACKING] Tracking check-in error: $e');
+    if (token.isEmpty || userId.isEmpty) {
+      throw StateError('missing tracking credentials');
     }
+    final res = await http
+        .post(
+          Uri.parse('${ApiService.baseUrl}/tracking/check-in'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+            'x-empid': userId,
+          },
+          body: jsonEncode({'dateIso': trackingDateIso()}),
+        )
+        .timeout(const Duration(seconds: 15));
+    debugPrint('[TRACKING] session creation status=${res.statusCode}');
+    if (res.statusCode != 200) {
+      throw StateError('tracking check-in HTTP ${res.statusCode}');
+    }
+    if (kDebugMode) {
+      try {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        debugPrint('[TRACKING] tracking document found=${body['existed']} '
+            'reopened=${body['reopened']} backend pathMap count=${body['pathMapCount']}');
+      } catch (_) {}
+    }
+  }
+
+  // The validated attendance fix is only used as the seed while it is fresh;
+  // an older fix falls through to a live capture by the tracking services.
+  static const Duration _kSeedMaxFixAge = Duration(minutes: 5);
+  static const List<Duration> _kSeedRetryBackoffs = [
+    Duration(seconds: 2),
+    Duration(seconds: 5),
+  ];
+
+  /// Ensures the session exists, then persists the validated attendance
+  /// position as the first pathMap point. Succeeds only when the backend
+  /// confirms the point is stored (or a point < 15 min old already exists).
+  /// Throws otherwise so the startup state machine records a failure and
+  /// retries with a live capture.
+  Future<void> _trackingCheckInAndSeed(Position pos) async {
+    debugPrint('[TRACKING] attendance confirmed - starting tracking session');
+
+    // A marker left over from an earlier session must never suppress the
+    // first capture of this one. It is re-written only after confirmation.
+    final sp = await _prefs();
+    await sp.remove(kLastPersistedPosMsKey);
+
+    await _trackingSessionCheckIn();
+
+    final fixAge = DateTime.now().difference(pos.timestamp);
+    if (fixAge > _kSeedMaxFixAge) {
+      throw StateError('check-in fix too old for seed (${fixAge.inSeconds}s)');
+    }
+
+    final dateIso = trackingDateIso();
+    // Same id on every retry -> backend stores the seed at most once.
+    // `mocked` propagates the platform's mock-location flag so a spoofed
+    // check-in seed is flagged server-side rather than trusted silently.
+    if (pos.isMocked) {
+      debugPrint('[TRACKING] check-in seed position is mocked - flagging');
+    }
+    final payload = buildTrackingPointPayloadFromPosition(
+      empid: userId,
+      position: pos,
+      source: 'checkin-seed',
+      // Capture-instant identity: shared with every other producer so a
+      // seed the foreground service also captures dedupes cleanly.
+      pointId: trackingPointIdFor(pos.timestamp),
+    );
+    // The tracking doc key is the SESSION date (today), not the fix's
+    // timestamp date - identical unless a <5-min-old seed straddles
+    // midnight, in which case the session date must still win.
+    payload['dateIso'] = dateIso;
+
+    TrackingPostResult result = const TrackingPostResult(0, 'http_error', null);
+    for (var attempt = 0; attempt <= _kSeedRetryBackoffs.length; attempt++) {
+      if (attempt > 0) await Future.delayed(_kSeedRetryBackoffs[attempt - 1]);
+      try {
+        final res = await http
+            .post(
+              Uri.parse('${ApiService.baseUrl}/tracking/pos'),
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ${CompanyData.token}',
+                'x-empid': userId,
+              },
+              body: jsonEncode(payload),
+            )
+            .timeout(const Duration(seconds: 15));
+        result = TrackingPostResult.fromResponse(res);
+      } catch (e) {
+        result = const TrackingPostResult(0, 'http_error', null);
+        debugPrint('[TRACKING] initial point POST error (attempt ${attempt + 1})');
+      }
+      debugPrint('[TRACKING] initial point POST attempt=${attempt + 1} $result');
+      if (!result.retryable) break;
+    }
+
+    debugPrint('[TRACKING] initial point persisted=${result.persisted}');
+    if (result.recentPointExists) {
+      await sp.setInt(
+          kLastPersistedPosMsKey, DateTime.now().millisecondsSinceEpoch);
+      trackingPointPersisted.value++;
+      return;
+    }
+    if (result.status == 'too_close') {
+      // pathMap already has an older point at this spot - nothing lost, but
+      // no marker: the FG service's next tick captures normally.
+      debugPrint('[TRACKING] point skip reason=too_close');
+      return;
+    }
+    debugPrint('[TRACKING] point skip reason=${result.status}');
+    throw StateError('initial tracking point not persisted (${result.status})');
   }
 
   Future<void> _trackingCheckOut() async {
@@ -2378,8 +3291,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (token.isEmpty || userId.isEmpty) return;
     try {
       final base = '${ApiService.baseUrl}/tracking';
-      // Use local date for tracking document to match admin view
-      final localDateIso = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      // Close the SESSION's document, not today's date - for an overnight
+      // shift these differ (check-in before midnight, check-out after).
+      // The pinned date is cleared by clearTrackingSessionIdentity, which
+      // runs BEFORE this call on the success path, so fall back to today
+      // when it is already gone (the backend also scans the previous day).
+      final localDateIso = await trackingSessionDateIso();
 
       final response = await http.post(
         Uri.parse('$base/check-out'),
@@ -2406,26 +3323,238 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Future<void> _ensureNotificationPermission() async {
+    // permission_handler has no web implementation; browsers manage
+    // notification permission per-site.
+    if (kIsWeb) return;
     final status = await Permission.notification.status;
     if (!status.isGranted) {
       await Permission.notification.request();
     }
   }
 
-  Future<void> _maybePromptBatteryOptimization() async {
-    try {
-      final intent = AndroidIntent(
-        action: 'android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
-      );
-      await intent.launch();
-    } catch (_) {
-      try {
-        final intent = AndroidIntent(
-          action: 'android.settings.IGNORE_BATTERY_OPTIMATION_SETTINGS',
-        );
-        await intent.launch();
-      } catch (_) {}
+  /// TEMPORARY DIAGNOSTIC ONLY (debug builds, Android). Runs Geolocator's
+  /// acquisition and a direct native Fused Location Provider call
+  /// (PRIORITY_HIGH_ACCURACY) back-to-back and logs both so results can be
+  /// compared on the same device under the same conditions. Does not affect
+  /// check-in, geofencing, or tracking - it never writes _checkInTime, never
+  /// POSTs anywhere, and runs only when explicitly triggered from a
+  /// debug-only button.
+  ///
+  /// Guarded by [_gpsDiagnosticRunning]: a fast double-tap must not start a
+  /// second overlapping native FLP + Geolocator capture (duplicate GPS
+  /// sampling, confusing interleaved [GPS_DIAG] logs).
+  Future<void> _runGpsDiagnosticComparison() async {
+    if (_gpsDiagnosticRunning) {
+      debugPrint('[GPS_DIAG] already running - ignoring duplicate trigger');
+      return;
     }
+    _gpsDiagnosticRunning = true;
+    if (mounted) setState(() {});
+
+    debugPrint('[GPS_DIAG] ==== starting Flutter vs native FLP comparison ====');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Running GPS diagnostic - see debug console'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
+
+    try {
+      await _runGpsDiagnosticComparisonBody();
+    } finally {
+      _gpsDiagnosticRunning = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _runGpsDiagnosticComparisonBody() async {
+    Position? flutterPos;
+    // Reuse the page's already-running warm-up stream when present - the
+    // same pattern _getHighAccuracyPosition uses - instead of opening a
+    // second concurrent FLP LocationRequest. Two simultaneous
+    // bestForNavigation requests from this app were observed to trigger
+    // Android's internal "location delivery blocked (too fast/too
+    // close/too inaccurate)" throttling between requests; it never
+    // corrupted results, but it's wasted GPS/battery activity and an
+    // avoidable extra GPS consumer.
+    if (_gpsWarmSub != null && _warmBest != null) {
+      flutterPos = _warmBest;
+      debugPrint('[GPS_DIAG] Reusing shared warm-up stream fix '
+          '(no second concurrent FLP request opened)');
+    } else {
+      try {
+        flutterPos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.bestForNavigation,
+          timeLimit: const Duration(seconds: 30),
+          forceAndroidLocationManager: false,
+        );
+      } catch (e) {
+        debugPrint('[GPS_DIAG] Geolocator (Flutter/FLP) call failed: $e');
+      }
+    }
+    if (flutterPos != null) {
+      debugPrint('[GPS_DIAG] Geolocator result: '
+          'accuracy=${flutterPos.accuracy.toStringAsFixed(1)}m, '
+          'timestamp=${flutterPos.timestamp.toIso8601String()}, '
+          'mocked=${flutterPos.isMocked}, provider=unavailable via geolocator');
+    } else {
+      debugPrint('[GPS_DIAG] Geolocator result: null (no fix within timeout)');
+    }
+
+    final native = await NativeGpsDiagnostic.fusedLocationOnce();
+    if (native == null) {
+      debugPrint('[GPS_DIAG] Native FLP result: unavailable '
+          '(not Android debug build, or call failed - see prior log line)');
+    } else {
+      final fused = native['fused'] as Map?;
+      final gpsLastKnown = native['gpsProviderLastKnown'] as Map?;
+      if (fused != null) {
+        debugPrint('[GPS_DIAG] Native FLP (PRIORITY_HIGH_ACCURACY) result: '
+            'accuracy=${fused['accuracy']}m, '
+            'provider=${fused['provider']}, '
+            'timestamp=${fused['timestampIso']}, '
+            'mocked=${fused['isMocked']}');
+      } else {
+        debugPrint('[GPS_DIAG] Native FLP result: null (no fix within timeout)');
+      }
+      if (gpsLastKnown != null) {
+        debugPrint('[GPS_DIAG] Raw LocationManager GPS_PROVIDER last-known: '
+            'accuracy=${gpsLastKnown['accuracy']}m, '
+            'provider=${gpsLastKnown['provider']}, '
+            'timestamp=${gpsLastKnown['timestampIso']}');
+      } else {
+        debugPrint('[GPS_DIAG] Raw LocationManager GPS_PROVIDER last-known: none available');
+      }
+    }
+
+    if (flutterPos != null && native?['fused'] != null) {
+      final nativeAcc = (native!['fused'] as Map)['accuracy'] as num?;
+      if (nativeAcc != null) {
+        final delta = (flutterPos.accuracy - nativeAcc).abs();
+        debugPrint('[GPS_DIAG] Accuracy delta (Geolocator vs native FLP): '
+            '${delta.toStringAsFixed(1)}m - both call the same Play Services '
+            'API at the same priority, so a large delta points to timing, '
+            'not implementation.');
+      }
+    }
+
+    // Raw GPS_PROVIDER + GnssStatus capture - bypasses FLP entirely, so it
+    // can tell apart "no satellite fix" / "GNSS fix with poor accuracy" /
+    // "network-only location", none of which the blended `fused` result
+    // above can distinguish. ~25s, cancellable, lifecycle-safe (see
+    // NativeGpsDiagnostic.kt cleanupRawGpsCapture).
+    debugPrint('[GPS_DIAG] ---- starting raw GPS_PROVIDER capture (up to '
+        '25s, cancels early on an accurate fix) ----');
+    if (!mounted) {
+      await NativeGpsDiagnostic.cancelRawGpsCapture();
+      debugPrint('[GPS_DIAG] ==== comparison complete (cancelled - page gone) ====');
+      return;
+    }
+    final rawGps = await NativeGpsDiagnostic.rawGpsProviderCapture();
+    if (!mounted) {
+      // Page was disposed while the capture was running; it already
+      // finished/was cancelled on the native side via onDetachedFromEngine
+      // or dispose()'s explicit cancel below. Nothing left to log safely.
+      return;
+    }
+    if (rawGps == null) {
+      debugPrint('[GPS_DIAG] Raw GPS_PROVIDER capture: unavailable '
+          '(not Android debug build, or call failed/cancelled)');
+    } else {
+      final fixState = rawGps['fixState'];
+      final fix = rawGps['fix'] as Map?;
+      debugPrint('[GPS_DIAG] Raw GPS_PROVIDER capture result: '
+          'fixState=$fixState, '
+          'gpsProviderEnabled=${rawGps['gpsProviderEnabled']}, '
+          'satelliteCount=${rawGps['satelliteCount']}, '
+          'satellitesUsedInFix=${rawGps['satellitesUsedInFix']}, '
+          'timeToFirstFixMs=${rawGps['timeToFirstFixMs']}, '
+          'captureDurationMs=${rawGps['captureDurationMs']}');
+      if (fix != null) {
+        debugPrint('[GPS_DIAG] Raw GPS_PROVIDER fix: '
+            'accuracy=${fix['accuracy']}m, provider=${fix['provider']}, '
+            'timestamp=${fix['timestampIso']}, mocked=${fix['isMocked']}');
+      }
+      switch (fixState) {
+        case 'gps_provider_disabled':
+          debugPrint('[GPS_DIAG] Interpretation: GPS_PROVIDER is disabled '
+              'at the OS level - enable Location/GPS and retest.');
+          break;
+        case 'no_satellites_detected':
+          debugPrint('[GPS_DIAG] Interpretation: NO GNSS satellite fix - '
+              'the chip saw zero satellites in 25s. This is a sky-view/'
+              'environment/hardware issue, not an app bug: go outdoors '
+              'with a clear view of the sky and retest.');
+          break;
+        case 'satellites_visible_no_fix':
+          debugPrint('[GPS_DIAG] Interpretation: satellites are visible '
+              'but none were usable for a fix yet (weak signal / still '
+              'acquiring). Retest with more time or a clearer sky view.');
+          break;
+        case 'satellites_used_but_no_location_yet':
+          debugPrint('[GPS_DIAG] Interpretation: satellites are being '
+              'used but no Location was emitted in the capture window - '
+              'borderline convergence, retest.');
+          break;
+        case 'gps_fix_poor_accuracy':
+          debugPrint('[GPS_DIAG] Interpretation: GENUINE GNSS fix, but '
+              'above the 50m check-in threshold - real satellite-based '
+              'accuracy limitation (multipath/indoor/cold start), not a '
+              'network-only fallback and not an app bug.');
+          break;
+        case 'gps_fix_accurate':
+          debugPrint('[GPS_DIAG] Interpretation: accurate GNSS fix '
+              'obtained directly from GPS_PROVIDER (<=50m) - if Geolocator/'
+              'FLP above still reported ~200m, the discrepancy is in how '
+              'FLP blends/throttles sources, not raw GPS hardware '
+              'capability.');
+          break;
+      }
+    }
+    debugPrint('[GPS_DIAG] ==== comparison complete ====');
+  }
+
+  /// One-time-per-install battery-exemption prompt, shown only when
+  /// tracking just started and the app is NOT already exempt. The direct
+  /// REQUEST_IGNORE_BATTERY_OPTIMIZATIONS intent is Play-permitted for a
+  /// declared foreground-location app; exemption is a convenience, never
+  /// required for attendance, and declining it is respected permanently.
+  static const String _kBatteryPromptedKey = 'battery_opt_prompted';
+  Future<void> _maybePromptBatteryOptimization() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      final exempt = await BatteryOptimization.isExempt();
+      final sp = await _prefs();
+      final promptedBefore = sp.getBool(_kBatteryPromptedKey) ?? false;
+      if (!shouldPromptBatteryExemption(
+        isAndroid: true,
+        alreadyExempt: exempt,
+        promptedBefore: promptedBefore,
+      )) {
+        return;
+      }
+      // Record BEFORE launching - a dismissed/cancelled dialog still
+      // counts as prompted; nagging on every check-in is worse.
+      await sp.setBool(_kBatteryPromptedKey, true);
+      try {
+        await AndroidIntent(
+          action: 'android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+          arguments: {'package': 'com.serv.serv_app'},
+        ).launch();
+      } catch (_) {
+        // Fallback: some OEMs reject the direct request - open the
+        // exemption list instead. (Fixed: was IGNORE_BATTERY_OPTIMATION_,
+        // a typo'd nonexistent action.)
+        try {
+          await AndroidIntent(
+            action:
+                'android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS',
+          ).launch();
+        } catch (_) {}
+      }
+    } catch (_) {}
   }
 
   void _startWorkTimer() {
@@ -2798,6 +3927,124 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                           fontWeight: FontWeight.w500)),
                 ),
                 const SizedBox(height: 15),
+                if (_locationServiceEnabled == false)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                          color: Colors.orange.withOpacity(0.4)),
+                    ),
+                    child: Row(
+                      children: const [
+                        Icon(Icons.location_off,
+                            color: Colors.orange, size: 18),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Location is turned OFF. Enable Location to use Manual or Biometric Attendance.',
+                            style: TextStyle(
+                                color: Colors.orange,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (_locationServiceEnabled != false &&
+                    _locationPermissionGranted &&
+                    !_preciseLocationGranted &&
+                    !isCheckedIn)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(8),
+                      border:
+                          Border.all(color: Colors.amber.withOpacity(0.4)),
+                    ),
+                    child: Row(
+                      children: const [
+                        Icon(Icons.my_location,
+                            color: Colors.amber, size: 18),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Precise location is off. Check-in requires high GPS accuracy.',
+                            style: TextStyle(
+                                color: Colors.amber,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                // Live GPS readiness: shows real warm-up accuracy so the
+                // employee knows check-in is ready before tapping.
+                if (!isCheckedIn && _locationServiceEnabled != false)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Builder(builder: (_) {
+                      final ready = _shownWarmAccuracy != null &&
+                          _shownWarmAccuracy! <= 50;
+                      final label = _gpsWarmSub == null
+                          ? 'Preparing GPS…'
+                          : _shownWarmAccuracy == null
+                              ? 'Finding accurate location…'
+                              : ready
+                                  ? 'GPS ready for attendance'
+                                  : 'GPS accuracy: '
+                                      '${_shownWarmAccuracy!.toStringAsFixed(0)}m,'
+                                      ' required: 50m';
+                      final color = ready ? Colors.green : Colors.blueGrey;
+                      return Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            ready ? Icons.gps_fixed : Icons.gps_not_fixed,
+                            color: color, size: 14,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            label,
+                            style: TextStyle(
+                                color: color,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500),
+                          ),
+                        ],
+                      );
+                    }),
+                  ),
+                // TEMPORARY DIAGNOSTIC (debug builds, Android only): compares
+                // Geolocator's result against a direct native Fused Location
+                // Provider call at PRIORITY_HIGH_ACCURACY on the same device
+                // under the same conditions. Not part of check-in; never
+                // shown in release builds.
+                if (kDebugMode && NativeGpsDiagnostic.isSupported && !isCheckedIn)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: TextButton.icon(
+                      onPressed: _gpsDiagnosticRunning
+                          ? null
+                          : _runGpsDiagnosticComparison,
+                      icon: const Icon(Icons.bug_report, size: 14),
+                      label: Text(
+                          _gpsDiagnosticRunning
+                              ? 'Running GPS diagnostic…'
+                              : 'Run GPS diagnostic (debug)',
+                          style: const TextStyle(fontSize: 12)),
+                    ),
+                  ),
                 if (!isCheckedIn)
                   Center(
                     child: Row(
@@ -2812,12 +4059,13 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                             child: SizedBox(
                               height: 50,
                               child: ElevatedButton(
-                                onPressed:
-                                    (_isManualLoading || _isBiometricLoading)
-                                        ? null
-                                        : () async {
-                                            await _authenticateAndCheckIn();
-                                          },
+                                onPressed: (_isManualLoading ||
+                                        _isBiometricLoading ||
+                                        _locationServiceEnabled == false)
+                                    ? null
+                                    : () async {
+                                        await _authenticateAndCheckIn();
+                                      },
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: kButtonColor,
                                   shape: RoundedRectangleBorder(
@@ -2870,12 +4118,13 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                             child: SizedBox(
                               height: 50,
                               child: ElevatedButton(
-                                onPressed:
-                                    (_isManualLoading || _isBiometricLoading)
-                                        ? null
-                                        : () async {
-                                            await _handleManualCheckInTap();
-                                          },
+                                onPressed: (_isManualLoading ||
+                                        _isBiometricLoading ||
+                                        _locationServiceEnabled == false)
+                                    ? null
+                                    : () async {
+                                        await _handleManualCheckInTap();
+                                      },
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: kButtonColor,
                                   shape: RoundedRectangleBorder(

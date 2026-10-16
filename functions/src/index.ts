@@ -12,6 +12,13 @@ if (!admin.apps.length) {
 const REGION = defineString("REGION", { default: "us-central1" });
 const JWT_SECRET = defineSecret("JWT_SECRET");
 
+// Scheduled monitors live in their own modules; re-exported so
+// `firebase deploy` picks them up alongside the HTTP api function.
+// NOTE: schedulers/payrollScheduler and triggers/attendanceTracking are
+// intentionally NOT exported - they have never been deployed, and
+// enabling them changes production behavior outside this change's scope.
+export { trackingHeartbeatMonitor } from './schedulers/trackingHeartbeat';
+
 // Export function
 export const api = onRequest(
   {

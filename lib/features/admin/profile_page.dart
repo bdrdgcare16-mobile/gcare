@@ -13,6 +13,7 @@ import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
 
 import 'package:serv_app/models/company_data.dart'; // shared model with static fields
+import 'package:serv_app/features/admin/admin_theme.dart';
 
 // ===== Theme colors (use shared theme) =====
 const Color kPrimaryBackgroundTop = Colors.white;
@@ -309,7 +310,7 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        backgroundColor: kAppBarColor,
+        backgroundColor: kAdminAppBarColor,
         title: const Text('Company Profile', style: TextStyle(color: kTextColor)),
         iconTheme: const IconThemeData(color: kTextColor),
         actions: [

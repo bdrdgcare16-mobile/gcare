@@ -2,6 +2,14 @@ import { Request, Response } from 'express';
 import { db } from '../config/firebase';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { trackUsage } from '../services/usageService';
+import {
+  AttendancePolicy,
+  OfficePresence,
+  classifyOfficePresence,
+  evaluateAttendanceGate,
+  resolveAttendancePolicy,
+} from '../utils/attendancePolicy';
+import { closeTrackingSession } from './trackingController';
 
 // Helper functions for request processing
 const getReqCompanyId = (req: Request) => req.user?.companyId;
@@ -166,6 +174,19 @@ async function findOfficeByBranchName(branchNameRaw: string, companyId?: string)
   return null;
 }
 
+/* ============ Per-company attendance location policy ============ */
+
+// Read companies/{companyId}.attendancePolicy; unknown/missing fields fall
+// back to the defaults so existing companies keep the flexible behavior.
+async function getAttendancePolicy(companyId: string): Promise<AttendancePolicy> {
+  try {
+    const snap = await db.collection('companies').doc(companyId).get();
+    return resolveAttendancePolicy((snap.data() as any)?.attendancePolicy);
+  } catch {
+    return resolveAttendancePolicy(undefined);
+  }
+}
+
 /* ============================== NEW: Other Location capture ============================== */
 
 type OtherLocEventType = 'check-in' | 'check-out';
@@ -316,6 +337,7 @@ export const checkIn = async (req: Request, res: Response) => {
       .get();
 
     const nowTime = nowTimeIST(); // HH:mm:ss (IST)
+    const checkInTsUtc = nowUtcISO(); // authoritative UTC timestamp, committed below
 
     // 2) figure out branch to compare against (prefer request, fallback employee.profile)
     let branchName = location;
@@ -354,6 +376,41 @@ export const checkIn = async (req: Request, res: Response) => {
     } else {
       // branch not configured
       otherLocation = 'No matching branch in officeLocations';
+    }
+
+    // 3b) classify office presence from fix quality vs the geofence boundary
+    const policy = await getAttendancePolicy(companyId);
+    const hasFix = checkInLatitude != null && checkInLongitude != null;
+    const checkInOfficePresence: OfficePresence = hasFix
+      ? classifyOfficePresence(
+          distanceFromBranch,
+          expectedRadius,
+          checkInAccuracy,
+          policy.maxAccuracyMeters,
+        )
+      : 'unavailable';
+    const checkInLocationStatus = hasFix ? 'fix' : 'unavailable';
+
+    // Policy gate. Duplicate check-ins still return 409 below regardless of
+    // the current fix quality, so the guard only applies to real check-ins.
+    const alreadyCheckedIn =
+      !snap.empty && !!(snap.docs[0].data() as any).checkIn;
+    if (!alreadyCheckedIn) {
+      const gate = evaluateAttendanceGate(hasFix, checkInOfficePresence, policy);
+      if (gate === 'location-unavailable') {
+        return res.status(400).json({
+          error:
+            'Unable to determine your location. Please enable GPS and try again.',
+          code: 'LOCATION_UNAVAILABLE',
+        });
+      }
+      if (gate === 'outside-geofence') {
+        return res.status(403).json({
+          error: 'Check-in is only allowed inside the office location.',
+          code: 'OUTSIDE_GEOFENCE',
+          officePresence: checkInOfficePresence,
+        });
+      }
     }
 
     // 4) write attendance record + capture other-location event when needed
@@ -399,7 +456,7 @@ export const checkIn = async (req: Request, res: Response) => {
 
       await doc.ref.update({
         checkIn: nowTime,
-        checkInTsUtc: nowUtcISO(),              // <<< AUDIT FIELD
+        checkInTsUtc,                           // <<< AUDIT FIELD
         name,
         location: branchName,
         checkInLatitude,
@@ -413,6 +470,8 @@ export const checkIn = async (req: Request, res: Response) => {
         distanceFromBranch,
         withinRadius,
         otherLocation,
+        checkInOfficePresence,
+        checkInLocationStatus,
         // ===== NEW: persist reason to attendance =====
         ...(reasonText ? { reason: reasonText } : {}),
         ...(reasonId ? { reasonId } : {}),
@@ -440,7 +499,12 @@ export const checkIn = async (req: Request, res: Response) => {
           updatedAt:FieldValue.serverTimestamp(),
         });
       }
-      return res.json({ message: 'Check-in updated' });
+      return res.json({
+        message: 'Check-in updated',
+        checkIn: nowTime,
+        checkInTsUtc,
+        officePresence: checkInOfficePresence,
+      });
     }
 
     // new record
@@ -449,7 +513,7 @@ export const checkIn = async (req: Request, res: Response) => {
       name,
       date: today,
       checkIn: nowTime,
-      checkInTsUtc: nowUtcISO(),                // <<< AUDIT FIELD
+      checkInTsUtc,                             // <<< AUDIT FIELD
       location: branchName,
       checkInLatitude,
       checkInLongitude,
@@ -462,6 +526,8 @@ export const checkIn = async (req: Request, res: Response) => {
       distanceFromBranch,
       withinRadius,
       otherLocation,
+      checkInOfficePresence,
+      checkInLocationStatus,
       // ===== NEW: persist reason to attendance =====
       ...(reasonText ? { reason: reasonText } : {}),
       ...(reasonId ? { reasonId } : {}),
@@ -499,7 +565,12 @@ export const checkIn = async (req: Request, res: Response) => {
       attendanceCount: 1,
     });
     
-    return res.json({ message: 'Checked-in successfully' });
+    return res.json({
+      message: 'Checked-in successfully',
+      checkIn: nowTime,
+      checkInTsUtc,
+      officePresence: checkInOfficePresence,
+    });
   } catch (err: any) {
     console.error('checkIn error:', err);
     return res.status(500).json({ error: err.message });
@@ -577,6 +648,28 @@ export const checkOut = async (req: Request, res: Response) => {
       ? checkoutDistanceFromBranch <= expectedRadius
       : null;
 
+    // Classify office presence from fix quality vs the geofence boundary
+    const policy = await getAttendancePolicy(companyId);
+    const hasFix = checkOutLatitude != null && checkOutLongitude != null;
+    const checkOutOfficePresence: OfficePresence = hasFix
+      ? classifyOfficePresence(
+          checkoutDistanceFromBranch,
+          expectedRadius,
+          checkOutAccuracy,
+          policy.maxAccuracyMeters,
+        )
+      : 'unavailable';
+    const checkOutLocationStatus = hasFix ? 'fix' : 'unavailable';
+
+    // Check-out is never location-gated. Rejecting it could trap an employee
+    // in an open attendance session (and an open tracking session) with no
+    // in-app recovery - e.g. strict mode + employee already home, or a device
+    // that can no longer get any GPS fix. Presence is still classified and
+    // persisted, so admins keep the full audit trail ('outside'/'uncertain'/
+    // 'unavailable' on the record), and the response surfaces the flag.
+    const gate = evaluateAttendanceGate(hasFix, checkOutOfficePresence, policy);
+    const checkOutPolicyViolation = gate === 'allow' ? null : gate;
+
     const nowTime = nowTimeIST();
 
     await doc.ref.update({
@@ -592,6 +685,9 @@ export const checkOut = async (req: Request, res: Response) => {
       expectedRadius,
       checkoutDistanceFromBranch,
       checkoutWithinRadius,
+      checkOutOfficePresence,
+      checkOutLocationStatus,
+      ...(checkOutPolicyViolation ? { checkOutPolicyViolation } : {}),
       // ===== NEW: persist reason to attendance on checkout as well =====
       ...(reasonText ? { reason: reasonText } : {}),
       ...(reasonId ? { reasonId } : {}),
@@ -599,6 +695,19 @@ export const checkOut = async (req: Request, res: Response) => {
       ...(reasonTypeName ? { reasonTypeName } : {}),
       updatedAt: FieldValue.serverTimestamp(),
     });
+
+    // Server-authoritative tracking close. The client also calls
+    // /tracking/check-out, but it can die between this write and that call
+    // (crash, force-stop, offline) - leaving an open session that would keep
+    // accepting locations. Closing here makes check-out the source of truth.
+    // Best-effort: attendance is already committed, never fail on this.
+    try {
+      const attDate = String((current as any)?.date || today);
+      await closeTrackingSession({ companyId, empid, dateIso: attDate });
+    } catch (e: any) {
+      console.error('[checkOut] tracking session close failed:',
+        e?.message || String(e));
+    }
 
     if (checkoutWithinRadius === false) {
       await createOtherLocationEvent({
@@ -636,7 +745,11 @@ export const checkOut = async (req: Request, res: Response) => {
       attendanceCount: 1,
     });
 
-    return res.json({ message: 'Checked-out & set inactive' });
+    return res.json({
+      message: 'Checked-out & set inactive',
+      officePresence: checkOutOfficePresence,
+      policyViolation: checkOutPolicyViolation,
+    });
   } catch (err: any) {
     console.error('checkOut error:', err);
     return res.status(500).json({ error: err.message });
@@ -946,6 +1059,16 @@ export const getLiveAttendance = async (req: Request, res: Response) => {
         distanceFromBranch:         rec?.distanceFromBranch ?? null,
         checkoutWithinRadius:       rec?.checkoutWithinRadius ?? null,
         checkoutDistanceFromBranch: rec?.checkoutDistanceFromBranch ?? null,
+        // Location & office-presence classification for admin visibility
+        checkInLatitude:            rec?.checkInLatitude ?? null,
+        checkInLongitude:           rec?.checkInLongitude ?? null,
+        checkInAccuracy:            rec?.checkInAccuracy ?? null,
+        checkOutLatitude:           rec?.checkOutLatitude ?? null,
+        checkOutLongitude:          rec?.checkOutLongitude ?? null,
+        checkOutAccuracy:           rec?.checkOutAccuracy ?? null,
+        officePresence:             rec?.checkInOfficePresence ?? null,
+        checkOutOfficePresence:     rec?.checkOutOfficePresence ?? null,
+        otherLocation:              rec?.otherLocation ?? null,
       };
     });
 

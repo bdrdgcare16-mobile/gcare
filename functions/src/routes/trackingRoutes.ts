@@ -11,6 +11,11 @@ import {
   trackingCheckOut,
 
   trackingGetDay,
+  trackingLiveStatus,
+
+  trackingAddEvent,
+
+  trackingHeartbeat,
 
 } from '../controllers/trackingController';
 
@@ -24,19 +29,21 @@ router.post('/check-in', verifyToken, trackingCheckIn);
 
 router.post('/pos', verifyToken, trackingAppendPos);
 
-router.post('/check-out', verifyToken, (req, res) => {
-
-  console.log('[TRACKING ROUTES] /check-out endpoint HIT - NEW VERSION 2026-08-11');
-
-  console.log('[TRACKING ROUTES] Request body:', JSON.stringify(req.body));
-
-  console.log('[TRACKING ROUTES] Request headers:', JSON.stringify(req.headers));
-
-  trackingCheckOut(req, res);
-
-});
+// NOTE: never log req.headers or req.body here - the Authorization bearer
+// token would end up in Cloud Logging.
+router.post('/check-out', verifyToken, trackingCheckOut);
 
 router.get('/day', verifyToken, trackingGetDay);
+
+// Admin-only: company-wide live tracking summary for one date.
+router.get('/live', verifyToken, trackingLiveStatus);
+
+
+
+router.post('/event', verifyToken, trackingAddEvent);
+
+// Lightweight liveness + GPS-state ping (no point/event writes).
+router.post('/heartbeat', verifyToken, trackingHeartbeat);
 
 
 

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:serv_app/features/users/login_page.dart';
+import 'package:serv_app/features/users/background_tasks.dart';
 import 'package:serv_app/services/fcm_test_service.dart';
 import 'package:serv_app/services/api_service.dart';
 import 'package:serv_app/models/company_data.dart';
@@ -16,6 +17,21 @@ Future<void> logout(BuildContext context) async {
   // authorizes the request is cleared.
   try {
     await FcmTestService.instance.unregisterDevice();
+  } catch (_) {}
+
+  // Stop all location tracking before session teardown. This cancels the
+  // periodic timer, stops the foreground service, cancels the tracking
+  // Workmanager task, performs a best-effort final sync and clears the
+  // persisted background credentials (bg_empid / bg_token). Local cleanup
+  // always runs, even if the backend check-out call below fails.
+  try {
+    final spForCleanup = await SharedPreferences.getInstance();
+    final cleanupEmpId =
+        spForCleanup.getString('empid') ?? spForCleanup.getString('empId') ?? '';
+    await stopTrackingForLogout(
+      empid: cleanupEmpId,
+      token: CompanyData.token,
+    );
   } catch (_) {}
 
   // Call tracking check-out to create logout event before clearing token

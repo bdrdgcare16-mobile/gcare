@@ -1,3 +1,10 @@
+// payrollService.ts imports `db` from ../config/firebase at module scope,
+// so merely importing it below triggers that module's real Admin SDK
+// initialization unless mocked - even though every test in this file only
+// exercises pure functions and never touches Firestore. Matches the same
+// pattern used in liveEmployeeDetails.test.ts / trackingController.test.ts.
+jest.mock('../config/firebase', () => ({ db: {} }));
+
 import { resolveMonthlyBasicSalary } from './payrollService';
 
 type TestEmployeeRecord = {

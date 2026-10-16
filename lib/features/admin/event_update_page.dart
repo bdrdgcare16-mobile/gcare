@@ -13,6 +13,7 @@ import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/services/api_service.dart';
 import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/utils/button_helpers.dart';
+import 'package:serv_app/features/admin/admin_theme.dart';
 
 // ====== CONFIG ======
 final String apiBase = ApiConfig.baseUrl;
@@ -67,7 +68,7 @@ class _EventUpdatesPageState extends State<EventUpdatesPage> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: kAppBarColor,
+        backgroundColor: kAdminAppBarColor,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: kTextColor),
           onPressed: () => Navigator.pop(context),

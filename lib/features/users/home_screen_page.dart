@@ -33,6 +33,12 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool _permissionChecked = false;
+  // Guards the async preload-then-push Attendance navigation below: without
+  // this, a fast double-tap fires two overlapping _preloadUserInfo() calls
+  // and pushes two AttendanceScreen instances, each with its own GPS
+  // warm-up stream and service-status listener (duplicate initialization,
+  // doubled GPS sampling).
+  bool _attendanceNavInProgress = false;
 
   @override
   void initState() {
@@ -205,21 +211,29 @@ class _HomeScreenState extends State<HomeScreen> {
                                   icon: Icons.calendar_month,
                                   label: 'Attendance',
                                   onTap: () async {
-                                    if (!mounted) return;
+                                    if (!mounted || _attendanceNavInProgress) {
+                                      return;
+                                    }
+                                    _attendanceNavInProgress = true;
 
-                                    // SAFETY: Preload auth/me data before navigation
-                                    final preloadedUserInfo =
-                                        await _preloadUserInfo();
+                                    try {
+                                      // SAFETY: Preload auth/me data before navigation
+                                      final preloadedUserInfo =
+                                          await _preloadUserInfo();
 
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => AttendanceScreen(
-                                          employeeDocId: widget.employeeDocId,
-                                          preloadedUserInfo: preloadedUserInfo,
+                                      if (!mounted) return;
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => AttendanceScreen(
+                                            employeeDocId: widget.employeeDocId,
+                                            preloadedUserInfo: preloadedUserInfo,
+                                          ),
                                         ),
-                                      ),
-                                    );
+                                      );
+                                    } finally {
+                                      _attendanceNavInProgress = false;
+                                    }
                                   },
                                 ),
                                 _HomeTile(

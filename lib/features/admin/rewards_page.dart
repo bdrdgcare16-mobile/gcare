@@ -288,6 +288,7 @@ import 'package:serv_app/html_stub.dart'
 import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/services/api_service.dart';
 import 'package:serv_app/config/api_config.dart';
+import 'package:serv_app/features/admin/admin_theme.dart';
 
 // ---- THEME ----
 const Color kBrand = Color(0xFF655193);
@@ -462,7 +463,7 @@ class _RewardsPageState extends State<RewardsPage> {
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
-      backgroundColor: const Color(0xFF8C6EAF),
+      backgroundColor: kAdminAppBarColor,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       shadowColor: Colors.transparent,

@@ -47,6 +47,8 @@ class LeaveTypeRule {
   final DateTime? createdAt;
   final bool active;
   final String? shift;
+  final int? remaining; // days left this month (employee only)
+  final String? month; // 'YYYY-MM' the entitlement was calculated for
 
   LeaveTypeRule({
     required this.id,
@@ -57,6 +59,8 @@ class LeaveTypeRule {
     required this.createdAt,
     required this.active,
     required this.shift,
+    this.remaining,
+    this.month,
   });
 
   factory LeaveTypeRule.fromJson(Map<String, dynamic> j) {
@@ -71,6 +75,8 @@ class LeaveTypeRule {
       createdAt: _ts(j['createdAt']),
       active: j['active'] != false,
       shift: j['shift']?.toString(),
+      remaining: j['remaining'] is num ? (j['remaining'] as num).toInt() : null,
+      month: j['month']?.toString(),
     );
   }
 }
@@ -101,6 +107,7 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
   List<LeaveTypeRule> _rules = [];
   List<String> _typeNames = [];
   LeaveTypeRule? _currentRule;
+  LeaveTypeRule? _remainingNote; // entitlement of the month being applied in
   bool _loadingTypes = false;
 
   LeaveTypeRule? _latestRuleForType(String type) {
@@ -194,6 +201,7 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
           toDate = null;
           errorMessage = null;
           _currentRule = null;
+          _remainingNote = null;
           _loadingTypes = false;
         });
       } else {
@@ -246,6 +254,52 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
   }
   // =======================================================
 
+  /// Re-reads the selected leave type for the month of [d] so the
+  /// "remaining" note matches the month the employee is applying in.
+  Future<void> _refreshRuleForMonth(DateTime d) async {
+    final type = selectedLeaveType;
+    if (type == null) return;
+
+    final ym = DateFormat('yyyy-MM').format(d);
+    if (_currentRule?.month == ym) return;
+
+    final token = await _getJwt();
+    if (token == null) return;
+
+    try {
+      final ts = DateTime.now().millisecondsSinceEpoch;
+      final resp = await http.get(
+        Uri.parse('${ApiService.baseUrl}/leave-types?month=$ym&_ts=$ts'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+        },
+      );
+      if (resp.statusCode != 200 || !mounted) return;
+
+      final body = jsonDecode(resp.body);
+      final List data =
+          body is Map && body['data'] is List ? body['data'] as List : const [];
+      final match = data
+          .map((e) => LeaveTypeRule.fromJson(e))
+          .where((r) => r.type == type)
+          .toList();
+
+      if (!mounted || selectedLeaveType != type) return;
+      setState(() {
+        _remainingNote = match.isEmpty ? null : match.first;
+      });
+    } catch (_) {}
+  }
+
+  String _remainingText(LeaveTypeRule r) {
+    final month = r.month == null
+        ? ''
+        : DateFormat('MMMM yyyy').format(DateTime.parse('${r.month}-01'));
+    return 'Remaining for $month: ${r.remaining} of ${r.allowedDays} days';
+  }
+
   List<String> _durationOptionsFromRule() {
     if (_currentRule == null) return const [];
     final n = _currentRule!.allowedDays;
@@ -280,13 +334,10 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
         )
       : todayOnly;
 
-  final ruleEndDate = rule.toDate != null
-      ? DateTime(
-          rule.toDate!.year,
-          rule.toDate!.month,
-          rule.toDate!.day,
-        )
-      : DateTime(2100);
+  // Leave types renew every month, so applications are not limited to the
+  // month in which the Leave Type was created; the backend checks the
+  // allowance of every month the leave touches.
+  final ruleEndDate = DateTime(todayOnly.year + 2, 12, 31);
 
   // Do not allow past dates.
   final DateTime validStartDate =
@@ -350,6 +401,7 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
   );
 
   if (picked != null) {
+    if (isFrom) _refreshRuleForMonth(picked);
     setState(() {
       if (isFrom) {
         fromDate = picked;
@@ -404,7 +456,7 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
         return 'Planned Leave';
       case 'emergencyleave':
       case 'emergency':
-        return 'Planned Leave';
+        return 'Emergency Leave';
       case 'halfday':
         return 'Half-Day';
       case 'permissiontime':
@@ -539,7 +591,9 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
           errorMessage = null;
           reasonController.clear();
           _currentRule = null;
+          _remainingNote = null;
         });
+        _fetchLeaveTypes(); // refresh remaining days
       } else {
         // ⬇️ Show only the clean server message, no "400 {json...}"
         final clean = _extractErrorMessage(resp);
@@ -632,6 +686,7 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
                         selectedLeaveType = val;
                         _currentRule =
                             (val == null) ? null : _latestRuleForType(val);
+                        _remainingNote = _currentRule;
                         selectedLeaveDuration = null;
                         fromDate = null;
                         toDate = null;
@@ -665,6 +720,15 @@ class _RequestLeavePageState extends State<RequestLeavePage> {
                       },
                       validator: (val) =>
                           val == null ? "Select duration" : null,
+                    ),
+                  if (selectedLeaveType != null &&
+                      _remainingNote?.remaining != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        _remainingText(_remainingNote!),
+                        style: const TextStyle(fontSize: 14),
+                      ),
                     ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(

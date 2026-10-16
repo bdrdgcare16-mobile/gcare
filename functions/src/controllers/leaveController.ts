@@ -3,6 +3,7 @@ import { db } from '../config/firebase';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { trackUsage } from '../services/usageService';
 import { notifyCompanyAdminsOfRequest } from '../services/notification.service';
+import { checkMonthlyEntitlement } from '../utils/leaveEntitlement';
 
 /* ============================== Types ============================== */
 
@@ -79,7 +80,9 @@ const toYMD = (v: any): string => {
   if (!v) return '';
   if (typeof v === 'string') {
     try {
-      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+      // Calendar dates (and zone-less ISO strings) keep the date the user picked;
+      // parsing them as instants would shift the day on non-UTC servers.
+      if (/^\d{4}-\d{2}-\d{2}(?:$|[T ][\d:.]*$)/.test(v)) return v.slice(0, 10);
       return new Date(v).toISOString().slice(0, 10);
     } catch {
       return '';
@@ -318,15 +321,39 @@ export const createLeaveRequest = async (req: Request, res: Response): Promise<R
 
     const payload = norm.data!;
 
-    if (payload.leaveType !== 'Overtime' && payload.leaveType !== 'Permission Time') {
-      const existing = await db.collection('leaves')
-        .where('companyId', '==', companyId)
-        .where('userId', '==', currentUser.userId)
-        .where('status', 'in', ['Pending', 'Approved'])
-        .get();
+    // Everything that decides whether the leave may be stored (monthly
+    // entitlement, overlap) is read and written in ONE transaction, so two
+    // simultaneous requests can never both pass the same remaining balance.
+    const leaveRef = db.collection('leaves').doc();
+    const skipChecks = payload.leaveType === 'Overtime' || payload.leaveType === 'Permission Time';
 
-      const overlaps = existing.docs.some((d) => {
-        const v = d.data() as any;
+    const outcome = await db.runTransaction(async (tx) => {
+      if (skipChecks) {
+        tx.set(leaveRef, payload);
+        return { kind: 'created' as const, message: '' };
+      }
+
+      const typeSnap = await tx.get(
+        db.collection('leave_types').where('companyId', '==', companyId).where('active', '==', true),
+      );
+      const mineSnap = await tx.get(
+        db.collection('leaves').where('companyId', '==', companyId).where('empid', '==', payload.empid),
+      );
+
+      const existing = mineSnap.docs.map((d) => d.data() as any);
+
+      const ruleError = checkMonthlyEntitlement({
+        rules: typeSnap.docs.map((d) => d.data() as any),
+        existingLeaves: existing,
+        request: {
+          leaveType: payload.leaveType,
+          startDate: payload.startDate,
+          endDate: payload.endDate,
+        },
+      });
+      if (ruleError) return { kind: 'rule' as const, message: ruleError };
+
+      const overlaps = existing.some((v) => {
         if (!['Pending', 'Approved'].includes(String(v.status))) return false;
         const s = String(v.startDate || '');
         const e = String(v.endDate || '');
@@ -338,12 +365,21 @@ export const createLeaveRequest = async (req: Request, res: Response): Promise<R
           payload.leaveType === 'Comp Off'
             ? 'You have already applied for leave/comp-off on the selected date.'
             : 'You already have a leave request for the selected date range.';
-        return res.status(200).json({ message: msg });
+        return { kind: 'overlap' as const, message: msg };
       }
+
+      tx.set(leaveRef, payload);
+      return { kind: 'created' as const, message: '' };
+    });
+
+    if (outcome.kind === 'rule') {
+      return res.status(400).json({ error: outcome.message });
+    }
+    if (outcome.kind === 'overlap') {
+      return res.status(200).json({ message: outcome.message });
     }
 
-    const ref = await db.collection('leaves').add(payload);
-    const snap = await ref.get();
+    const snap = await leaveRef.get();
 
     // Track usage after successful leave creation
     await trackLeaveUsage(req, {
@@ -371,7 +407,7 @@ export const createLeaveRequest = async (req: Request, res: Response): Promise<R
         requestType: payload.leaveType,
         employeeId: payload.empid,
         employeeName: payload.name,
-        requestId: ref.id,
+        requestId: leaveRef.id,
         requestCategory,
       });
     } catch (notifError: any) {
@@ -379,7 +415,7 @@ export const createLeaveRequest = async (req: Request, res: Response): Promise<R
       console.error('[Leave Controller] Failed to send notification:', notifError?.message || String(notifError));
     }
 
-    return res.status(201).json({ id: ref.id, ...snap.data() });
+    return res.status(201).json({ id: leaveRef.id, ...snap.data() });
   } catch (error) {
     console.error('Error creating leave request:', error);
     return res.status(500).json({ error: 'Failed to create leave request' });

@@ -9,48 +9,16 @@ import { normEmail } from "../common/utils";
 import { isBcryptHash } from "../common/password.utils";
 import { pickEmpId } from "../common/user.utils";
 
-// ── Firebase Admin (explicit, single init) ───────────────────────────────────
-import {
-  getApps,
-  initializeApp,
-  App,
-  cert,
-  applicationDefault,
-} from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
-import {
-  getFirestore,
-  type DocumentSnapshot,
-} from 'firebase-admin/firestore';
-
-// Choose credential: prefer service account JSON via env, else ADC.
-const SERVICE_ACCOUNT_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '';
-const PROJECT_ID = process.env.APP_FIREBASE_PROJECT_ID || 'servappbackend';
-
-const APP_NAME = 'serv-core';
-const existingApp = getApps().find((a) => a.name === APP_NAME);
-
-const adminApp: App =
-  existingApp ??
-  initializeApp(
-    {
-      credential: SERVICE_ACCOUNT_JSON
-        ? cert(JSON.parse(SERVICE_ACCOUNT_JSON))
-        : applicationDefault(),
-      projectId: PROJECT_ID,
-    },
-    APP_NAME
-  );
-
-console.log(
-  '[ADMIN PROJECT]',
-  PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT
-);
-
-const auth = getAuth(adminApp);
-const db = getFirestore(adminApp);
-
-console.log('[ADMIN PROJECT]', adminApp.options.projectId);
+// ── Firebase Admin ────────────────────────────────────────────────────────
+// Single source of truth: reuse the app/clients initialized in
+// ../config/firebase. A second `initializeApp()` call here previously raced
+// with that module (both used the same app name) and, on top of that, fell
+// back to the hardcoded production project id ('servappbackend') whenever
+// it won the race - which is what produced the `[ADMIN PROJECT]
+// servappbackend` log during DEV/emulator runs regardless of which Firebase
+// project the emulator suite was actually targeting.
+import { db, auth } from '../config/firebase';
+import type { DocumentSnapshot } from 'firebase-admin/firestore';
 
 // ── Config ───────────────────────────────────────────────────────────────────
 const JWT_EXPIRES = getJwtExpires();

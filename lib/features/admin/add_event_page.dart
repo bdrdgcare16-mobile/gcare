@@ -11,6 +11,7 @@ import 'package:serv_app/services/api_service.dart';
 import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/utils/button_helpers.dart';
 // Conditional import for web localStorage
+import 'package:serv_app/features/admin/admin_theme.dart';
 import 'package:serv_app/html_stub.dart' if (dart.library.html) 'dart:html'
     as html;
 
@@ -159,7 +160,7 @@ class _EventUploadPageState extends State<EventUploadPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Upload Event Details'),
-        backgroundColor: kAppBarColor,
+        backgroundColor: kAdminAppBarColor,
         foregroundColor: kTextColor,
       ),
       body: Container(

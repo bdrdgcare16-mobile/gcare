@@ -11,6 +11,7 @@ import 'package:serv_app/features/admin/add_group_name_dialog.dart';
 
 import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/features/admin/admin_theme.dart';
 
 // App-wide theme colors (mapped to shared app_theme)
 const Color kPrimaryBackgroundTop = Colors.white; // White
@@ -161,7 +162,7 @@ class _CreateShiftPageState extends State<CreateShiftPage> {
     return Scaffold(
       resizeToAvoidBottomInset: false,
       appBar: AppBar(
-        backgroundColor: kAppBarColor,
+        backgroundColor: kAdminAppBarColor,
         title: const Text("Create Shift"),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
