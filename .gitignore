@@ -89,3 +89,7 @@ Thumbs.db
 *.tmp
 *.temp
 *.swp
+# Local emulator and diagnostic files
+.mitmproxy/
+emulator-data/
+emulator-data-backup/

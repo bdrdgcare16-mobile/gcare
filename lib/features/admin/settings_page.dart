@@ -161,6 +161,7 @@ import 'package:serv_app/features/admin/leave_page.dart';
 import 'package:serv_app/features/admin/profile_page.dart';
 import 'package:serv_app/features/admin/reason_master_page.dart';
 import 'package:serv_app/features/admin/office_location_page.dart';
+import 'package:serv_app/services/feature_service.dart';
 
 // Theme colors (unchanged)
 const Color kPrimaryBackgroundTop    = Color(0xFFFFFFFF);
@@ -176,9 +177,34 @@ const Color _kDark     = Color(0xFF655193);
 const Color _kCardBg   = Color(0xFFFFFFFF);
 
 class SettingsPage extends StatelessWidget {
-  const SettingsPage({super.key});
+  /// HR mode: the HR user's approvedFeatures set. When non-null, gated
+  /// items are checked against THIS set — not company enabledFeatures —
+  /// so a feature-rich company can't leak unapproved settings to HR.
+  /// null (admin mode) => existing FeatureAccess behaviour.
+  final Set<String>? allowedFeatures;
+
+  const SettingsPage({super.key, this.allowedFeatures});
+
+  bool _itemAllowed(String feature) =>
+      allowedFeatures?.contains(feature) ?? FeatureAccess.has(feature);
 
   void _handleItemClick(BuildContext context, String title) {
+    // Feature-gated items should already be filtered out of the list, but
+    // guard the handler too in case of direct navigation.
+    final feature = _itemFeatures[title];
+    if (feature != null && !_itemAllowed(feature)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('This feature is not enabled for your company.'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: _kDark,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+      return;
+    }
+
     if (title == 'Workdays & Shift Permission') {
       Navigator.push(context, MaterialPageRoute(builder: (_) => const WorkdaysShiftPage()));
     } else if (title == 'Leave Holiday') {
@@ -202,6 +228,15 @@ class SettingsPage extends StatelessWidget {
     }
   }
 
+  // Settings item -> tenant feature key. Items whose feature is not enabled
+  // for the company are hidden from the list (legacy companies show all).
+  static const Map<String, String> _itemFeatures = {
+    'Workdays & Shift Permission': 'attendance',
+    'Leave Holiday': 'leave',
+    'Office Location': 'attendance',
+    'Reason Master': 'attendance',
+  };
+
   static const _sections = [
     _Section(
       label: 'Work Schedule',
@@ -224,6 +259,18 @@ class SettingsPage extends StatelessWidget {
       ],
     ),
   ];
+
+  List<_Section> get _visibleSections => _sections
+      .map((s) => _Section(
+            label: s.label,
+            items: s.items
+                .where((i) =>
+                    _itemFeatures[i.title] == null ||
+                    _itemAllowed(_itemFeatures[i.title]!))
+                .toList(),
+          ))
+      .where((s) => s.items.isNotEmpty)
+      .toList();
 
   @override
   Widget build(BuildContext context) {
@@ -291,7 +338,7 @@ class SettingsPage extends StatelessWidget {
                   const SizedBox(height: 28),
 
                   // Sections
-                  ..._sections.map((section) => Column(
+                  ..._visibleSections.map((section) => Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Section label

@@ -108,6 +108,14 @@ export const validateOnboarding = (req: Request): string[] => {
 
     "netSalary",
 
+    // HR assigns the employee's initial password at submission; it is
+
+    // consumed at approval-time provisioning (never stored in plaintext).
+
+    "password",
+
+    "confirmPassword",
+
   ];
 
 
@@ -116,7 +124,7 @@ export const validateOnboarding = (req: Request): string[] => {
 
   const receivedFields = Object.keys(body).filter(key => 
 
-    !['password', 'aadhaarNumber', 'accountNumber', 'panNumber'].includes(key)
+    !['password', 'confirmPassword', 'aadhaarNumber', 'accountNumber', 'panNumber'].includes(key)
 
   );
 
@@ -267,6 +275,28 @@ export const validateOnboarding = (req: Request): string[] => {
   ) {
 
     errors.push("Years of experience is required for experienced employees");
+
+  }
+
+
+  if (body.password && String(body.password).length < 12) {
+
+    errors.push("Password must be at least 12 characters");
+
+  }
+
+
+  if (
+
+    body.password &&
+
+    body.confirmPassword &&
+
+    String(body.password) !== String(body.confirmPassword)
+
+  ) {
+
+    errors.push("Passwords do not match");
 
   }
 

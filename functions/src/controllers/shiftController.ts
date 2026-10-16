@@ -158,6 +158,96 @@ export const getAllShifts = async (req: Request, res: Response): Promise<Respons
 };
 
 /**
+ * Employee self-service: the caller's own assigned shift.
+ * GET /api/shifts/assigned
+ *
+ * Resolves the employee record by token (companyId + empid), then the
+ * canonical shift doc — by stored shiftId first, falling back to the
+ * shiftGroup/shiftName display name for records created before stable
+ * linking existed. Returns only the fields attendance needs.
+ */
+export const getAssignedShift = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const companyId = getReqCompanyId(req);
+    if (!companyId) {
+      return res.status(401).json({ error: 'Unauthorized: missing companyId' });
+    }
+
+    const user = getReqUser(req);
+    const empid = String(
+      (user as any).empid ?? (user as any).empId ?? ''
+    ).trim();
+    if (!empid) {
+      return res.json({ shift: null, reason: 'NO_EMPLOYEE_IDENTITY' });
+    }
+
+    const empSnap = await db
+      .collection('employees')
+      .where('companyId', '==', companyId)
+      .where('empid', '==', empid)
+      .limit(1)
+      .get();
+
+    if (empSnap.empty) {
+      return res.json({ shift: null, reason: 'EMPLOYEE_NOT_FOUND' });
+    }
+
+    const emp = empSnap.docs[0].data() as any;
+    const shiftId = String(emp.shiftId ?? '').trim();
+    const shiftName = String(
+      emp.shiftGroup ?? emp.shiftName ?? ''
+    ).trim();
+
+    let shift: any = null;
+
+    if (shiftId) {
+      const d = await db.collection('shifts').doc(shiftId).get();
+      if (d.exists && (d.data() as any)?.companyId === companyId) {
+        shift = { id: d.id, ...(d.data() as any) };
+      }
+    }
+
+    if (!shift && shiftName) {
+      const snap = await db
+        .collection('shifts')
+        .where('companyId', '==', companyId)
+        .limit(200)
+        .get();
+      const want = shiftName.toLowerCase();
+      shift =
+        snap.docs
+          .map((d) => ({ id: d.id, ...(d.data() as any) }))
+          .find(
+            (s) =>
+              String(s.name ?? '').trim().toLowerCase() === want ||
+              String(s.shiftname ?? '').trim().toLowerCase() === want
+          ) ?? null;
+    }
+
+    if (!shift) {
+      return res.json({
+        shift: null,
+        shiftName: shiftName || null,
+        reason: shiftName ? 'SHIFT_NOT_FOUND' : 'NO_SHIFT_ASSIGNED',
+      });
+    }
+
+    return res.json({
+      shift: {
+        id: shift.id,
+        name: shift.name ?? null,
+        shiftname: shift.shiftname ?? null,
+        startTime: shift.startTime ?? null,
+        endTime: shift.endTime ?? null,
+      },
+    });
+  } catch (err) {
+    console.error('getAssignedShift error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+/**
  * Get a single shift by UUID
  * GET /api/shifts/:id
  */

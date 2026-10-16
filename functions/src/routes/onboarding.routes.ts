@@ -7,12 +7,17 @@ import {
   getEmployeeOnboardings,
   getOnboardingByEmployeeId,
   resolveOnboardingDocumentUrl,
+  serveDevOnboardingFile,
 } from "../controllers/onboarding.controller";
 import { type Request, type Response } from "express";
 import { authMiddleware, roleMiddleware } from "../middlewares/authMiddleware";
+import { requireFeature } from "../middlewares/featureMiddleware";
+import { hrFeatureGate } from "../middlewares/hrFeatureMiddleware";
 import { uploadOnboarding } from "../middlewares/upload.middleware";
 
 const router = Router();
+
+const onboardingEnabled = requireFeature('onboarding');
 
 const onboardingUpload = uploadOnboarding([
   { name: "resume", maxCount: 1 },
@@ -29,6 +34,13 @@ const onboardingUpload = uploadOnboarding([
 router.post(
   "/",
   authMiddleware,
+  onboardingEnabled,
+  // Submission is an admin/HR action — employees and company_admin must
+  // never create onboarding requests.
+  roleMiddleware(['admin', 'hr']),
+  // HR creates onboardings only when 'onboarding' is in approvedFeatures;
+  // other roles keep the existing behaviour (no role restriction today).
+  hrFeatureGate(['onboarding']),
   (req, res, next) => {
     console.log('[onboarding-upload] start', {
       contentType: req.headers['content-type'],
@@ -54,6 +66,12 @@ router.post(
           message: uploadError.message,
           code: (uploadError as any).code,
         });
+        // Upload failures are client-correctable: map them to 4xx instead
+        // of letting the global handler emit a generic 500.
+        if (!(uploadError as any).statusCode) {
+          (uploadError as any).statusCode =
+            (uploadError as any).code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+        }
         return next(uploadError);
       }
 
@@ -67,10 +85,13 @@ router.post(
   createEmployeeOnboarding
 );
 
+// V2: onboarding review moved from Platform/Super Admin to the Company
+// Admin of the owning company. Controllers enforce companyId scoping.
 router.get(
   "/",
   authMiddleware,
-  roleMiddleware(['super_admin']),
+  onboardingEnabled,
+  roleMiddleware(['company_admin']),
   getEmployeeOnboardings,
 );
 
@@ -80,27 +101,38 @@ router.get(
 router.get(
   "/documents/resolve-url",
   authMiddleware,
-  roleMiddleware(['super_admin']),
+  onboardingEnabled,
+  roleMiddleware(['company_admin']),
   resolveOnboardingDocumentUrl,
 );
+
+// DEV only: serves emulator-local onboarding documents via an HMAC-signed
+// URL minted by the service (no Storage emulator/prod bucket access in DEV).
+// Never registered outside the Functions emulator.
+if (process.env.FUNCTIONS_EMULATOR === 'true') {
+  router.get("/documents/dev-file", serveDevOnboardingFile);
+}
 
 router.get(
   "/by-empid/:empid",
   authMiddleware,
+  onboardingEnabled,
   getOnboardingByEmployeeId,
 );
 
 router.get(
   "/:id",
   authMiddleware,
-  roleMiddleware(['super_admin']),
+  onboardingEnabled,
+  roleMiddleware(['company_admin']),
   getEmployeeOnboardingById,
 );
 
 router.patch(
   "/:id/status",
   authMiddleware,
-  roleMiddleware(['super_admin']),
+  onboardingEnabled,
+  roleMiddleware(['company_admin']),
   changeOnboardingStatus,
 );
 

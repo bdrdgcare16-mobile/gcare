@@ -1,11 +1,21 @@
 import { Router } from 'express';
 import * as employeeController from '../controllers/employeeController';
 import { authMiddleware, roleMiddleware } from '../middlewares/authMiddleware';
+import { requireFeature } from '../middlewares/featureMiddleware';
+import { hrFeatureGate } from '../middlewares/hrFeatureMiddleware';
 
 const router = Router();
 
 // All /employees routes require auth
 router.use(authMiddleware);
+
+// Tenant entitlement: employee management feature
+router.use(requireFeature('employees'));
+
+// HR inherits the tenant-admin employee module when 'employees' is in
+// their approvedFeatures: full read + create/update/delete. The
+// controller already enforces token companyId on every path and blocks
+// role/password/companyId/empid writes via mass-assignment protection.
 
 /**
  * @swagger
@@ -53,7 +63,7 @@ router.use(authMiddleware);
  *       409: { description: Employee with this ID or email already exists }
  *       500: { description: Internal server error }
  */
-router.post('/', roleMiddleware(['admin']), employeeController.createEmployee);
+router.post('/', roleMiddleware(['admin', 'hr']), hrFeatureGate(['employees']), employeeController.createEmployee);
 
 /**
  * @swagger
@@ -80,7 +90,7 @@ router.post('/', roleMiddleware(['admin']), employeeController.createEmployee);
  *       200:
  *         description: List of employees
  */
-router.get('/', roleMiddleware(['admin']), employeeController.getEmployees);
+router.get('/', roleMiddleware(['admin', 'hr']), hrFeatureGate(['employees']), employeeController.getEmployees);
 
 /**
  * @swagger
@@ -98,7 +108,7 @@ router.get('/', roleMiddleware(['admin']), employeeController.getEmployees);
  *       200: { description: Employee details }
  *       404: { description: Employee not found }
  */
-router.get('/:id', roleMiddleware(['admin']), employeeController.getEmployeeById);
+router.get('/:id', roleMiddleware(['admin', 'hr']), hrFeatureGate(['employees']), employeeController.getEmployeeById);
 
 /**
  * @swagger
@@ -122,7 +132,7 @@ router.get('/:id', roleMiddleware(['admin']), employeeController.getEmployeeById
  *       200: { description: Employee updated successfully }
  *       404: { description: Employee not found }
  */
-router.put('/:id', roleMiddleware(['admin']), employeeController.updateEmployee);
+router.put('/:id', roleMiddleware(['admin', 'hr']), hrFeatureGate(['employees']), employeeController.updateEmployee);
 
 /**
  * @swagger
@@ -139,6 +149,6 @@ router.put('/:id', roleMiddleware(['admin']), employeeController.updateEmployee)
  *     responses:
  *       200: { description: Employee deleted successfully }
  */
-router.delete('/:id', roleMiddleware(['admin']), employeeController.deleteEmployee);
+router.delete('/:id', roleMiddleware(['admin', 'hr']), hrFeatureGate(['employees']), employeeController.deleteEmployee);
 
 export default router;

@@ -45,4 +45,5 @@ class OnboardingDummyData {
   static const String allowances = '1000';
   static const String grossSalary = '13000';
   static const String netSalary = '13000';
+  static const String password = 'Test@12345678';
 }

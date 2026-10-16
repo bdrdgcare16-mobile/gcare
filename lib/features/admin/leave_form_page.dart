@@ -106,9 +106,11 @@ class _LeaveFormPageState extends State<LeaveFormPage> {
     return _role;
   }
 
+  // Explicit match — 'company_admin' contains 'admin' but is NOT
+  // authorized for leave management (backend returns 403 for it).
   bool _isAdmin() {
     final role = _role?.trim().toLowerCase();
-    return role != null && role.contains('admin');
+    return role == 'admin' || role == 'hr';
   }
 
   Future<void> _selectDate(TextEditingController ctrl,

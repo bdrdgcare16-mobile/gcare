@@ -239,8 +239,9 @@ export const getAllRewards = async (req: Request, res: Response): Promise<Respon
       return res.json(dedup);
     }
 
-    // Admin role: can see all company rewards (no empid filter)
-    if (user.role === 'admin') {
+    // Admin/HR role: can see all company rewards (no empid filter).
+    // For HR the route's hrFeatureGate(['rewards']) enforces approval.
+    if (user.role === 'admin' || user.role === 'hr') {
       const snapshot = await db
         .collection(REWARDS)
         .where('companyId', '==', companyId)

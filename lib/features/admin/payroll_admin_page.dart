@@ -8,7 +8,12 @@ import 'package:serv_app/widgets/payslip_preview.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class PayrollAdminPage extends StatefulWidget {
-  const PayrollAdminPage({super.key});
+  /// HR mode: the HR user's approvedFeatures set. When non-null and it
+  /// contains 'payroll', HR inherits the tenant-admin payroll module
+  /// (backend authorizes admin|hr + hrFeatureGate(['payroll'])).
+  final Set<String>? allowedFeatures;
+
+  const PayrollAdminPage({super.key, this.allowedFeatures});
 
   @override
   State<PayrollAdminPage> createState() => _PayrollAdminPageState();
@@ -30,6 +35,14 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
   int selectedYear = DateTime.now().year;
   int selectedMonth = DateTime.now().month;
   String selectedSalaryCalculationMethod = 'ACTUAL_CALENDAR_DAYS';
+
+  // Payroll mutations (generate / edit / mark-paid) are open to admin
+  // and to HR with 'payroll' approved — backend enforces
+  // roleMiddleware(['admin','hr']) + hrFeatureGate(['payroll']).
+  bool get _isAdmin =>
+      CompanyData.role == 'admin' ||
+      (CompanyData.role == 'hr' &&
+          (widget.allowedFeatures?.contains('payroll') ?? false));
 
   // Shared helper to determine payment status
   String _getPaymentStatus(Map<String, dynamic> payroll) {
@@ -488,7 +501,11 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
       final resp = await http
           .post(
             uri,
-            headers: {'Content-Type': 'application/json'},
+            headers: {
+              'Content-Type': 'application/json',
+              if (CompanyData.token.isNotEmpty)
+                'Authorization': 'Bearer ${CompanyData.token}',
+            },
             body: jsonEncode(requestBody),
           )
           .timeout(const Duration(minutes: 5));
@@ -632,7 +649,11 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
     try {
       final resp = await http.post(
         uri,
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          if (CompanyData.token.isNotEmpty)
+            'Authorization': 'Bearer ${CompanyData.token}',
+        },
         body: jsonEncode(requestBody),
       );
 
@@ -1448,7 +1469,7 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
                       ),
                     ),
                   ),
-                  if (!isPaid)
+                  if (!isPaid && _isAdmin)
                     SizedBox(
                       width: constraints.maxWidth > 400
                           ? 120
@@ -1468,7 +1489,7 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
                         ),
                       ),
                     ),
-                  if (!isPaid)
+                  if (!isPaid && _isAdmin)
                     SizedBox(
                       width: constraints.maxWidth > 400
                           ? 120
@@ -1732,37 +1753,38 @@ class _PayrollAdminPageState extends State<PayrollAdminPage> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: isLoading ? null : _generatePayroll,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF655193),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                if (_isAdmin)
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: isLoading ? null : _generatePayroll,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF655193),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
+                      child: isLoading
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor:
+                                    AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
+                          : const Text(
+                              'Generate Payroll',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                     ),
-                    child: isLoading
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor:
-                                  AlwaysStoppedAnimation<Color>(Colors.white),
-                            ),
-                          )
-                        : const Text(
-                            'Generate Payroll',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
                   ),
-                ),
               ],
             ),
           ),

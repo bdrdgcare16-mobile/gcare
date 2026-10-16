@@ -3,6 +3,10 @@ const COMPANY_COLLECTION = 'companyProfile';
 import { Timestamp } from 'firebase-admin/firestore';
 import { db } from '../config/firebase';
 import { trackUsage } from '../services/usageService';
+import {
+  countActiveCompanyUsers,
+  getCompanyEntitlementSafe,
+} from '../services/entitlementService';
 
 
 type TS = Timestamp;
@@ -127,11 +131,13 @@ export const saveCompanyProfile = async (req: Request, res: Response): Promise<R
       if (!ok) return res.status(400).json({ success: false, message: 'Only JPEG, PNG, GIF allowed' });
 
       const base64Data = (logoBase64.split(';base64,').pop() || logoBase64).trim();
-      const sizeBytes = (base64Data.length * 3) / 4 - (base64Data.endsWith('==') ? 2 : base64Data.endsWith('=') ? 1 : 0);
-      if (sizeBytes > 5 * 1024 * 1024) {
-        return res.status(400).json({ success: false, message: 'Max image size 5MB' });
+      const dataUri = `data:${logoMimeType};base64,${base64Data}`;
+      // The logo is embedded in the Firestore document — a single field
+      // value may not exceed 1,048,487 bytes (~786KB raw image data).
+      if (dataUri.length > 1_000_000) {
+        return res.status(400).json({ success: false, message: 'Logo image is too large — please upload an image under ~700KB' });
       }
-      data.logoBase64 = `data:${logoMimeType};base64,${base64Data}`;
+      data.logoBase64 = dataUri;
     }
 
     const prev = await docRef.get();
@@ -154,6 +160,11 @@ export const saveCompanyProfile = async (req: Request, res: Response): Promise<R
     });
   } catch (e: any) {
     console.error('saveCompanyProfile error:', e);
+    // Firestore argument violations (e.g. oversized field values) are
+    // client-correctable — report them as 400 without leaking internals.
+    if (typeof e?.message === 'string' && e.message.includes('INVALID_ARGUMENT')) {
+      return res.status(400).json({ success: false, message: 'Invalid profile data' });
+    }
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
@@ -214,5 +225,62 @@ export const getCompanyProfile = async (req: Request, res: Response): Promise<Re
   } catch (e: any) {
     console.error('getCompanyProfile error:', e);
     return res.status(500).json({ success: false, message: 'Failed to fetch company profile' });
+  }
+};
+
+/**
+ * GET /api/company/entitlements
+ * Returns the feature entitlement + user limit for the authenticated user's
+ * own company. companyId always comes from the verified JWT — never from the
+ * request. This is what the Flutter FeatureAccess service consumes.
+ */
+export const getMyEntitlements = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const tokenUser = (req as any).user;
+    const companyId = String(tokenUser?.companyId || '').trim();
+
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: 'No companyId on token' });
+    }
+
+    const ent = await getCompanyEntitlementSafe(companyId);
+
+    if (ent.lookupFailed) {
+      return res.status(503).json({
+        success: false,
+        error: 'ENTITLEMENT_UNAVAILABLE',
+        message: 'Could not verify company entitlements. Please try again.',
+      });
+    }
+    if (!ent.exists) {
+      return res.status(404).json({
+        success: false,
+        error: 'COMPANY_NOT_FOUND',
+        message: 'Unknown company.',
+      });
+    }
+
+    const currentUsers = await countActiveCompanyUsers(companyId);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        companyId: ent.companyId,
+        companyName: ent.name,
+        status: ent.status,
+        plan: ent.plan,
+        // null => legacy company: all features allowed
+        enabledFeatures: ent.enabledFeatures,
+        effectiveFeatures: ent.effectiveFeatures
+          ? Array.from(ent.effectiveFeatures)
+          : null,
+        isLegacy: ent.isLegacy,
+        maxUsers: ent.maxUsers,
+        currentUsers,
+      },
+    });
+  } catch (e: any) {
+    console.error('getMyEntitlements error:', e);
+    return res.status(500).json({ success: false, message: 'Failed to fetch entitlements' });
   }
 };

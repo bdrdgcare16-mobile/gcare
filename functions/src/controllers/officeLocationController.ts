@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import { db } from '../config/firebase';
 import { trackUsage } from '../services/usageService';
+import { resolveAttendanceGeoPolicy } from '../services/attendanceGeoPolicy';
+import { findOfficeForAttendance } from './attendanceController';
 
 type OfficeLocation = {
   companyId: string;
@@ -188,6 +190,78 @@ export const deleteLocation = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error deleting location:', error);
     return res.status(500).json({ error: 'Failed to delete location' });
+  }
+};
+
+// GET /assigned — employee self-service read of their assigned office geo
+// config plus the company's geofencing policy. Read-only; only the fields
+// the attendance flow needs are returned. Identity and tenant come from the
+// verified token — never from request input.
+export const getAssignedLocation = async (req: Request, res: Response) => {
+  const companyId = getReqCompanyId(req);
+  const empid = String((req as any).user?.empid || '').trim();
+
+  if (!companyId) {
+    return res.status(403).json({ error: 'companyId missing in token' });
+  }
+
+  try {
+    const policy = await resolveAttendanceGeoPolicy(companyId);
+    if (!policy.resolved) {
+      return res.status(503).json({
+        error: 'ENTITLEMENT_UNAVAILABLE',
+        message: 'Could not verify company policy. Please try again.',
+      });
+    }
+
+    const base = {
+      companyId,
+      geofencingEnabled: policy.geofencingEnabled,
+      legacyCompatibilityMode: policy.legacyCompatibilityMode,
+    };
+
+    if (!empid) {
+      // Non-employee tokens carry no employee identity — return the policy
+      // only, never office data.
+      return res.status(200).json({ ...base, office: null });
+    }
+
+    const empSnap = await db
+      .collection('employees')
+      .where('empid', '==', empid)
+      .where('companyId', '==', companyId)
+      .limit(1)
+      .get();
+
+    if (empSnap.empty) {
+      return res.status(200).json({ ...base, office: null });
+    }
+
+    const emp = empSnap.docs[0].data() as any;
+    const office = await findOfficeForAttendance(companyId, {
+      officeLocationId:
+        String(emp.officeLocationId || '').trim() || null,
+      branchName: String(emp.branchName || emp.location || '').trim() || null,
+    });
+
+    if (!office) {
+      return res.status(200).json({ ...base, office: null });
+    }
+
+    return res.status(200).json({
+      ...base,
+      office: {
+        docId: office.id,
+        branchName: String(office.branchName || office.name || ''),
+        name: String(office.name || office.branchName || ''),
+        latitude: Number(office.latitude),
+        longitude: Number(office.longitude),
+        radius: Number(office.radius),
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching assigned location:', error);
+    return res.status(500).json({ error: 'Failed to fetch assigned location' });
   }
 };
 

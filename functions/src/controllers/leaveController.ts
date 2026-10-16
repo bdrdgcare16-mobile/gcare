@@ -57,6 +57,14 @@ function isAdmin(req: Request): boolean {
   return getReqRole(req) === 'admin';
 }
 
+// Leave decision/delete are module operations the tenant admin role
+// performs; HR inherits them when 'leave' is in approvedFeatures
+// (hrFeatureGate on the route enforces that part).
+function isAdminOrHr(req: Request): boolean {
+  const role = getReqRole(req);
+  return role === 'admin' || role === 'hr';
+}
+
 /* ============================== Usage Tracking Helper ============================== */
 
 async function trackLeaveUsage(
@@ -598,7 +606,7 @@ export const updateLeaveStatus = async (req: Request, res: Response): Promise<Re
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    if (!isAdmin(req)) {
+    if (!isAdminOrHr(req)) {
       return res.status(403).json({ error: 'Only admin can update leave status' });
     }
 
@@ -744,7 +752,7 @@ export const deleteLeave = async (req: Request, res: Response): Promise<Response
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    if (!isAdmin(req)) {
+    if (!isAdminOrHr(req)) {
       return res.status(403).json({ error: 'Only admin can delete leave requests' });
     }
 

@@ -44,6 +44,8 @@ export interface CompanyDetails {
   officialEmail?: string;
   employeeId: string;
   shiftTime: string;
+  /** Stable shifts doc id — preferred over the shiftTime display name. */
+  shiftId?: string;
   workMode: string;
   employeeType: string;
   experienceLevel: string;

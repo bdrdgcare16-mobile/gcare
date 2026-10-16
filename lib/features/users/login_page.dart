@@ -17,10 +17,15 @@ import 'package:serv_app/html_stub.dart'
 import 'package:serv_app/models/company_data.dart';
 
 import 'package:serv_app/features/users/home_screen_page.dart';
+import 'package:serv_app/features/users/employee_company_policy_page.dart';
 import 'package:serv_app/features/admin/admin_dashboard_page.dart';
 import 'package:serv_app/features/admin/company_details_page.dart';
-import 'package:serv_app/features/supderadmin/super_admin_onboarding_page.dart';
+import 'package:serv_app/features/company_admin/company_admin_page.dart';
+import 'package:serv_app/features/hr/hr_landing_page.dart';
+import 'package:serv_app/features/supderadmin/platform_admin_dashboard_page.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/services/employee_policy_service.dart';
+import 'package:serv_app/services/feature_service.dart';
 import 'package:serv_app/services/fcm_test_service.dart';
 
 import 'forgot_password_page.dart';
@@ -117,6 +122,36 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     }
   }
 
+  /// When Firebase Auth reports the user does not exist, asks the backend
+  /// whether the email belongs to an onboarding request that is pending or
+  /// rejected — returning the server message, or null for a plain
+  /// credential failure.
+  Future<String?> _checkOnboardingStatus(String email, String pwd) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse('${ApiService.baseUrl}/auth/login'),
+            headers: const {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: jsonEncode({'email': email, 'password': pwd}),
+          )
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode == 403) {
+        final data = jsonDecode(response.body);
+        return (data['error'] ?? data['message'])?.toString();
+      }
+      if (response.statusCode == 200) {
+        // Credentials are valid server-side but the Firebase identity is
+        // missing (e.g. Auth emulator restart) — re-approval repairs it.
+        return 'Your login identity is missing. Ask your Company Admin '
+            'to re-approve the onboarding request.';
+      }
+    } catch (_) {}
+    return null;
+  }
+
   Future<void> _persist(String key, String value) async {
     try {
       html.window.localStorage[key] = value;
@@ -208,9 +243,12 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
       debugPrint('FIREBASE LOGIN SUCCESS');
 
+      final loginUrl = '${ApiService.baseUrl}/auth/firebase-login';
+      debugPrint('[DEV] POST $loginUrl');
+
       final response = await http
           .post(
-            Uri.parse('${ApiService.baseUrl}/auth/firebase-login'),
+            Uri.parse(loginUrl),
             headers: {
               'Content-Type': 'application/json',
               'Accept': 'application/json',
@@ -221,6 +259,22 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           .timeout(const Duration(seconds: 15));
 
       debugPrint('LOGIN STATUS: ${response.statusCode}');
+      if (response.statusCode != 200) {
+        // Safe DEV diagnostic: endpoint + status + sanitized server error
+        // only. Never logs the password, Firebase ID token, or SERV JWT.
+        String serverError = '';
+        try {
+          final errBody = jsonDecode(response.body);
+          serverError =
+              (errBody['message'] ?? errBody['error'] ?? '').toString();
+        } catch (_) {
+          serverError = response.body;
+        }
+        debugPrint(
+          '[DEV] LOGIN FAILED url=$loginUrl status=${response.statusCode} '
+          'error="$serverError"',
+        );
+      }
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
 
@@ -266,7 +320,12 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           return;
         }
 
-        if (isAdmin && role != 'admin' && role != 'super_admin') {
+        if (isAdmin &&
+            role != 'admin' &&
+            role != 'company_admin' &&
+            role != 'hr' &&
+            role != 'super_admin' &&
+            role != 'platform_admin') {
           _showSnack("Not authorized as admin.");
           return;
         }
@@ -280,6 +339,11 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         CompanyData.role = role;
         CompanyData.empid = empId;
         CompanyData.companyId = companyId;
+
+        // Tenant feature entitlements: seed from the login response,
+        // then refresh from the backend for the authoritative set.
+        FeatureAccess.seedFromLoginResponse(data);
+        unawaited(FeatureAccess.refresh(token: token));
 
         // We may already have an FCM token from app startup; now that we
         // have a JWT, register (or refresh) the device with the backend.
@@ -317,11 +381,48 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         }
 
         if (isAdmin) {
-          if (role == 'super_admin') {
+          if (role == 'super_admin' || role == 'platform_admin') {
             if (!mounted) return;
             Navigator.of(context).pushAndRemoveUntil(
               MaterialPageRoute(
-                builder: (_) => const SuperAdminOnboardingPage(),
+                builder: (_) => const PlatformAdminDashboardPage(),
+              ),
+              (route) => false,
+            );
+            return;
+          }
+
+          if (role == 'hr') {
+            if (!mounted) return;
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const HrLandingPage()),
+              (route) => false,
+            );
+            return;
+          }
+
+          // Company Admin is NOT the SERV admin — it only manages HR users
+          // for its own company. Never route it into AdminDashboard.
+          if (role == 'company_admin') {
+            // Company profile must be complete before the CA dashboard —
+            // checked server-side (keyed by the caller's token email).
+            var profileComplete = true;
+            try {
+              final result = await _checkCompanyProfile(
+                token: token,
+                adminEmail: email,
+              );
+              profileComplete = result['exists'] == true;
+            } catch (_) {
+              // Transient failure must not lock a returning CA out.
+              profileComplete = true;
+            }
+            if (!mounted) return;
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(
+                builder: (_) => profileComplete
+                    ? const CompanyAdminPage()
+                    : const CompanyDetailsFormPage(),
               ),
               (route) => false,
             );
@@ -392,15 +493,28 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             await _showPermissionIntroThenRequest();
           }
 
+          // Policy acknowledgement gate (Phase 6): backend acknowledgement
+          // record is authoritative — fail open to the dashboard on fetch
+          // errors rather than blocking a fresh login on a network hiccup.
+          bool needsPolicyAck = false;
+          try {
+            needsPolicyAck = await EmployeePolicyService.needsAcknowledgement();
+          } catch (_) {}
+
           if (!mounted) return;
 
+          final employeeHome = needsPolicyAck
+              ? EmployeeCompanyPolicyPage(
+                  userName: name.isNotEmpty ? name : email.split('@').first,
+                  employeeDocId: docId,
+                )
+              : HomeScreen(
+                  userName: name.isNotEmpty ? name : email.split('@').first,
+                  employeeDocId: docId,
+                );
+
           Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(
-              builder: (_) => HomeScreen(
-                userName: name.isNotEmpty ? name : email.split('@').first,
-                employeeDocId: docId,
-              ),
-            ),
+            MaterialPageRoute(builder: (_) => employeeHome),
             (route) => false,
           );
         }
@@ -411,6 +525,18 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       }
     } on FirebaseAuthException catch (e) {
       debugPrint('FIREBASE LOGIN FAILED: ${e.code} - ${e.message}');
+      // A Firebase user-not-found can mean the onboarding is still pending
+      // (or was rejected) — the backend knows the difference.
+      if (e.code == 'user-not-found') {
+        final msg = await _checkOnboardingStatus(
+          idController.text.trim().toLowerCase(),
+          passwordController.text,
+        );
+        if (msg != null) {
+          _showSnack(msg);
+          return;
+        }
+      }
       _showSnack(_firebaseErrorMessage(e));
     } catch (e) {
       _showSnack('Error: $e');

@@ -48,7 +48,7 @@ router.post(
 
 router.post(
   '/admin/backfill-employee-logins',
-  roleMiddleware(['admin']),
+  roleMiddleware(['admin', 'super_admin']),
   authController.backfillEmployeesToUsers
 );
 

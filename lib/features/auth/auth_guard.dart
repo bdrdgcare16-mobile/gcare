@@ -19,10 +19,16 @@ import 'package:serv_app/features/users/home_screen_page.dart';
 import 'package:serv_app/features/admin/admin_dashboard_page.dart';
 import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/services/feature_service.dart';
 import 'package:serv_app/services/fcm_test_service.dart';
+import 'package:serv_app/services/tracking_events.dart';
 
 import 'package:serv_app/features/admin/company_details_page.dart';
-import 'package:serv_app/features/supderadmin/super_admin_onboarding_page.dart';
+import 'package:serv_app/features/company_admin/company_admin_page.dart';
+import 'package:serv_app/features/hr/hr_landing_page.dart';
+import 'package:serv_app/features/supderadmin/platform_admin_dashboard_page.dart';
+import 'package:serv_app/features/users/employee_company_policy_page.dart';
+import 'package:serv_app/services/employee_policy_service.dart';
 
 // Same base URL you use elsewhere
 final String _apiBase = ApiConfig.baseUrl;
@@ -113,6 +119,11 @@ class _AuthGuardState extends State<AuthGuard> {
 
   Future<void> _decide() async {
     try {
+      // Flush any tracking events queued while offline (e.g. logout event
+      // captured just before the session token was cleared — it carries its
+      // own stored JWT and is retried while that token remains unexpired).
+      unawaited(TrackingEvents.syncPendingEvents());
+
       // Read saved token/role
       final token = await _readPersisted('token');
       String role = await _readPersisted('role');
@@ -198,6 +209,10 @@ class _AuthGuardState extends State<AuthGuard> {
       CompanyData.role = role;
       CompanyData.companyId = persistedCompanyId;
 
+      // Refresh tenant feature entitlements (uses persisted snapshot
+      // first so UI gating works even if the refresh is slow/offline).
+      unawaited(FeatureAccess.load(token: token));
+
       if (role == 'employee') {
         if (persistedStatus != 'active' || persistedCompanyId.isEmpty) {
           if (!mounted) return;
@@ -215,13 +230,62 @@ class _AuthGuardState extends State<AuthGuard> {
 
         final docId = await _readPersisted('userDocId');
 
+        // Policy acknowledgement gate (Phase 6): the backend
+        // acknowledgement record is authoritative. On any fetch error we
+        // fail open to the dashboard rather than signing the employee out.
+        bool needsPolicyAck = false;
+        try {
+          needsPolicyAck =
+              await EmployeePolicyService.needsAcknowledgement();
+        } catch (_) {}
+
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
-            builder: (_) => HomeScreen(
-              userName: displayName,
-              employeeDocId: docId,
-            ),
+            builder: (_) => needsPolicyAck
+                ? EmployeeCompanyPolicyPage(
+                    userName: displayName,
+                    employeeDocId: docId,
+                  )
+                : HomeScreen(
+                    userName: displayName,
+                    employeeDocId: docId,
+                  ),
+          ),
+        );
+        return;
+      }
+
+      if (role == 'company_admin') {
+        // Tenant-scoped: Company Admin manages only HR users for its own
+        // company — never the normal SERV Admin dashboard.
+        if (persistedStatus != 'active' || persistedCompanyId.isEmpty) {
+          if (!mounted) return;
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const LoginPage()),
+          );
+          return;
+        }
+
+        // Company profile must be complete before the CA dashboard —
+        // checked server-side (keyed by the caller's token email).
+        var profileComplete = true;
+        try {
+          final result =
+              await _checkCompanyProfile(token: token, adminEmail: email);
+          profileComplete = result['exists'] == true;
+        } catch (_) {
+          // Transient failure must not lock a returning CA out — the
+          // dashboard itself performs no profile-dependent writes.
+          profileComplete = true;
+        }
+
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => profileComplete
+                ? const CompanyAdminPage()
+                : const CompanyDetailsFormPage(),
           ),
         );
         return;
@@ -291,6 +355,32 @@ class _AuthGuardState extends State<AuthGuard> {
         }
       }
 
+      if (role == 'hr') {
+        // HR is a tenant role — needs an active company context.
+        if (persistedStatus != 'active' || persistedCompanyId.isEmpty) {
+          if (!mounted) return;
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const LoginPage()),
+          );
+          return;
+        }
+
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const HrLandingPage()),
+        );
+        return;
+      }
+
+      if (role == 'platform_admin') {
+        // Platform admins are not tenant users — no company/status gate.
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const PlatformAdminDashboardPage()),
+        );
+        return;
+      }
+
       if (role == 'super_admin') {
         if (persistedStatus != 'active' || persistedCompanyId.isEmpty) {
           if (!mounted) return;
@@ -302,7 +392,7 @@ class _AuthGuardState extends State<AuthGuard> {
 
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const SuperAdminOnboardingPage()),
+          MaterialPageRoute(builder: (_) => const PlatformAdminDashboardPage()),
         );
         return;
       }
@@ -341,10 +431,26 @@ class _AuthGuardState extends State<AuthGuard> {
         return;
       }
 
-      if (cachedRole == 'super_admin') {
+      if (cachedRole == 'company_admin') {
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const SuperAdminOnboardingPage()),
+          MaterialPageRoute(builder: (_) => const CompanyAdminPage()),
+        );
+        return;
+      }
+
+      if (cachedRole == 'hr') {
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const HrLandingPage()),
+        );
+        return;
+      }
+
+      if (cachedRole == 'super_admin' || cachedRole == 'platform_admin') {
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const PlatformAdminDashboardPage()),
         );
         return;
       }

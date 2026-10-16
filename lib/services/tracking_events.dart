@@ -253,3 +253,150 @@ Future<void> syncPendingTrackingEvents(String empid, String token) async {
   }
   await prefs.setStringList(kPendingTrackingEventsKey, kept);
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * TrackingEvents — generic event-reporting facade used by attendance/auth
+ * code paths (mock-location reports, account events, service-state polls).
+ * It shares the SAME offline queue (kPendingTrackingEventsKey) and the same
+ * backend dedup contract (clientEventId + 60s type window) as the GPS
+ * transition helpers above, so a queue filled by either API is drained by
+ * the same sync.
+ * ──────────────────────────────────────────────────────────────────────── */
+class TrackingEvents {
+  static const List<String> _empKeys = ['empid', 'empId', 'bg_empid'];
+  static const List<String> _tokKeys = ['token', 'bg_token'];
+
+  static Future<String?> _empid([String? override]) async {
+    if (override != null && override.isNotEmpty) return override;
+    final sp = await SharedPreferences.getInstance();
+    for (final k in _empKeys) {
+      final v = sp.getString(k);
+      if (v != null && v.isNotEmpty) return v;
+    }
+    return null;
+  }
+
+  static Future<String?> _token([String? override]) async {
+    if (override != null && override.isNotEmpty) return override;
+    final sp = await SharedPreferences.getInstance();
+    for (final k in _tokKeys) {
+      final v = sp.getString(k);
+      if (v != null && v.isNotEmpty) return v;
+    }
+    return null;
+  }
+
+  /// Persist an event into the shared offline queue. The payload must carry
+  /// its 'empid' so [syncPendingTrackingEvents] can attribute it; a missing
+  /// empid is filled from the current identity when possible.
+  static Future<void> enqueue(Map<String, dynamic> event) async {
+    try {
+      final item = Map<String, dynamic>.from(event);
+      if ((item['empid']?.toString() ?? '').isEmpty) {
+        final emp = await _empid();
+        if (emp != null && emp.isNotEmpty) item['empid'] = emp;
+      }
+      await _enqueueTrackingEvent(item);
+    } catch (_) {}
+  }
+
+  /// Retry all queued events for the resolved identity - delegates to the
+  /// shared drain so queue entries produced by either API sync identically.
+  static Future<void> syncPendingEvents({String? empid, String? token}) async {
+    try {
+      final emp = await _empid(empid);
+      final tok = await _token(token);
+      if (emp == null || emp.isEmpty || tok == null || tok.isEmpty) return;
+      await syncPendingTrackingEvents(emp, tok);
+    } catch (_) {}
+  }
+
+  /// Post a tracking event. On network/5xx failure it is queued for retry;
+  /// a 4xx rejection is dropped (retrying cannot succeed). Never throws.
+  static Future<void> report({
+    required String type,
+    String? message,
+    double? latitude,
+    double? longitude,
+    double? accuracy,
+    String? eventId,
+    String? empid,
+    String? token,
+  }) async {
+    try {
+      final emp = await _empid(empid);
+      final payload = <String, dynamic>{
+        if (emp != null && emp.isNotEmpty) 'empid': emp,
+        'type': type,
+        'dateIso': await trackingSessionDateIso(),
+        // The backend dedupes on clientEventId - map the caller's
+        // idempotency key onto it so report() retries cannot double-emit.
+        'clientEventId': (eventId != null && eventId.isNotEmpty)
+            ? eventId
+            : 'ev-$type-${DateTime.now().toUtc().millisecondsSinceEpoch}',
+        if (message != null) 'message': message,
+        if (latitude != null) 'latitude': latitude,
+        if (longitude != null) 'longitude': longitude,
+        if (accuracy != null) 'accuracy': accuracy,
+      };
+
+      final tok = await _token(token);
+      if (emp == null || emp.isEmpty || tok == null || tok.isEmpty) {
+        await _enqueueTrackingEvent(payload);
+        return;
+      }
+
+      try {
+        final res = await http
+            .post(
+              Uri.parse('${ApiService.baseUrl}/tracking/event'),
+              headers: _headers(emp, tok),
+              body: jsonEncode(payload),
+            )
+            .timeout(const Duration(seconds: 10));
+        if (res.statusCode >= 200 && res.statusCode < 300) return;
+        if (res.statusCode == 404) {
+          // Stale backend (deployment skew) - keep for later sync.
+          await _enqueueTrackingEvent(payload);
+          return;
+        }
+        if (res.statusCode >= 400 && res.statusCode < 500) return; // permanent
+        await _enqueueTrackingEvent(payload);
+      } catch (_) {
+        await _enqueueTrackingEvent(payload);
+      }
+    } catch (_) {}
+  }
+
+  /// Record a location-service transition; delegates to the shared dedup
+  /// store so a transition is reported exactly once across isolates.
+  static Future<void> reportServiceState(
+    bool enabled, {
+    double? latitude,
+    double? longitude,
+    String? empid,
+    String? token,
+  }) async {
+    try {
+      final emp = await _empid(empid);
+      final tok = await _token(token);
+      if (emp == null || emp.isEmpty || tok == null || tok.isEmpty) return;
+      await recordGpsServiceTransition(
+        enabled: enabled,
+        empid: emp,
+        token: tok,
+        latitude: latitude,
+        longitude: longitude,
+      );
+    } catch (_) {}
+  }
+
+  /// Prime the stored state without emitting an event (call at tracking
+  /// start so the first *change* is the first event).
+  static Future<void> primeServiceState(bool enabled) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(kGpsServiceStateKey, enabled ? 'on' : 'off');
+    } catch (_) {}
+  }
+}

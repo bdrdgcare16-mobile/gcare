@@ -67,3 +67,6 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+
+# Emulator-local onboarding document store (DEV only)
+.local-storage/

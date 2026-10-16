@@ -158,6 +158,22 @@ export async function listReasons(req: Request, res: Response) {
     return res.status(403).json({ status: "error", message: "Company ID missing in token" });
   }
 
+  // Employees see only ACTIVE reasons (non-deleted and not explicitly
+  // deactivated). The schema has no mandatory active flag, so treat an
+  // explicit `active:false` / `isActive:false` / `status:'inactive'` as
+  // inactive — records without the field are active by default.
+  const isEmployee =
+    String((req as any).user?.role || "").toLowerCase() === "employee";
+  const applyActiveFilter = (items: any[]) =>
+    isEmployee
+      ? items.filter(
+          (r) =>
+            r.active !== false &&
+            r.isActive !== false &&
+            String(r.status ?? "").toLowerCase() !== "inactive"
+        )
+      : items;
+
   const { search, typeId, limit = 50, cursor } = req.query as any;
 
   // First try the ideal (indexed) query
@@ -175,7 +191,9 @@ export async function listReasons(req: Request, res: Response) {
     }
 
     const snap = await q.limit(Number(limit) || 50).get();
-    let items = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+    let items = applyActiveFilter(
+      snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))
+    );
 
     if (search) {
       const s = String(search).toLowerCase();
@@ -211,7 +229,9 @@ export async function listReasons(req: Request, res: Response) {
     if (typeId) q = q.where("typeId", "==", safe(typeId));
 
     const snap = await q.limit(500).get(); // safe cap; adjust as needed
-    let items = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+    let items = applyActiveFilter(
+      snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))
+    );
 
     // Sort locally by createdAt desc
     items.sort((a: any, b: any) => {

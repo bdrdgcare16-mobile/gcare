@@ -8,6 +8,7 @@ import 'package:serv_app/features/users/events_page.dart';
 import 'package:serv_app/features/users/my_rewards_page.dart';
 import 'package:serv_app/features/users/types_of_request_page.dart';
 import 'package:serv_app/features/users/employee_payslip_page.dart';
+import 'package:serv_app/services/feature_service.dart';
 
 // Theme colors (unchanged)
 const Color kPrimaryBackgroundTop    = Color(0xFFFFFFFF);
@@ -32,6 +33,7 @@ class MyServPage extends StatelessWidget {
         imagePath: 'assets/images/attendance.png',
         label: 'Attendance',
         iconBg: const Color(0xFFE8E0F5),
+        features: const [FeatureAccess.attendance],
         onTap: () {
           if (!context.mounted) return;
           Navigator.push(context, MaterialPageRoute(builder: (_) => const MyAttendancePage()));
@@ -41,6 +43,7 @@ class MyServPage extends StatelessWidget {
         imagePath: 'assets/images/my-track.png',
         label: 'My Track',
         iconBg: const Color(0xFFEDE7F6),
+        features: const [FeatureAccess.tracking],
         onTap: () {
           if (!context.mounted) return;
           Navigator.push(context, MaterialPageRoute(builder: (_) => const MyTrackPage()));
@@ -50,6 +53,7 @@ class MyServPage extends StatelessWidget {
         imagePath: 'assets/images/myrequest.png',
         label: 'My Request',
         iconBg: const Color(0xFFE6DEF0),
+        features: const [FeatureAccess.leave, FeatureAccess.attendance],
         onTap: () {
           if (!context.mounted) return;
           Navigator.push(context, MaterialPageRoute(builder: (_) => const MyRequestPage()));
@@ -59,6 +63,7 @@ class MyServPage extends StatelessWidget {
         imagePath: 'assets/images/type_of_request3.png',
         label: 'Type of Request',
         iconBg: const Color(0xFFD1C4E9),
+        features: const [FeatureAccess.leave, FeatureAccess.attendance],
         onTap: () {
           if (!context.mounted) return;
           Navigator.push(context, MaterialPageRoute(builder: (_) => TypeOfRequestPage()));
@@ -68,6 +73,7 @@ class MyServPage extends StatelessWidget {
         imagePath: 'assets/images/task5.png',
         label: 'My Task',
         iconBg: const Color(0xFFE8E0F5),
+        features: const [FeatureAccess.tasks],
         onTap: () {
           if (!context.mounted) return;
           Navigator.push(context, MaterialPageRoute(builder: (_) =>  MyTasksPage()));
@@ -77,6 +83,7 @@ class MyServPage extends StatelessWidget {
         imagePath: 'assets/images/event_icon.png',
         label: 'Events Update',
         iconBg: const Color(0xFFEDE7F6),
+        features: const [FeatureAccess.events],
         onTap: () {
           if (!context.mounted) return;
           Navigator.push(context, MaterialPageRoute(builder: (_) => const UserEventUpdatesPage()));
@@ -86,6 +93,7 @@ class MyServPage extends StatelessWidget {
         imagePath: 'assets/images/rewards1.png',
         label: 'Rewards',
         iconBg: const Color(0xFFE6DEF0),
+        features: const [FeatureAccess.rewards],
         onTap: () {
           if (!context.mounted) return;
           Navigator.push(context, MaterialPageRoute(builder: (_) => const UserRewardsPage()));
@@ -96,12 +104,19 @@ class MyServPage extends StatelessWidget {
           imagePath: 'assets/images/reports.png',
           label: 'Payslip',
           iconBg: const Color(0xFFE8E0F5),
+          features: const [FeatureAccess.payroll],
           onTap: () {
             if (!context.mounted) return;
             Navigator.push(context, MaterialPageRoute(builder: (_) => const EmployeePayslipPage()));
           },
         ),
     ];
+
+    // Tenant feature gating: hide tiles for features not enabled on the
+    // company (legacy/unconfigured companies see everything).
+    final visibleItems = items
+        .where((i) => i.features.isEmpty || FeatureAccess.hasAny(i.features))
+        .toList();
 
     return Scaffold(
       backgroundColor: _kBg,
@@ -148,7 +163,7 @@ class MyServPage extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: GridView.builder(
                       physics: const BouncingScrollPhysics(),
-                      itemCount: items.length,
+                      itemCount: visibleItems.length,
                       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: 2,
                         crossAxisSpacing: 14,
@@ -156,7 +171,7 @@ class MyServPage extends StatelessWidget {
                         childAspectRatio: 1.15,
                       ),
                       itemBuilder: (context, index) {
-                        final item = items[index];
+                        final item = visibleItems[index];
                         return _ServCard(
                           imagePath: item.imagePath,
                           label: item.label,
@@ -184,12 +199,14 @@ class _ServItemData {
   final String label;
   final Color iconBg;
   final VoidCallback onTap;
+  final List<String> features; // empty => always visible
 
   _ServItemData({
     required this.imagePath,
     required this.label,
     required this.iconBg,
     required this.onTap,
+    this.features = const [],
   });
 }
 

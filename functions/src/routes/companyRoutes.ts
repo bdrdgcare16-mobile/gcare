@@ -41,6 +41,13 @@ router.use((req, _res, next) => {
  */
 router.get('/profile/check', authMiddleware, companyController.checkCompanyProfile);
 
+/**
+ * GET /api/company/entitlements
+ * Tenant feature entitlement for the authenticated caller's company.
+ * Declared before the '/profile' multer/upload section; plain JSON GET.
+ */
+router.get('/entitlements', authMiddleware, companyController.getMyEntitlements);
+
 // Configure multer for file uploads (logo is optional)
 const upload = multer({
   storage: multer.memoryStorage(),

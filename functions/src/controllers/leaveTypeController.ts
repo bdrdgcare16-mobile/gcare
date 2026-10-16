@@ -65,7 +65,9 @@ export const createLeaveType = async (req: Request, res: Response): Promise<Resp
       companyId?: string | null;
     };
 
-    if (role !== 'admin') {
+    // Admin, or HR with 'leave' approved (hrFeatureGate on the route
+    // enforces the feature — this check keeps non-admin roles out).
+    if (role !== 'admin' && role !== 'hr') {
       return res.status(403).json({ message: 'Access restricted to administrators' });
     }
 

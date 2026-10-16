@@ -6,7 +6,9 @@ import {
   updateEvent,
   deleteEvent
 } from '../controllers/eventController';
-import { authMiddleware } from '../middlewares/authMiddleware';
+import { authMiddleware, roleMiddleware } from '../middlewares/authMiddleware';
+import { requireFeature } from '../middlewares/featureMiddleware';
+import { hrFeatureGate } from '../middlewares/hrFeatureMiddleware';
 // import { roleMiddleware } from '../middlewares/roleMiddleware'; // optional if you already have this
 
 export default function eventRoutes(db: FirebaseFirestore.Firestore) {
@@ -21,19 +23,21 @@ export default function eventRoutes(db: FirebaseFirestore.Firestore) {
   // IMPORTANT: protect all event routes
   router.use(authMiddleware);
 
-  // If you want only admin to create/update/delete, uncomment role middleware
-  // router.post('/', roleMiddleware(['admin']), createEvent);
-  // router.put('/:id', roleMiddleware(['admin']), updateEvent);
-  // router.delete('/:id', roleMiddleware(['admin']), deleteEvent);
+  // Tenant entitlement: events feature
+  router.use(requireFeature('events'));
+
+  // HR additionally needs 'events' in approvedFeatures (no-op for other roles)
+  router.use(hrFeatureGate(['events']));
 
   // Both admin and employee from same company can view
   router.get('/', getAllEvents);
   router.get('/:id', getEventById);
 
-  // Create / update / delete
-  router.post('/', createEvent);
-  router.put('/:id', updateEvent);
-  router.delete('/:id', deleteEvent);
+  // Create / update / delete — admin, or HR with 'events' approved
+  // (hrFeatureGate at router level enforces the approved feature for hr).
+  router.post('/', roleMiddleware(['admin', 'hr']), createEvent);
+  router.put('/:id', roleMiddleware(['admin', 'hr']), updateEvent);
+  router.delete('/:id', roleMiddleware(['admin', 'hr']), deleteEvent);
 
   return router;
 }

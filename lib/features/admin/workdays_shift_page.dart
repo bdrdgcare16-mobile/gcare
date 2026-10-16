@@ -37,13 +37,36 @@ class _WorkdaysShiftPageState extends State<WorkdaysShiftPage> {
   bool _loading = false;
   String? _error;
 
+  /// Shift writes are allowed for admin and for HR with the 'attendance'
+  /// feature approved (backend enforces it) — only other roles are
+  /// read-only. This page is only reachable for admin/HR anyway.
+  bool _canManage = true;
+
   /// Shifts from DB
   List<Map<String, dynamic>> _shifts = [];
 
   @override
   void initState() {
     super.initState();
+    _loadRole();
     _fetchShifts();
+  }
+
+  Future<void> _loadRole() async {
+    try {
+      final r = html.window.localStorage['role'];
+      if (r != null && r.isNotEmpty) {
+        if (mounted) {
+          setState(() => _canManage = r == 'admin' || r == 'hr');
+        }
+        return;
+      }
+    } catch (_) {}
+    final sp = await SharedPreferences.getInstance();
+    final r = sp.getString('role') ?? '';
+    if (mounted) {
+      setState(() => _canManage = r == 'admin' || r == 'hr');
+    }
   }
 
   Future<String?> _getToken() async {
@@ -257,23 +280,24 @@ class _WorkdaysShiftPageState extends State<WorkdaysShiftPage> {
                               // ),
                               // --------------------------------------------------------------
 
-                              OutlinedButton(
-                                style: OutlinedButton.styleFrom(
-                                  backgroundColor: _isCreateShiftClicked
-                                      ? kButtonColor
-                                      : Colors.transparent,
-                                  foregroundColor: _isCreateShiftClicked
-                                      ? kTextColor
-                                      : Colors.black,
-                                  side: const BorderSide(color: kButtonColor),
-                                  shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(20)),
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 24, vertical: 14),
+                              if (_canManage)
+                                OutlinedButton(
+                                  style: OutlinedButton.styleFrom(
+                                    backgroundColor: _isCreateShiftClicked
+                                        ? kButtonColor
+                                        : Colors.transparent,
+                                    foregroundColor: _isCreateShiftClicked
+                                        ? kTextColor
+                                        : Colors.black,
+                                    side: const BorderSide(color: kButtonColor),
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(20)),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 24, vertical: 14),
+                                  ),
+                                  onPressed: _handleCreateShift,
+                                  child: const Text("Create Shift"),
                                 ),
-                                onPressed: _handleCreateShift,
-                                child: const Text("Create Shift"),
-                              ),
                             ],
                           ),
 
@@ -318,13 +342,14 @@ class _WorkdaysShiftPageState extends State<WorkdaysShiftPage> {
                                         _CustomDataCell('—'), // Staff BufferName
                                         _CustomDataCell(group),
                                         _CustomDataCell('—'), // Break Count
-                                        IconButton(
-                                          icon: const Icon(Icons.delete,
-                                              color: Colors.red),
-                                          onPressed: id.isEmpty
-                                              ? null
-                                              : () => _deleteShift(id),
-                                        ),
+                                        if (_canManage)
+                                          IconButton(
+                                            icon: const Icon(Icons.delete,
+                                                color: Colors.red),
+                                            onPressed: id.isEmpty
+                                                ? null
+                                                : () => _deleteShift(id),
+                                          ),
                                       ],
                                     );
                                   }).toList(),

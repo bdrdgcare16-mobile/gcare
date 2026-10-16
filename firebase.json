@@ -30,9 +30,24 @@
   "functions": {
     "source": "functions"
   },
+  "hosting": {
+    "target": "serv-platform-admin",
+    "public": "build/web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  },
   "emulators": {
     "auth": {
-      "host": "127.0.0.1",
+      "host": "0.0.0.0",
       "port": 9099
     },
     "functions": {
@@ -40,8 +55,12 @@
       "port": 5002
     },
     "firestore": {
-      "host": "127.0.0.1",
+      "host": "0.0.0.0",
       "port": 8080
+    },
+    "ui": {
+      "enabled": true,
+      "port": 4000
     }
   },
   "firestore": {

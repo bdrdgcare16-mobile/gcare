@@ -44,6 +44,12 @@ declare global {
 
         plan?: string | null;
 
+        enabledFeatures?: string[] | null;
+
+        maxUsers?: number | null;
+
+        companyStatus?: string | null;
+
       };
 
     }
@@ -222,9 +228,17 @@ export const authMiddleware = async (
 
           let plan: string | null = null;
 
+          let enabledFeatures: string[] | null = null;
+
+          let maxUsers: number | null = null;
+
+          let companyStatus: string | null = null;
 
 
-          // Fetch companyName and plan from Firestore if companyId is available
+
+          // Fetch companyName, plan and feature entitlements from Firestore
+
+          // if companyId is available
 
           if (jwtPayload.companyId) {
 
@@ -236,9 +250,23 @@ export const authMiddleware = async (
 
                 const companyData = companyDoc.data();
 
-                companyName = companyData?.name || null;
+                companyName = companyData?.name || companyData?.companyName || null;
 
                 plan = companyData?.plan || null;
+
+                enabledFeatures = Array.isArray(companyData?.enabledFeatures)
+                  ? companyData.enabledFeatures
+                  : null;
+
+                const rawMax = Number(companyData?.maxUsers);
+
+                maxUsers = Number.isFinite(rawMax) && rawMax > 0
+                  ? Math.floor(rawMax)
+                  : null;
+
+                companyStatus = companyData?.status
+                  ? String(companyData.status).toLowerCase()
+                  : null;
 
                 console.log('[verifyToken] Company data fetched successfully');
 
@@ -256,6 +284,25 @@ export const authMiddleware = async (
 
 
 
+          // Suspended/inactive tenants: existing tokens are denied for ALL
+          // authenticated APIs, not just feature-gated ones. platform_admin
+          // (and legacy super_admin) is exempt so platform operations can
+          // still manage the tenant. companyStatus is only set when the
+          // company doc exists; a missing doc does not block
+          // authentication here (feature middleware still denies unknown
+          // tenants on gated routes).
+          if (
+            normalizedRole !== 'super_admin' &&
+            normalizedRole !== 'platform_admin' &&
+            (companyStatus === 'suspended' || companyStatus === 'inactive')
+          ) {
+            res.status(403).json({
+              error: 'COMPANY_NOT_ACTIVE',
+              message: 'This company account is not active.',
+            });
+            return resolve();
+          }
+
           req.user = {
 
             userId: String(normalizedUserId),
@@ -271,6 +318,12 @@ export const authMiddleware = async (
             companyName: companyName,
 
             plan: plan,
+
+            enabledFeatures: enabledFeatures,
+
+            maxUsers: maxUsers,
+
+            companyStatus: companyStatus,
 
           };
 

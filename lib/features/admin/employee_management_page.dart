@@ -225,9 +225,11 @@ class EmployeeService {
       return '';
     }
 
-    if (res.statusCode == 400) {
+    if (res.statusCode == 400 ||
+        res.statusCode == 403 ||
+        res.statusCode == 409) {
       final j = jsonDecode(res.body) as Map<String, dynamic>;
-      return j['error']?.toString() ?? 'Validation failed';
+      return (j['message'] ?? j['error'])?.toString() ?? 'Validation failed';
     }
 
     throw Exception('Create failed (${res.statusCode}): ${res.body}');
@@ -289,7 +291,13 @@ class EmployeeService {
 }
 
 class EmployeeListScreen extends StatefulWidget {
-  const EmployeeListScreen({super.key});
+  /// HR mode: the HR user's approvedFeatures set. When non-null and it
+  /// contains 'employees', HR inherits the tenant-admin employee module
+  /// (backend authorizes admin|hr + hrFeatureGate(['employees'])).
+  /// null (admin mode) => full mutation access for the admin role.
+  final Set<String>? allowedFeatures;
+
+  const EmployeeListScreen({super.key, this.allowedFeatures});
 
   @override
   State<EmployeeListScreen> createState() => _EmployeeListScreenState();
@@ -307,6 +315,14 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
   bool _isFetching = false;
   bool _hasMore = false;
   String? _error;
+
+  // Employee create/update/delete are open to admin and to HR with the
+  // 'employees' feature approved (roleMiddleware(['admin','hr']) +
+  // hrFeatureGate). Other roles never reach this screen.
+  bool get _canMutateEmployees =>
+      CompanyData.role == 'admin' ||
+      (CompanyData.role == 'hr' &&
+          (widget.allowedFeatures?.contains('employees') ?? false));
 
   @override
   void initState() {
@@ -642,24 +658,26 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
           _cell(e.dept, flex: 6),
           _cell(e.designation, flex: 6),
           _cell(e.status, flex: 4),
-          Expanded(
-            flex: 5,
-            child: Center(
-              child: IconButton(
-                icon: const Icon(Icons.delete, color: Colors.red),
-                onPressed: () => _deleteEmployee(e),
+          if (_canMutateEmployees)
+            Expanded(
+              flex: 5,
+              child: Center(
+                child: IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red),
+                  onPressed: () => _deleteEmployee(e),
+                ),
               ),
             ),
-          ),
-          Expanded(
-            flex: 5,
-            child: Center(
-              child: IconButton(
-                icon: const Icon(Icons.edit, color: Colors.blue),
-                onPressed: () => _editEmployee(e),
+          if (_canMutateEmployees)
+            Expanded(
+              flex: 5,
+              child: Center(
+                child: IconButton(
+                  icon: const Icon(Icons.edit, color: Colors.blue),
+                  onPressed: () => _editEmployee(e),
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -772,26 +790,27 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
   ),
 ),
               const SizedBox(height: 12),
-              Center(
-                child: SizedBox(
-                  width: MediaQuery.of(context).size.width * 0.8,
-                  child: ElevatedButton(
-                    onPressed: _openCreateEmployee,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: kButtonColor,
-                      foregroundColor: kTextColor,
-                      minimumSize: const Size(120, 42),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+              if (_canMutateEmployees)
+                Center(
+                  child: SizedBox(
+                    width: MediaQuery.of(context).size.width * 0.8,
+                    child: ElevatedButton(
+                      onPressed: _openCreateEmployee,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: kButtonColor,
+                        foregroundColor: kTextColor,
+                        minimumSize: const Size(120, 42),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                       ),
-                    ),
-                    child: const Text(
-                      'Create Employee',
-                      style: TextStyle(fontSize: 12),
+                      child: const Text(
+                        'Create Employee',
+                        style: TextStyle(fontSize: 12),
+                      ),
                     ),
                   ),
                 ),
-              ),
               const SizedBox(height: 12),
               Container(
                 margin: const EdgeInsets.symmetric(horizontal: 10),
@@ -1140,7 +1159,19 @@ class _CreateEmployeeScreenState extends State<CreateEmployeeScreen> {
         );
         return;
       }
-      
+
+      // Any other non-ID return value is an error message from the backend
+      // (e.g. "Maximum user limit reached for this company."). Firestore
+      // document IDs never contain spaces, so this safely distinguishes a
+      // created document id from an error string.
+      if (response.contains(' ')) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(response)),
+        );
+        return;
+      }
+
       // Success - navigate back with success flag
       if (!mounted) return;
       Navigator.pop(context, true);

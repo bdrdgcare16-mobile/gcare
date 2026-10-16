@@ -26,6 +26,8 @@ export interface EmployeeOnboarding {
     officialEmail: string;
     employeeId: string;
     shiftTime: string;
+    /** Stable shifts doc id — preferred over the shiftTime display name. */
+    shiftId?: string;
     workMode: string;
     employeeType: string;
     experienceLevel: string;
@@ -60,6 +62,11 @@ export interface EmployeeOnboarding {
     experienceCertificate?: string;
     relievingLetter?: string;
   };
+
+  // HR-assigned employee password, AES-256-GCM encrypted at rest. Used at
+  // approval-time provisioning and retained so a missing Firebase Auth
+  // identity can be repaired — scrubbed from all API read paths.
+  initialPasswordEnc?: string;
 
   status: "pending" | "approved" | "rejected";
   createdAt: Date;

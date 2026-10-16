@@ -32,6 +32,7 @@ class OnboardingService {
     required String officialEmail,
     required String employeeId,
     required String shiftTime,
+    String? shiftId,
     required String workMode,
     required String employeeType,
     required String experienceLevel,
@@ -50,6 +51,8 @@ class OnboardingService {
     required String allowances,
     required String grossSalary,
     required String netSalary,
+    required String password,
+    required String confirmPassword,
   }) {
     return {
       'fullName': fullName,
@@ -75,6 +78,7 @@ class OnboardingService {
       'officialEmail': officialEmail,
       'employeeId': employeeId,
       'shiftTime': shiftTime,
+      if (shiftId != null && shiftId.isNotEmpty) 'shiftId': shiftId,
       'workMode': workMode,
       'employeeType': employeeType,
       'experienceLevel': experienceLevel,
@@ -93,6 +97,8 @@ class OnboardingService {
       'allowances': allowances,
       'grossSalary': grossSalary,
       'netSalary': netSalary,
+      'password': password,
+      'confirmPassword': confirmPassword,
     };
   }
 
@@ -117,11 +123,19 @@ class OnboardingService {
     }
 
     // Debug log for form data (excluding sensitive fields)
-    final safeFields = request.fields.keys.where((key) =>
-      !['aadhaarNumber', 'accountNumber', 'panNumber', 'password'].contains(key)
-    ).toList();
-    debugPrint('Onboarding submission debug: fields=${safeFields.length}, files=${request.files.length}');
+    final safeFields = request.fields.keys
+        .where((key) => ![
+              'aadhaarNumber',
+              'accountNumber',
+              'panNumber',
+              'password',
+              'confirmPassword'
+            ].contains(key))
+        .toList();
+    debugPrint(
+        'Onboarding submission debug: fields=${safeFields.length}, files=${files.length}');
 
+    final skipped = <String>[];
     for (final entry in files.entries) {
       final file = entry.value;
       if (file.bytes != null && file.bytes!.isNotEmpty) {
@@ -140,7 +154,19 @@ class OnboardingService {
             filename: file.name,
           ),
         );
+      } else {
+        // Picked but unreadable (e.g. web pick returned no bytes) — surface
+        // it instead of silently submitting without the document.
+        skipped.add(entry.key);
       }
+    }
+
+    if (skipped.isNotEmpty) {
+      return {
+        'success': false,
+        'message': 'Could not read file data for: ${skipped.join(', ')}. '
+            'Please re-select those documents and try again.',
+      };
     }
 
     if (kIsWeb) {

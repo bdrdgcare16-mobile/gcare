@@ -3,10 +3,10 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/models/onboarding_model.dart';
+import 'package:serv_app/services/api_service.dart';
 
 class SuperAdminOnboardingService {
-  static const String _baseUrl =
-      'https://api-zmj7dqloiq-uc.a.run.app/api/onboarding';
+  static String get _baseUrl => '${ApiService.baseUrl}/onboarding';
 
   static Future<List<OnboardingModel>> getAllOnboardings({
     String? search,

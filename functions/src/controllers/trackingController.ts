@@ -47,12 +47,18 @@ type TrackEvent = {
       // Location permission revoked mid-session (granted state is implicit
       // in the next successful point - no explicit event needed).
       | 'permission_revoked'
-      // Server-generated only - the client /event endpoint never accepts it.
-      | 'suspicious_location';
+      // Server-generated only - the client /event endpoint never accepts
+      // either of these (attendanceController writes them via
+      // appendTrackingEventInternal).
+      | 'suspicious_location'
+      | 'mock_location_detected';
   ts: string;  // ISO timestamp
   message?: string;
   latitude?: number;
   longitude?: number;
+  accuracy?: number;
+  eventId?: string;       // client/supplier idempotency key
+  clientEventId?: string; // offline-queue retry dedup key
 };
 
 type TrackDayDoc = {
@@ -97,8 +103,12 @@ const COL = 'tracking';
 const EMP_COL = 'employees';
 const ATT_COL = 'attendance';
 
-/** Roles allowed cross-employee tracking READS (still company-scoped). */
-const ADMIN_ROLES = new Set(['admin', 'super_admin']);
+/** Roles allowed cross-employee tracking READS (still company-scoped).
+ *  'hr' inherits the tenant admin's operational reads for approved
+ *  features only - hrFeatureGate on the route enforces the entitlement,
+ *  and these roles can never WRITE tracking data for another employee
+ *  (resolveActor only honors the admin branch on allowAdminTarget reads). */
+const ADMIN_ROLES = new Set(['admin', 'super_admin', 'hr']);
 
 /** HTTP error carrying a status code (converted in handlers). */
 class HttpError extends Error {
@@ -272,6 +282,11 @@ export const TRACKING_STALE_AFTER_MIN = 45;
  *  ~2 missed capture cycles plus Android timer jitter and GPS acquisition
  *  latency - a single slow fix must not alert. */
 export const GPS_STALE_AFTER_MIN = 35;
+
+/** Max horizontal GPS accuracy (meters) a point/event may claim before it
+ *  is treated as untrusted for attendance decisions. Shared policy
+ *  constant - do not re-hardcode this number elsewhere. */
+export const MAX_TRUSTED_ACCURACY_METERS = 50;
 
 export type LiveTrackingStatus =
   'checked_out' | 'gps_unavailable' | 'permission_revoked' |
@@ -600,14 +615,14 @@ export async function trackingCheckIn(req: Request, res: Response) {
 /** POST /api/tracking/pos  — STRICT: accept at most once every 20 minutes. */
 export async function trackingAppendPos(req: Request, res: Response) {
   console.log('[TrackingController] LOG: /tracking/pos endpoint HIT');
-  
+
   try {
     const actor = await resolveActor(req);
     const dateIso = dateFromReq(req);
     const id = docId(actor.companyId, actor.empid, dateIso);
     const pt = pointFromBody(req.body);
     const nowIso = new Date().toISOString();
-    
+
     // ✅ NEW: Capture reject reason outside transaction scope for response
     let rejectReasonForResponse = '';
 
@@ -1594,5 +1609,105 @@ export async function trackingHeartbeat(req: Request, res: Response) {
   } catch (e: any) {
     return res.status(e instanceof HttpError ? e.status : 400)
       .json({ error: e?.message || String(e) });
+  }
+}
+
+/* ---------- Internal event appends (other controllers) ---------- */
+
+// Tracking "day" for internally-appended events is Asia/Kolkata, matching
+// attendance and the client-supplied dateIso the session doc was created
+// with - using UTC here would orphan the event on a different document.
+const TRACKING_TZ = 'Asia/Kolkata';
+
+function todayIsoIST(): string {
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TRACKING_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  return fmt.format(new Date()); // YYYY-MM-DD
+}
+
+// Duplicate suppression: identical event types re-reported within this
+// window are ignored (except via explicit eventId, which dedupes globally).
+const EVENT_DEDUPE_WINDOW_MIN = 5;
+
+async function lookupEmployeeCompanyId(empid: string): Promise<string> {
+  const snap = await db
+    .collection(EMP_COL)
+    .where('empid', '==', String(empid).trim())
+    .limit(1)
+    .get();
+  if (snap.empty) return '';
+  return String(snap.docs[0].data()?.companyId || '').trim();
+}
+
+function isDuplicateEvent(existing: TrackEvent[], incoming: TrackEvent): boolean {
+  if (!Array.isArray(existing)) return false;
+  return existing.some((e) => {
+    if (!e || e.type !== incoming.type) return false;
+    // Explicit idempotency key always dedupes
+    if (incoming.eventId && e.eventId === incoming.eventId) return true;
+    if (incoming.clientEventId && e.clientEventId === incoming.clientEventId) return true;
+    // Otherwise suppress the same event type re-fired within a short window
+    if (!e.ts || !incoming.ts) return false;
+    return minutesBetween(e.ts, incoming.ts) < EVENT_DEDUPE_WINDOW_MIN;
+  });
+}
+
+/**
+ * Internal helper for other controllers (attendance) to append a tracking
+ * event without going through HTTP. Best-effort; never throws.
+ * Used for audit events like 'mock_location_detected' / 'poor_gps' raised
+ * while validating attendance coordinates - they must land on the same
+ * (IST-dated, tenant-namespaced) tracking document the client's events do.
+ */
+export async function appendTrackingEventInternal(
+  empid: string,
+  event: Omit<TrackEvent, 'ts'> & { ts?: string },
+  companyId?: string,
+): Promise<void> {
+  try {
+    const dateIso = todayIsoIST();
+    // Prefer the caller's tenant context; fall back to the employee record
+    // so internally-appended events still land in the namespaced document.
+    const cid =
+      String(companyId || '').trim() || (await lookupEmployeeCompanyId(empid));
+    const now = new Date().toISOString();
+    const ev: TrackEvent = { ...event, ts: event.ts || now };
+
+    const ref = db.collection(COL).doc(
+      cid ? docId(cid, empid, dateIso) : legacyDocId(empid, dateIso));
+    const snap = await ref.get();
+    if (!snap.exists) {
+      // Deliberately fabricate the day doc: a mock/poor-GPS rejection at
+      // attendance check-in happens BEFORE the tracking session exists and
+      // would otherwise leave no audit trail. Mirrors first-point creation.
+      await ref.set({
+        id: ref.id,
+        empid,
+        companyId: cid || undefined,
+        dateIso,
+        pathMap: [],
+        events: [ev],
+        startedAt: now,
+        endedAt: null,
+        lastUpdateAt: now,
+      } as TrackDayDoc);
+      return;
+    }
+    const data = snap.data() as TrackDayDoc;
+    // Never append to a closed session and never cross tenants.
+    if (data.endedAt) return;
+    if (data.companyId && cid && data.companyId !== cid) return;
+    const events = Array.isArray(data.events) ? data.events : [];
+    if (isDuplicateEvent(events, ev)) return;
+    await ref.update({
+      events: FieldValue.arrayUnion(ev),
+      lastUpdateAt: now,
+    } as any);
+  } catch (e) {
+    console.error('[TrackingController] appendTrackingEventInternal failed:', e);
   }
 }

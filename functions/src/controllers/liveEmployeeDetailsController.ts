@@ -54,6 +54,10 @@ export async function liveEmployeeDetails(req: Request, res: Response) {
       });
     }
 
+    // Tenant scope must come from the verified token — the queries below
+    // filter by it. Without this, any caller could read attendance and
+    // employee records belonging to a different company by guessing an
+    // empid (empids are only unique within a company).
     const dateIso = pickDate(req);
     const reqCompanyId = String((req as any).user?.companyId || '').trim();
     if (!reqCompanyId) {

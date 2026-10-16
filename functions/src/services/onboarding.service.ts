@@ -1,14 +1,96 @@
+import * as crypto from "crypto";
+import * as fs from "fs";
+import * as fsp from "fs/promises";
+import * as path from "path";
 import { db, bucket } from "../config/firebase";
 import { EmployeeOnboarding } from "../models/onboarding.model";
 
 const collection = db.collection("employee_onboarding_dev");
+
+// True only inside the Functions emulator. There is no Storage emulator in
+// the DEV suite and the configured bucket points at the production project
+// (billing disabled) — uploads there hard-fail with a 403 GaxiosError. Under
+// the emulator we therefore keep the same object-path references but store
+// bytes on local disk and serve them back through a signed dev route.
+const isEmulator = () => process.env.FUNCTIONS_EMULATOR === "true";
+
+const DEV_STORAGE_ROOT = path.join(__dirname, "..", "..", ".local-storage");
+const DEV_SIGNED_TTL_MS = 15 * 60 * 1000;
+
+const devSigningSecret = () => process.env.JWT_SECRET || "serv-dev-doc-secret";
+
+const devFileUrl = (storagePath: string): string => {
+  const expires = Date.now() + DEV_SIGNED_TTL_MS;
+  const sig = crypto
+    .createHmac("sha256", devSigningSecret())
+    .update(`${storagePath}|${expires}`)
+    .digest("hex");
+  const project =
+    process.env.GOOGLE_CLOUD_PROJECT ||
+    process.env.GCLOUD_PROJECT ||
+    "serv-dev-f2557";
+  // Functions emulator host/port per firebase.json (0.0.0.0:5002).
+  return (
+    `http://127.0.0.1:5002/${project}/us-central1/api` +
+    `/onboarding/documents/dev-file?path=${encodeURIComponent(storagePath)}` +
+    `&e=${expires}&sig=${sig}`
+  );
+};
+
+/**
+ * Verifies a dev signed URL and resolves the local file it points to.
+ * Returns the absolute path on success or an error string on failure.
+ * Emulator only — never resolves when not running under FUNCTIONS_EMULATOR.
+ */
+export const resolveDevDocumentFile = (
+  storagePath: string,
+  expires: number,
+  signature: string
+): { absolutePath: string } | { error: string } => {
+  if (!isEmulator()) return { error: "Not available" };
+  if (!storagePath || !expires || expires < Date.now() || !signature) {
+    return { error: "Invalid or expired link" };
+  }
+  const expected = crypto
+    .createHmac("sha256", devSigningSecret())
+    .update(`${storagePath}|${expires}`)
+    .digest("hex");
+  const a = Buffer.from(expected, "utf8");
+  const b = Buffer.from(String(signature), "utf8");
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    return { error: "Invalid or expired link" };
+  }
+  const normalized = storagePath.replace(/\\/g, "/");
+  if (!normalized.startsWith("onboarding-dev/") || normalized.includes("..")) {
+    return { error: "Invalid path" };
+  }
+  const absolutePath = path.join(DEV_STORAGE_ROOT, normalized);
+  if (!absolutePath.startsWith(DEV_STORAGE_ROOT)) {
+    return { error: "Invalid path" };
+  }
+  if (!fs.existsSync(absolutePath)) return { error: "Not found" };
+  return { absolutePath };
+};
 
 export const uploadFileToFirebase = async (
   file: Express.Multer.File,
   employeeId: string,
   fieldName: string
 ): Promise<string> => {
-  const filePath = `onboarding-dev/${employeeId}/${fieldName}-${Date.now()}-${file.originalname}`;
+  const safeName = String(file.originalname || "file")
+    .replace(/[\\/]/g, "_")
+    .replace(/\.\./g, "_");
+  const filePath = `onboarding-dev/${employeeId}/${fieldName}-${Date.now()}-${safeName}`;
+
+  if (isEmulator()) {
+    // DEV: persist to local disk; the stored reference stays the same
+    // object path so review/provisioning flows are unchanged.
+    const dest = path.join(DEV_STORAGE_ROOT, filePath);
+    await fsp.mkdir(path.dirname(dest), { recursive: true });
+    await fsp.writeFile(dest, file.buffer);
+    return filePath;
+  }
+
   const fileRef = bucket.file(filePath);
 
   await fileRef.save(file.buffer, {
@@ -34,8 +116,19 @@ export const getAllOnboardings = async (filters?: {
   status?: string;
   department?: string;
   branch?: string;
+  companyId?: string;
 }) => {
   let query: any = collection;
+
+  // Tenant scoping: callers (Company Admin review) only ever see their
+  // own company's requests.
+  if (filters?.companyId) {
+    query = query.where(
+      "companyDetails.companyId",
+      "==",
+      filters.companyId
+    );
+  }
 
   // If status filter is provided, add where clause
   if (filters?.status) {
@@ -109,7 +202,9 @@ export const getAllOnboardings = async (filters?: {
       
       // Create a copy to avoid mutating the original data
       const processedData = { ...data };
-      
+      // Never expose the encrypted employee credential to clients.
+      delete (processedData as any).initialPasswordEnc;
+
       // Convert document paths to signed URLs before response
       const signedDocuments: Record<string, string> = {};
 
@@ -166,6 +261,10 @@ const normalizeFilePath = (value: string) => {
 const getSignedUrl = async (filePath: string): Promise<string> => {
   const normalizedPath = normalizeFilePath(filePath);
 
+  if (isEmulator()) {
+    return devFileUrl(normalizedPath);
+  }
+
   const [signedUrl] = await bucket
     .file(normalizedPath)
     .getSignedUrl({
@@ -213,6 +312,7 @@ export const getOnboardingByEmpId = async (empid: string) => {
     id: doc.id,
     ...doc.data(),
   } as any;
+  delete data.initialPasswordEnc;
 
   return data;
 };
@@ -228,6 +328,7 @@ export const getOnboardingById = async (id: string) => {
     id: doc.id,
     ...doc.data(),
   } as any;
+  delete data.initialPasswordEnc;
 
   // Convert document paths to signed URLs before response
   const signedDocuments: Record<string, string> = {};
@@ -255,4 +356,12 @@ export const updateOnboardingStatus = async (
     status,
     updatedAt: new Date(),
   });
+};
+
+// Raw document fetch used by the review/status endpoints — returns the
+// stored data without signed-URL processing so callers can check
+// companyId and provisioning linkage.
+export const getOnboardingDoc = async (id: string) => {
+  const doc = await collection.doc(id).get();
+  return doc.exists ? ({ id: doc.id, ...doc.data() } as any) : null;
 };

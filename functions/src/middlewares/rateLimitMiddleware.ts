@@ -10,6 +10,13 @@ export const generalRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for OPTIONS preflight requests to avoid CORS issues
+    if (req.method === 'OPTIONS') {
+      return true;
+    }
+    return false;
+  }
 });
 
 // Rate limiter for authentication endpoints
@@ -27,8 +34,11 @@ export const authRateLimit = rateLimit({
     return ipKeyGenerator(req.ip || req.socket.remoteAddress || 'unknown');
   },
   skip: (req) => {
-    // Skip rate limiting for successful requests (optional optimization)
-    return false; // Apply to all auth requests for security
+    // Skip rate limiting for OPTIONS preflight requests to avoid CORS issues
+    if (req.method === 'OPTIONS') {
+      return true;
+    }
+    return false; // Apply to all other auth requests for security
   }
 });
 
@@ -42,6 +52,13 @@ export const attendanceRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for OPTIONS preflight requests to avoid CORS issues
+    if (req.method === 'OPTIONS') {
+      return true;
+    }
+    return false;
+  }
 });
 
 // Rate limiter for tracking endpoints
@@ -54,6 +71,13 @@ export const trackingRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for OPTIONS preflight requests to avoid CORS issues
+    if (req.method === 'OPTIONS') {
+      return true;
+    }
+    return false;
+  }
 });
 
 // Rate limiter for file uploads
@@ -66,4 +90,11 @@ export const uploadRateLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for OPTIONS preflight requests to avoid CORS issues
+    if (req.method === 'OPTIONS') {
+      return true;
+    }
+    return false;
+  }
 });

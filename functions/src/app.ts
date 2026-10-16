@@ -174,6 +174,9 @@ import billingRoutes from "./routes/billingRoutes";
 import payrollRoutes from "./routes/payrollRoutes";
 import onboardingRoutes from "./routes/onboarding.routes";
 import notificationRoutes from "./routes/notificationRoutes";
+import platformRoutes from "./routes/platformRoutes";
+import hrRoutes from "./routes/hrRoutes";
+import employeeSelfRoutes from "./routes/employeeSelfRoutes";
 
 import * as authController from "./controllers/authController";
 import { db } from "./config/firebase";
@@ -261,6 +264,24 @@ app.get("/health", (_req: Request, res: Response) => {
   });
 });
 
+// ------------- Emulator path normalization -------------
+// Depending on the emulator/proxy in front, the request path may arrive:
+//   a) stripped of /<project>/<region>/<functionName>  → "/platform/companies"
+//   b) with the full prefix                            → "/<project>/<region>/api/platform/companies"
+// Production (Cloud Run) delivers "/api/platform/companies".
+// Normalize both emulator shapes to the mounted "/api/..." form.
+// Root routes above ("/", "/health") are registered first and are
+// unaffected.
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  // Case (b): strip /<project>/<region> before the `api` function-name segment
+  req.url = req.url.replace(/^\/[^/]+\/[^/]+\/api(?=\/|$)/, "/api");
+  // Case (a): re-attach /api when absent
+  if (req.url !== "/api" && !req.url.startsWith("/api/")) {
+    req.url = "/api" + (req.url.startsWith("/") ? req.url : `/${req.url}`);
+  }
+  next();
+});
+
 // ---------------- Rate Limiting ----------------
 app.use(generalRateLimit);
 
@@ -293,6 +314,9 @@ app.use("/api/billing", generalRateLimit, billingRoutes);
 app.use("/api/payroll", payrollRoutes);
 app.use("/api/onboarding", onboardingRoutes);
 app.use("/api/notifications", generalRateLimit, notificationRoutes);
+app.use("/api/platform", generalRateLimit, platformRoutes);
+app.use("/api/hr", generalRateLimit, hrRoutes);
+app.use("/api/employee", generalRateLimit, employeeSelfRoutes);
 
 // Log to confirm payroll routes are registered at startup
 // (keeps placement consistent before the final 404 handler)

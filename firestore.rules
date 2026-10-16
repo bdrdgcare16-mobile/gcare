@@ -52,8 +52,9 @@ allow update, delete: if sameCompany(resource.data);
 
 match /attendance/{docId} {
 allow read: if sameCompany(resource.data) && (isAdmin() || sameEmployee(resource.data));
-allow create: if sameCompanyOnCreate();
-allow update, delete: if sameCompany(resource.data) && (isAdmin() || sameEmployee(resource.data));
+// All mutations go through the backend (Admin SDK bypasses rules). Direct
+// client writes would bypass server-side geofence and approval logic.
+allow create, update, delete: if false;
 }
 
 match /leaves/{docId} {
@@ -64,8 +65,9 @@ allow update, delete: if sameCompany(resource.data);
 
 match /officeLocations/{docId} {
 allow read: if sameCompany(resource.data);
-allow create: if sameCompanyOnCreate();
-allow update, delete: if sameCompany(resource.data);
+// Tenant config — mutations only via the backend API, which enforces
+// admin/HR role + 'attendance' feature approval + companyId scoping.
+allow create, update, delete: if false;
 }
 
 match /shifts/{docId} {
@@ -76,8 +78,8 @@ allow update, delete: if sameCompany(resource.data);
 
 match /otherLocation/{docId} {
 allow read: if sameCompany(resource.data);
-allow create: if sameCompanyOnCreate();
-allow update, delete: if sameCompany(resource.data);
+// Approval records are created and decided only by the backend API.
+allow create, update, delete: if false;
 }
 
 match /{document=**} {

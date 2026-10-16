@@ -1,13 +1,18 @@
 import { Request, Response } from 'express';
 import * as bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
+import * as crypto from 'crypto';
 import { rotatePassword } from '../services/passwordService';
 import { successResponse, errorResponse } from "../common/response";
 import { issueToken, getJwtExpires } from "../common/auth.utils";
-import { okRoles } from "../common/constants";
+
 import { normEmail } from "../common/utils";
 import { isBcryptHash } from "../common/password.utils";
 import { pickEmpId } from "../common/user.utils";
+import {
+  checkUserLimit,
+  getCompanyEntitlement,
+} from "../services/entitlementService";
 
 // ── Firebase Admin ────────────────────────────────────────────────────────
 // Single source of truth: reuse the app/clients initialized in
@@ -78,6 +83,30 @@ const sanitizeUser = (id: string, data: any) => {
   const { password, passwordHash, hashedPassword, ...rest } = data || {};
   return { id, ...rest };
 };
+
+/**
+ * Feature entitlement fields for login responses.
+ * enabledFeatures === null means a legacy/unconfigured company (all allowed).
+ * Never throws — login must not fail because entitlement lookup failed.
+ */
+async function getEntitlementPayload(companyId: string | null) {
+  const empty = {
+    enabledFeatures: null as string[] | null,
+    maxUsers: null as number | null,
+    companyStatus: 'active',
+  };
+  if (!companyId) return empty;
+  try {
+    const ent = await getCompanyEntitlement(companyId);
+    return {
+      enabledFeatures: ent.enabledFeatures,
+      maxUsers: ent.maxUsers,
+      companyStatus: ent.status,
+    };
+  } catch {
+    return empty;
+  }
+}
 
 async function getByEmail(colName: string, emailLower: string) {
   let snap = await db
@@ -170,7 +199,7 @@ export const register = async (req: Request, res: Response): Promise<Response> =
     empid = String(empid || '').trim();
     name = String(name || '').trim();
     role = String(role || 'employee').trim().toLowerCase();
-    status = String(status || 'active').trim().toLowerCase();
+    status = 'active'; // public registration cannot self-assign a status
     companyId = String(companyId || '').trim();
 
     if (!name || !email || !password) {
@@ -181,8 +210,40 @@ export const register = async (req: Request, res: Response): Promise<Response> =
       return errorResponse(res, 'companyId is required', 400);
     }
 
-    if (!okRoles.has(role)) {
-      return errorResponse(res, 'Role must be "employee" or "admin"', 400);
+    // Public registration is employee-only. Admin/privileged accounts are
+    // provisioned via /api/platform/companies (Platform Admin) or
+    // /api/auth/admin/register (tenant admin), never via this public route.
+    if (role !== 'employee') {
+      return errorResponse(
+        res,
+        'Public registration is limited to employee accounts',
+        403
+      );
+    }
+
+    // Fail-closed tenant validation: company must exist, be active, and be
+    // under its maxUsers cap. A non-existent companyId is rejected — callers
+    // can no longer mint users (or full-feature access) under ghost tenants.
+    const regLimit = await checkUserLimit(companyId);
+    if (regLimit.lookupFailed) {
+      return errorResponse(
+        res,
+        'Could not verify company entitlements. Please try again.',
+        503
+      );
+    }
+    if (!regLimit.companyExists) {
+      return errorResponse(res, 'Unknown companyId', 403);
+    }
+    if (!regLimit.allowed) {
+      if (regLimit.companyStatus !== 'active') {
+        return errorResponse(res, 'This company account is not active', 403);
+      }
+      return errorResponse(
+        res,
+        'Maximum user limit reached for this company.',
+        403
+      );
     }
 
     const byEmail = await db
@@ -278,7 +339,12 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
 
       const companyId = String(user.companyId || '').trim() || null;
 
-      if (!companyId) {
+      // platform_admin is not tenant-scoped — companyId is optional.
+      // admin/employee/super_admin still require it.
+      if (
+        !companyId &&
+        String(user.role || '').toLowerCase() !== 'platform_admin'
+      ) {
         return errorResponse(res, 'companyId missing on user account', 403);
       }
 
@@ -320,7 +386,14 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
       }
 
       const role = String(user.role || 'employee').toLowerCase();
-      if (role !== 'employee' && role !== 'admin' && role !== 'super_admin') {
+      if (
+        role !== 'employee' &&
+        role !== 'admin' &&
+        role !== 'company_admin' &&
+        role !== 'hr' &&
+        role !== 'super_admin' &&
+        role !== 'platform_admin'
+      ) {
         return errorResponse(res, 'Invalid role on account', 403);
       }
 
@@ -351,6 +424,16 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
         companyId,
       });
 
+      const ent = await getEntitlementPayload(companyId);
+      // platform_admin is not a tenant user — no company entitlement gate.
+      if (
+        role !== 'super_admin' &&
+        role !== 'platform_admin' &&
+        ent.companyStatus !== 'active'
+      ) {
+        return errorResponse(res, 'This company account is not active', 403);
+      }
+
       return successResponse(
         res,
         {
@@ -361,6 +444,8 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
           uid: doc.id,
           empid: userEmpid || null,
           companyId,
+          enabledFeatures: ent.enabledFeatures,
+          maxUsers: ent.maxUsers,
           name: user.name || user.fullName || '',
           user: {
             id: doc.id,
@@ -371,6 +456,9 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
             empId: userEmpid || null,
             companyId,
             status: user.status || 'active',
+            branch: user.branch || user.branchName || null,
+            department: user.department || user.departmentName || null,
+            mustChangePassword: user.mustChangePassword === true,
           },
         },
         'Login successful'
@@ -380,6 +468,46 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
     console.log('[login] checking employees fallback');
     const empSnap = await getByEmail(EMPS_COL, email);
     if (!empSnap || empSnap.empty) {
+      // No login or employee record exists for this email — check whether
+      // it belongs to an onboarding request that is still pending (or was
+      // rejected) so the client can show a meaningful message instead of
+      // a bare credential failure.
+      const [pendSnap, rejSnap] = await Promise.all([
+        db
+          .collection('employee_onboarding_dev')
+          .where('status', '==', 'pending')
+          .get(),
+        db
+          .collection('employee_onboarding_dev')
+          .where('status', '==', 'rejected')
+          .get(),
+      ]);
+      const emailMatch = (d: FirebaseFirestore.DocumentData) =>
+        String(d?.companyDetails?.officialEmail ?? '')
+          .trim()
+          .toLowerCase() === email ||
+        String(d?.personalDetails?.personalEmail ?? '')
+          .trim()
+          .toLowerCase() === email;
+      const onbStatus = pendSnap.docs.some((d) => emailMatch(d.data()))
+        ? 'pending'
+        : rejSnap.docs.some((d) => emailMatch(d.data()))
+        ? 'rejected'
+        : '';
+      if (onbStatus === 'pending') {
+        return errorResponse(
+          res,
+          'Your onboarding request is awaiting Company Admin approval.',
+          403
+        );
+      }
+      if (onbStatus === 'rejected') {
+        return errorResponse(
+          res,
+          'Your onboarding request was rejected. Please contact HR.',
+          403
+        );
+      }
       return errorResponse(res, 'Invalid email or password', 401);
     }
 
@@ -494,6 +622,12 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
       companyId: finalCompanyId,
     });
 
+    const empEnt = await getEntitlementPayload(finalCompanyId);
+
+    if (empEnt.companyStatus !== 'active') {
+      return errorResponse(res, 'This company account is not active', 403);
+    }
+
     return successResponse(
       res,
       {
@@ -504,6 +638,8 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
         uid: mirrorDoc.id,
         empid: finalEmpid || null,
         companyId: finalCompanyId,
+        enabledFeatures: empEnt.enabledFeatures,
+        maxUsers: empEnt.maxUsers,
         name: u.name || emp.name || '',
         user: {
           id: mirrorDoc.id,
@@ -696,14 +832,22 @@ export const createEmployeeLogin = async (
       return errorResponse(res, 'empid is required', 400);
     }
 
+    // Tenant isolation: the target employee must belong to the caller's
+    // company — an admin from Company A cannot mint logins for Company B.
+    const callerCompanyId = String((req as any).user?.companyId || '').trim();
+    if (!callerCompanyId) {
+      return errorResponse(res, 'No company context on token', 403);
+    }
+
     const empQ = await db
       .collection(EMPS_COL)
       .where('empid', '==', empid)
+      .where('companyId', '==', callerCompanyId)
       .limit(1)
       .get();
 
     if (empQ.empty) {
-      return errorResponse(res, 'Employee not found', 404);
+      return errorResponse(res, 'Employee not found in your company', 404);
     }
 
     const emp = empQ.docs[0].data() as any;
@@ -740,7 +884,11 @@ export const createEmployeeLogin = async (
       return errorResponse(res, 'Login already exists for this empid', 409);
     }
 
-    const tempPassword = `${empid}@123`;
+    // Random temporary password — never a predictable empid-derived value.
+    // It is returned once to the tenant admin (admin-only route) so the
+    // credentials can be shared with the employee; mustChangePassword forces
+    // a rotation on first login.
+    const tempPassword = `Serv-${crypto.randomBytes(6).toString('hex')}`;
     const finalPassword = String(password || tempPassword);
     const hash = await bcrypt.hash(finalPassword, 10);
     const now = new Date();
@@ -782,7 +930,30 @@ export const backfillEmployeesToUsers = async (
   res: Response
 ): Promise<Response> => {
   try {
-    const empSnap = await db.collection(EMPS_COL).get();
+    // Tenant isolation: a tenant admin may only backfill their own company's
+    // employees. super_admin may target a company via ?companyId= or opt into
+    // a full-tenant sweep explicitly via ?all=true.
+    const caller = (req as any).user;
+    const callerCompanyId = String(caller?.companyId || '').trim();
+    const isSuperAdmin = String(caller?.role || '').toLowerCase() === 'super_admin';
+
+    let empQuery: FirebaseFirestore.Query = db.collection(EMPS_COL);
+    if (isSuperAdmin) {
+      const target = String(req.query?.companyId || '').trim();
+      const sweepAll = String(req.query?.all || '') === 'true';
+      if (target) {
+        empQuery = empQuery.where('companyId', '==', target);
+      } else if (!sweepAll) {
+        empQuery = empQuery.where('companyId', '==', callerCompanyId);
+      }
+    } else {
+      if (!callerCompanyId) {
+        return errorResponse(res, 'No company context on token', 403);
+      }
+      empQuery = empQuery.where('companyId', '==', callerCompanyId);
+    }
+
+    const empSnap = await empQuery.get();
     const created: any[] = [];
     const updatedEmp: any[] = [];
 
@@ -825,7 +996,7 @@ export const backfillEmployeesToUsers = async (
 
       if (!existsEmp.empty) continue;
 
-      const temp = `${empid}@123`;
+      const temp = `Serv-${crypto.randomBytes(6).toString('hex')}`;
       const hash = await bcrypt.hash(temp, 10);
       const now = new Date();
 
@@ -1005,6 +1176,29 @@ export const createPrivilegedUser = async (
       return errorResponse(res, 'Not authorized to create super_admin', 403);
     }
 
+    // Tenant user limit (fail closed; no-op for legacy/unlimited companies)
+    const privLimit = await checkUserLimit(userCompanyId);
+    if (privLimit.lookupFailed) {
+      return errorResponse(
+        res,
+        'Could not verify company entitlements. Please try again.',
+        503
+      );
+    }
+    if (!privLimit.companyExists) {
+      return errorResponse(res, 'Unknown company', 403);
+    }
+    if (!privLimit.allowed) {
+      if (privLimit.companyStatus !== 'active') {
+        return errorResponse(res, 'This company account is not active', 403);
+      }
+      return errorResponse(
+        res,
+        'Maximum user limit reached for this company.',
+        403
+      );
+    }
+
     const byEmail = await getByEmail(USERS_COL, userEmail);
     if (byEmail && !byEmail.empty) {
       return errorResponse(res, 'Email is already in use', 400);
@@ -1089,17 +1283,27 @@ export const firebaseLogin = async (
       const user: any = doc.data();
 
       const companyId = String(user.companyId || '').trim() || null;
-      if (!companyId) {
+
+      const role = String(user.role || 'employee').toLowerCase();
+      if (
+        role !== 'employee' &&
+        role !== 'admin' &&
+        role !== 'company_admin' &&
+        role !== 'hr' &&
+        role !== 'super_admin' &&
+        role !== 'platform_admin'
+      ) {
+        return errorResponse(res, 'Invalid role on account', 403);
+      }
+
+      // platform_admin is not tenant-scoped — companyId is optional.
+      // admin/employee/super_admin still require it.
+      if (role !== 'platform_admin' && !companyId) {
         return errorResponse(res, 'companyId missing on user account', 403);
       }
 
       if (user.status && user.status !== 'active') {
         return errorResponse(res, 'Account is not active', 403);
-      }
-
-      const role = String(user.role || 'employee').toLowerCase();
-      if (role !== 'employee' && role !== 'admin' && role !== 'super_admin') {
-        return errorResponse(res, 'Invalid role on account', 403);
       }
 
       let userEmpid = pickEmpId(user);
@@ -1138,9 +1342,20 @@ export const firebaseLogin = async (
         companyId,
       });
 
+      const ent = await getEntitlementPayload(companyId);
+
       console.log('SERV USER FOUND');
       console.log('SERV JWT ISSUED');
       console.log('FIREBASE LOGIN SUCCESS');
+
+      // platform_admin is not a tenant user — no company entitlement gate.
+      if (
+        role !== 'super_admin' &&
+        role !== 'platform_admin' &&
+        ent.companyStatus !== 'active'
+      ) {
+        return errorResponse(res, 'This company account is not active', 403);
+      }
 
       return successResponse(
         res,
@@ -1152,6 +1367,8 @@ export const firebaseLogin = async (
           uid: doc.id,
           empid: userEmpid || null,
           companyId,
+          enabledFeatures: ent.enabledFeatures,
+          maxUsers: ent.maxUsers,
           name: user.name || user.fullName || '',
           user: {
             id: doc.id,
@@ -1162,6 +1379,9 @@ export const firebaseLogin = async (
             empId: userEmpid || null,
             companyId,
             status: user.status || 'active',
+            branch: user.branch || user.branchName || null,
+            department: user.department || user.departmentName || null,
+            mustChangePassword: user.mustChangePassword === true,
           },
         },
         'Login successful'
@@ -1215,9 +1435,15 @@ export const firebaseLogin = async (
       companyId: finalCompanyId,
     });
 
+    const fbEnt = await getEntitlementPayload(finalCompanyId);
+
     console.log('SERV USER FOUND (employees fallback)');
     console.log('SERV JWT ISSUED');
     console.log('FIREBASE LOGIN SUCCESS');
+
+    if (fbEnt.companyStatus !== 'active') {
+      return errorResponse(res, 'This company account is not active', 403);
+    }
 
     return successResponse(
       res,
@@ -1229,6 +1455,8 @@ export const firebaseLogin = async (
         uid: ref.id,
         empid: finalEmpid,
         companyId: finalCompanyId,
+        enabledFeatures: fbEnt.enabledFeatures,
+        maxUsers: fbEnt.maxUsers,
         name,
         user: {
           id: ref.id,

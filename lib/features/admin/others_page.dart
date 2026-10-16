@@ -3,6 +3,7 @@ import 'my_task_page.dart';
 import 'rewards_page.dart';
 import 'feedback_page.dart';
 import 'event_update_page.dart';
+import 'package:serv_app/services/feature_service.dart';
 
 // ✅ Color constants (unchanged)
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -22,7 +23,13 @@ const Color _kIconBg3 = Color(0xFFE6DEF0);
 const Color _kIconBg4 = Color(0xFFD1C4E9);
 
 class OthersPage extends StatelessWidget {
-  const OthersPage({super.key});
+  /// HR mode: the HR user's approvedFeatures set. When non-null, items
+  /// are checked against THIS set — not company enabledFeatures — so a
+  /// feature-rich company can't leak unapproved modules to HR.
+  /// null (admin mode) => existing FeatureAccess behaviour.
+  final Set<String>? allowedFeatures;
+
+  const OthersPage({super.key, this.allowedFeatures});
 
   static const _items = [
     _MenuItem(
@@ -31,6 +38,7 @@ class OthersPage extends StatelessWidget {
       icon: Icons.checklist_rounded,
       iconBg: _kIconBg1,
       iconColor: Color(0xFF7B5EA7),
+      feature: 'tasks',
     ),
     _MenuItem(
       title: 'Rewards',
@@ -38,6 +46,7 @@ class OthersPage extends StatelessWidget {
       icon: Icons.emoji_events_rounded,
       iconBg: _kIconBg2,
       iconColor: Color(0xFF8C6EAF),
+      feature: 'rewards',
     ),
     _MenuItem(
       title: 'Feedback',
@@ -45,6 +54,7 @@ class OthersPage extends StatelessWidget {
       icon: Icons.chat_bubble_outline_rounded,
       iconBg: _kIconBg3,
       iconColor: Color(0xFF655193),
+      feature: 'feedback',
     ),
     _MenuItem(
       title: 'Event Updates',
@@ -52,19 +62,28 @@ class OthersPage extends StatelessWidget {
       icon: Icons.event_note_rounded,
       iconBg: _kIconBg4,
       iconColor: Color(0xFF9575CD),
+      feature: 'events',
     ),
   ];
 
-  void _navigate(BuildContext context, int index) {
-    final pages = <Widget>[
-      const MyTasksPage(),
-      const RewardsPage(),
-      const FeedbackPage(employeeName: '', employeeId: ''),
-      const EventUpdatesPage(),
-    ];
+  List<_MenuItem> get _visibleItems => _items
+      .where((i) =>
+          allowedFeatures?.contains(i.feature) ??
+          FeatureAccess.has(i.feature))
+      .toList();
+
+  void _navigate(BuildContext context, _MenuItem item) {
+    final pages = <String, Widget>{
+      'tasks': const MyTasksPage(),
+      'rewards': const RewardsPage(),
+      'feedback': const FeedbackPage(employeeName: '', employeeId: ''),
+      'events': const EventUpdatesPage(),
+    };
+    final page = pages[item.feature];
+    if (page == null) return;
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => pages[index]),
+      MaterialPageRoute(builder: (_) => page),
     );
   }
 
@@ -150,13 +169,13 @@ class OthersPage extends StatelessWidget {
                 Expanded(
                   child: ListView.separated(
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                    itemCount: _items.length,
+                    itemCount: _visibleItems.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 14),
                     itemBuilder: (context, i) {
-                      final item = _items[i];
+                      final item = _visibleItems[i];
                       return _FeatureCard(
                         item: item,
-                        onTap: () => _navigate(context, i),
+                        onTap: () => _navigate(context, item),
                         index: i,
                       );
                     },
@@ -178,12 +197,14 @@ class _MenuItem {
   final IconData icon;
   final Color iconBg;
   final Color iconColor;
+  final String feature;
   const _MenuItem({
     required this.title,
     required this.subtitle,
     required this.icon,
     required this.iconBg,
     required this.iconColor,
+    this.feature = '',
   });
 }
 

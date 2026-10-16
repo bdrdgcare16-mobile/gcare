@@ -33,20 +33,30 @@ const haversine = (a: { lat: number; lng: number }, b: { lat: number; lng: numbe
 };
 
 /* --------------------- fetch helpers (Firestore) --------------------- */
-async function getAttendanceById(id: string) {
+// 'foreign' marks a doc that exists but belongs to another company —
+// callers must translate it to a 403, never to data.
+const FOREIGN = Symbol('foreign');
+type FetchResult = Record<string, any> | null | typeof FOREIGN;
+
+async function getAttendanceById(id: string, companyId: string): Promise<FetchResult> {
   const snap = await db.collection('attendance').doc(id).get();
-  return snap.exists ? { id: snap.id, ...snap.data() } : null;
+  if (!snap.exists) return null;
+  const data: Record<string, any> = { id: snap.id, ...snap.data() };
+  return data.companyId === companyId ? data : FOREIGN;
 }
-async function getOtherLocById(id: string) {
+async function getOtherLocById(id: string, companyId: string): Promise<FetchResult> {
   const snap = await db.collection('otherLocation').doc(id).get();
-  return snap.exists ? { id: snap.id, ...snap.data() } : null;
+  if (!snap.exists) return null;
+  const data: Record<string, any> = { id: snap.id, ...snap.data() };
+  return data.companyId === companyId ? data : FOREIGN;
 }
 
-async function getAttendanceByEmpDate(empid: string, date: string) {
+async function getAttendanceByEmpDate(empid: string, date: string, companyId: string) {
   const q = await db
     .collection('attendance')
     .where('empid', '==', empid)
     .where('date', '==', date)
+    .where('companyId', '==', companyId)
     .limit(1)
     .get();
   if (q.empty) return null;
@@ -54,11 +64,12 @@ async function getAttendanceByEmpDate(empid: string, date: string) {
   return { id: d.id, ...d.data() };
 }
 
-async function getOtherLocByEmpDate(empid: string, date: string) {
+async function getOtherLocByEmpDate(empid: string, date: string, companyId: string) {
   const q = await db
     .collection('otherLocation')
     .where('empid', '==', empid)
     .where('date', '==', date)
+    .where('companyId', '==', companyId)
     .limit(1)
     .get();
   if (q.empty) return null;
@@ -159,6 +170,11 @@ function normalize(
  */
 export async function getRequestDetails(req: Request, res: Response) {
   try {
+    const companyId = String((req as any).user?.companyId ?? '').trim();
+    if (!companyId) {
+      return res.status(403).json({ error: 'companyId missing in token' });
+    }
+
     const id   = String(req.query.id ?? '').trim();
     const src  = String(req.query.src ?? '').trim().toLowerCase();
     const emp  = String(req.query.empid ?? '').trim();
@@ -169,19 +185,25 @@ export async function getRequestDetails(req: Request, res: Response) {
 
     if (id) {
       if (src === 'other_location') {
-        otherLoc = await getOtherLocById(id);
+        otherLoc = await getOtherLocById(id, companyId);
+        if (otherLoc === FOREIGN) {
+          return res.status(403).json({ error: 'Access denied: companyId mismatch' });
+        }
         const empid = pickStr(otherLoc, ['empid']);
         const d     = pickStr(otherLoc, ['date']).slice(0, 10);
-        if (empid && d) attendance = await getAttendanceByEmpDate(empid, d);
+        if (empid && d) attendance = await getAttendanceByEmpDate(empid, d, companyId);
       } else {
-        attendance = await getAttendanceById(id);
+        attendance = await getAttendanceById(id, companyId);
+        if (attendance === FOREIGN) {
+          return res.status(403).json({ error: 'Access denied: companyId mismatch' });
+        }
         const empid = pickStr(attendance, ['empid']);
         const d     = pickStr(attendance, ['date']).slice(0, 10);
-        if (empid && d) otherLoc = await getOtherLocByEmpDate(empid, d);
+        if (empid && d) otherLoc = await getOtherLocByEmpDate(empid, d, companyId);
       }
     } else if (emp && date) {
-      attendance = await getAttendanceByEmpDate(emp, date.slice(0, 10));
-      otherLoc   = await getOtherLocByEmpDate(emp, date.slice(0, 10));
+      attendance = await getAttendanceByEmpDate(emp, date.slice(0, 10), companyId);
+      otherLoc   = await getOtherLocByEmpDate(emp, date.slice(0, 10), companyId);
     } else {
       return res.status(400).json({ error: 'Provide (id & src) or (empid & date)' });
     }

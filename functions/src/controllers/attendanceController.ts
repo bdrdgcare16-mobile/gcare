@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import { db } from '../config/firebase';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { trackUsage } from '../services/usageService';
+import { appendTrackingEventInternal, MAX_TRUSTED_ACCURACY_METERS } from './trackingController';
+import { resolveAttendanceGeoPolicy } from '../services/attendanceGeoPolicy';
 import {
   AttendancePolicy,
   OfficePresence,
@@ -147,7 +149,7 @@ function haversineMeters(lat1?: number|null, lon1?: number|null, lat2?: number|n
 }
 
 // find office by branch name (case-insensitive fallback)
-async function findOfficeByBranchName(branchNameRaw: string, companyId?: string) {
+export async function findOfficeByBranchName(branchNameRaw: string, companyId?: string) {
   const branchName = normStr(branchNameRaw);
   if (!branchName) return null;
 
@@ -172,6 +174,41 @@ async function findOfficeByBranchName(branchNameRaw: string, companyId?: string)
     }
   }
   return null;
+}
+
+// Resolve the office geo config for a check-in/out. A stable
+// officeLocationId (when supplied) wins; otherwise the legacy branch-name
+// string match is used. companyId scoping is always enforced.
+export async function findOfficeForAttendance(
+  companyId: string,
+  opts: { officeLocationId?: string | null; branchName?: string | null },
+) {
+  const docId = normStr(opts.officeLocationId);
+  if (docId) {
+    const doc = await db.collection(OFFICE_COL).doc(docId).get();
+    if (doc.exists && (doc.data() as any)?.companyId === companyId) {
+      return { id: doc.id, ...(doc.data() as any) } as any;
+    }
+    // fall through to the branch-name lookup — a stale/incorrect id sent by
+    // an older client must not silently disable the geo check
+  }
+  return findOfficeByBranchName(normStr(opts.branchName), companyId);
+}
+
+// An office document is a usable geofence only when all three geo fields
+// are finite and the radius is a positive metre value inside valid ranges.
+export function isOfficeGeoValid(o: any): boolean {
+  const lat = Number(o?.latitude);
+  const lng = Number(o?.longitude);
+  const r = Number(o?.radius);
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    Number.isFinite(r) &&
+    r > 0 &&
+    Math.abs(lat) <= 90 &&
+    Math.abs(lng) <= 180
+  );
 }
 
 /* ============ Per-company attendance location policy ============ */
@@ -322,8 +359,8 @@ export const checkIn = async (req: Request, res: Response) => {
   const reasonTypeId    = normStr((req.body as any)?.reasonTypeId) || null;
   const reasonTypeName  = normStr((req.body as any)?.reasonTypeName) || null;
 
-  if (!empid || !name || !location) {
-    return res.status(400).json({ error: 'empid, name and location are required' });
+  if (!empid || !name) {
+    return res.status(400).json({ error: 'empid and name are required' });
   }
   const today = toYMD(new Date());
 
@@ -339,7 +376,19 @@ export const checkIn = async (req: Request, res: Response) => {
     const nowTime = nowTimeIST(); // HH:mm:ss (IST)
     const checkInTsUtc = nowUtcISO(); // authoritative UTC timestamp, committed below
 
-    // 2) figure out branch to compare against (prefer request, fallback employee.profile)
+    // 2) company attendance geo policy — resolved once per request from the
+    //    verified tenant context (JWT companyId), never request input.
+    const policy = await resolveAttendanceGeoPolicy(companyId);
+    if (!policy.resolved) {
+      return res.status(503).json({
+        error: 'ENTITLEMENT_UNAVAILABLE',
+        message: 'Could not verify company policy. Please try again.',
+      });
+    }
+    const geofenceEnabled = policy.geofencingEnabled;
+    const geoLookup = geofenceEnabled || policy.legacyCompatibilityMode;
+
+    // 3) figure out branch to compare against (prefer request, fallback employee.profile)
     let branchName = location;
     const empSnap = await db.collection(EMP_COL)
       .where('empid', '==', empid)
@@ -349,7 +398,19 @@ export const checkIn = async (req: Request, res: Response) => {
     const empRow = empSnap.empty ? null : empSnap.docs[0].data();
     if (!branchName && (empRow as any)?.location) branchName = normStr((empRow as any).location);
 
-    // 3) find office & compute distance
+    // A branch/office identity is only mandatory when geo enforcement is in
+    // play; normal attendance (geofencing off) must not be blocked by it.
+    if (geoLookup && !branchName && !normStr((req.body as any)?.officeLocationId)) {
+      if (geofenceEnabled) {
+        return res.status(422).json({
+          error: 'Office location is not configured for this employee.',
+          code: 'GEO_FENCE_NOT_CONFIGURED',
+        });
+      }
+      return res.status(400).json({ error: 'location is required' });
+    }
+
+    // 4) find office & compute distance (only when geo policy applies)
     let expectedLatitude: number | null = null;
     let expectedLongitude: number | null = null;
     let expectedRadius: number | null = null;
@@ -357,8 +418,31 @@ export const checkIn = async (req: Request, res: Response) => {
     let withinRadius: boolean | null = null;
     let otherLocation: string | null = null;
 
-    const office = await findOfficeByBranchName(branchName, companyId);
+    const office = geoLookup
+      ? await findOfficeForAttendance(companyId, {
+          officeLocationId: normStr((req.body as any)?.officeLocationId) || null,
+          branchName,
+        })
+      : null;
+
+    if (geoLookup && !office) {
+      if (geofenceEnabled) {
+        return res.status(422).json({
+          error: 'Office location is not configured for this branch.',
+          code: 'GEO_FENCE_NOT_CONFIGURED',
+        });
+      }
+      // legacy behaviour: branch not configured
+      otherLocation = 'No matching branch in officeLocations';
+    }
+
     if (office) {
+      if (geofenceEnabled && !isOfficeGeoValid(office)) {
+        return res.status(422).json({
+          error: 'Office location configuration is incomplete or invalid.',
+          code: 'GEO_FENCE_NOT_CONFIGURED',
+        });
+      }
       expectedLatitude  = Number((office as any).latitude ?? 0) || 0;
       expectedLongitude = Number((office as any).longitude ?? 0) || 0;
       expectedRadius    = Number((office as any).radius ?? 0) || 0;
@@ -373,20 +457,69 @@ export const checkIn = async (req: Request, res: Response) => {
           otherLocation = `Outside radius by ${Math.max(0, distanceFromBranch - expectedRadius)} m`;
         }
       }
-    } else {
-      // branch not configured
-      otherLocation = 'No matching branch in officeLocations';
+    }
+
+    // ===== Server-side location trust validation =====
+    // The backend is the final authority — client-supplied withinRadius /
+    // distance / mock flags are never trusted as proof of location.
+    const clientIsMocked =
+      (req.body as any)?.isMocked === true ||
+      (req.body as any)?.isMocked === 'true';
+
+    if (clientIsMocked) {
+      await appendTrackingEventInternal(empid, {
+        type: 'mock_location_detected',
+        message: 'Untrusted location reported at check-in',
+        latitude: checkInLatitude ?? undefined,
+        longitude: checkInLongitude ?? undefined,
+        accuracy: checkInAccuracy ?? undefined,
+      }, companyId);
+      return res.status(422).json({
+        error:
+          'Location verification failed. Please check your device location settings and try again.',
+        code: 'LOCATION_UNTRUSTED',
+      });
+    }
+
+    // When geofencing applies (explicit feature, or legacy implicit mode with
+    // a configured office), real coordinates are mandatory and must meet the
+    // accuracy policy; otherwise the fix is untrusted. In normal-attendance
+    // mode coordinates are optional audit data.
+    if (office) {
+      if (checkInLatitude == null || checkInLongitude == null) {
+        return res.status(422).json({
+          error: 'Location is required for attendance. Please enable location services and try again.',
+          code: 'LOCATION_REQUIRED',
+        });
+      }
+      if (
+        checkInAccuracy == null ||
+        checkInAccuracy > MAX_TRUSTED_ACCURACY_METERS
+      ) {
+        await appendTrackingEventInternal(empid, {
+          type: 'poor_gps',
+          message: 'Check-in location did not meet accuracy requirements',
+          latitude: checkInLatitude,
+          longitude: checkInLongitude,
+          accuracy: checkInAccuracy ?? undefined,
+        }, companyId);
+        return res.status(422).json({
+          error:
+            'Unable to get an accurate location. Please move to an open area and try again.',
+          code: 'POOR_GPS',
+        });
+      }
     }
 
     // 3b) classify office presence from fix quality vs the geofence boundary
-    const policy = await getAttendancePolicy(companyId);
+    const attPolicy = await getAttendancePolicy(companyId);
     const hasFix = checkInLatitude != null && checkInLongitude != null;
     const checkInOfficePresence: OfficePresence = hasFix
       ? classifyOfficePresence(
           distanceFromBranch,
           expectedRadius,
           checkInAccuracy,
-          policy.maxAccuracyMeters,
+          attPolicy.maxAccuracyMeters,
         )
       : 'unavailable';
     const checkInLocationStatus = hasFix ? 'fix' : 'unavailable';
@@ -396,7 +529,7 @@ export const checkIn = async (req: Request, res: Response) => {
     const alreadyCheckedIn =
       !snap.empty && !!(snap.docs[0].data() as any).checkIn;
     if (!alreadyCheckedIn) {
-      const gate = evaluateAttendanceGate(hasFix, checkInOfficePresence, policy);
+      const gate = evaluateAttendanceGate(hasFix, checkInOfficePresence, attPolicy);
       if (gate === 'location-unavailable') {
         return res.status(400).json({
           error:
@@ -500,7 +633,11 @@ export const checkIn = async (req: Request, res: Response) => {
         });
       }
       return res.json({
-        message: 'Check-in updated',
+        message: withinRadius === false
+          ? 'Checked in outside office location — pending admin approval'
+          : 'Check-in updated',
+        withinRadius,
+        pendingLocationApproval: withinRadius === false,
         checkIn: nowTime,
         checkInTsUtc,
         officePresence: checkInOfficePresence,
@@ -564,9 +701,13 @@ export const checkIn = async (req: Request, res: Response) => {
       apiCalls: 1,
       attendanceCount: 1,
     });
-    
+
     return res.json({
-      message: 'Checked-in successfully',
+      message: withinRadius === false
+        ? 'Checked in outside office location — pending admin approval'
+        : 'Checked-in successfully',
+      withinRadius,
+      pendingLocationApproval: withinRadius === false,
       checkIn: nowTime,
       checkInTsUtc,
       officePresence: checkInOfficePresence,
@@ -597,8 +738,8 @@ export const checkOut = async (req: Request, res: Response) => {
   const reasonTypeId    = normStr((req.body as any)?.reasonTypeId) || null;
   const reasonTypeName  = normStr((req.body as any)?.reasonTypeName) || null;
 
-  if (!empid || !location) {
-    return res.status(400).json({ error: 'empid and location are required' });
+  if (!empid) {
+    return res.status(400).json({ error: 'empid is required' });
   }
   const today = toYMD(new Date());
 
@@ -630,44 +771,142 @@ export const checkOut = async (req: Request, res: Response) => {
     const current = doc.data() as any;
     const branchName = normStr(current.branchName || location || current.location || '');
 
+    // Company attendance geo policy — resolved once per request from the
+    // verified tenant context, mirroring check-in.
+    const policy = await resolveAttendanceGeoPolicy(companyId);
+    if (!policy.resolved) {
+      return res.status(503).json({
+        error: 'ENTITLEMENT_UNAVAILABLE',
+        message: 'Could not verify company policy. Please try again.',
+      });
+    }
+    const geofenceEnabled = policy.geofencingEnabled;
+    const geoLookup = geofenceEnabled || policy.legacyCompatibilityMode;
+
+    // Branch/office identity is only mandatory when geo enforcement applies.
+    if (geoLookup && !branchName && !normStr((req.body as any)?.officeLocationId)) {
+      if (geofenceEnabled) {
+        return res.status(422).json({
+          error: 'Office location is not configured for this employee.',
+          code: 'GEO_FENCE_NOT_CONFIGURED',
+        });
+      }
+      return res.status(400).json({ error: 'location is required' });
+    }
+
     let expectedLatitude: number | null = current.expectedLatitude ?? null;
     let expectedLongitude: number | null = current.expectedLongitude ?? null;
     let expectedRadius: number | null = current.expectedRadius ?? null;
 
-    if (expectedLatitude == null || expectedLongitude == null || expectedRadius == null) {
-      const office = await findOfficeByBranchName(branchName, companyId);
+    // Fill in expected geo from the office config when the check-in snapshot
+    // lacks it (e.g. policy enabled after check-in) — only when geo applies.
+    if (geoLookup &&
+        (expectedLatitude == null || expectedLongitude == null || expectedRadius == null)) {
+      const office = await findOfficeForAttendance(companyId, {
+        officeLocationId: normStr((req.body as any)?.officeLocationId) || null,
+        branchName,
+      });
       if (office) {
+        if (geofenceEnabled && !isOfficeGeoValid(office)) {
+          return res.status(422).json({
+            error: 'Office location configuration is incomplete or invalid.',
+            code: 'GEO_FENCE_NOT_CONFIGURED',
+          });
+        }
         expectedLatitude  = Number((office as any).latitude ?? 0) || 0;
         expectedLongitude = Number((office as any).longitude ?? 0) || 0;
         expectedRadius    = Number((office as any).radius ?? 0) || 0;
       }
     }
 
-    const checkoutDistanceFromBranch = haversineMeters(checkOutLatitude, checkOutLongitude, expectedLatitude, expectedLongitude);
+    // Explicit geofencing requires a resolvable, valid office configuration;
+    // the check-in snapshot is only trusted when it is itself a valid geo
+    // config (it was validated at check-in time).
+    if (geofenceEnabled &&
+        !isOfficeGeoValid({
+          latitude: expectedLatitude,
+          longitude: expectedLongitude,
+          radius: expectedRadius,
+        })) {
+      return res.status(422).json({
+        error: 'Office location is not configured for this branch.',
+        code: 'GEO_FENCE_NOT_CONFIGURED',
+      });
+    }
+
+    const checkoutDistanceFromBranch = geoLookup
+      ? haversineMeters(checkOutLatitude, checkOutLongitude, expectedLatitude, expectedLongitude)
+      : null;
     const checkoutWithinRadius = (checkoutDistanceFromBranch != null && expectedRadius != null)
       ? checkoutDistanceFromBranch <= expectedRadius
       : null;
 
-    // Classify office presence from fix quality vs the geofence boundary
-    const policy = await getAttendancePolicy(companyId);
+    // ===== Server-side location trust validation =====
+    const clientIsMockedOut =
+      (req.body as any)?.isMocked === true ||
+      (req.body as any)?.isMocked === 'true';
+
+    if (clientIsMockedOut) {
+      await appendTrackingEventInternal(empid, {
+        type: 'mock_location_detected',
+        message: 'Untrusted location reported at check-out',
+        latitude: checkOutLatitude ?? undefined,
+        longitude: checkOutLongitude ?? undefined,
+        accuracy: checkOutAccuracy ?? undefined,
+      }, companyId);
+      return res.status(422).json({
+        error:
+          'Location verification failed. Please check your device location settings and try again.',
+        code: 'LOCATION_UNTRUSTED',
+      });
+    }
+
+    // If a geofence applies (explicit feature, or legacy implicit mode with a
+    // configured office), checkout coords must be present and meet the
+    // accuracy policy. Normal attendance never requires coordinates.
+    if (geoLookup &&
+        expectedLatitude != null && expectedLongitude != null && expectedRadius != null) {
+      if (checkOutLatitude == null || checkOutLongitude == null) {
+        return res.status(422).json({
+          error: 'Location is required for attendance. Please enable location services and try again.',
+          code: 'LOCATION_REQUIRED',
+        });
+      }
+      if (
+        checkOutAccuracy == null ||
+        checkOutAccuracy > MAX_TRUSTED_ACCURACY_METERS
+      ) {
+        await appendTrackingEventInternal(empid, {
+          type: 'poor_gps',
+          message: 'Check-out location did not meet accuracy requirements',
+          latitude: checkOutLatitude,
+          longitude: checkOutLongitude,
+          accuracy: checkOutAccuracy ?? undefined,
+        }, companyId);
+        return res.status(422).json({
+          error:
+            'Unable to get an accurate location. Please move to an open area and try again.',
+          code: 'POOR_GPS',
+        });
+      }
+    }
+
+    // Classify office presence from fix quality vs the geofence boundary.
+    // Persisted on the record ('outside'/'uncertain'/'unavailable') and
+    // surfaced in the response as policyViolation, so admins keep the full
+    // audit trail even when the location gate above did not reject.
+    const attPolicy = await getAttendancePolicy(companyId);
     const hasFix = checkOutLatitude != null && checkOutLongitude != null;
     const checkOutOfficePresence: OfficePresence = hasFix
       ? classifyOfficePresence(
           checkoutDistanceFromBranch,
           expectedRadius,
           checkOutAccuracy,
-          policy.maxAccuracyMeters,
+          attPolicy.maxAccuracyMeters,
         )
       : 'unavailable';
     const checkOutLocationStatus = hasFix ? 'fix' : 'unavailable';
-
-    // Check-out is never location-gated. Rejecting it could trap an employee
-    // in an open attendance session (and an open tracking session) with no
-    // in-app recovery - e.g. strict mode + employee already home, or a device
-    // that can no longer get any GPS fix. Presence is still classified and
-    // persisted, so admins keep the full audit trail ('outside'/'uncertain'/
-    // 'unavailable' on the record), and the response surfaces the flag.
-    const gate = evaluateAttendanceGate(hasFix, checkOutOfficePresence, policy);
+    const gate = evaluateAttendanceGate(hasFix, checkOutOfficePresence, attPolicy);
     const checkOutPolicyViolation = gate === 'allow' ? null : gate;
 
     const nowTime = nowTimeIST();
@@ -764,11 +1003,13 @@ export const getLiveAttendance = async (req: Request, res: Response) => {
   }
 
   const today = toYMD(new Date());
-  const isAdmin = (req as any).user?.role === 'admin';
+  // admin + approved HR see the company roster; employees see only
+  // themselves. HR approval is enforced upstream by hrFeatureGate.
+  const isRosterView = ['admin', 'hr'].includes(String((req as any).user?.role));
 
   try {
     let employees: any[] = [];
-    if (isAdmin) {
+    if (isRosterView) {
       const empSnap = await db.collection(EMP_COL)
         .where('status', 'in', ['active', 'inactive'])
         .where('companyId', '==', companyId)
@@ -1114,6 +1355,11 @@ export const getEmployeeAttendance = async (req: Request, res: Response) => {
   }
 
   const { empid } = req.params;
+  // Employees may only read their own records — identity comes from the
+  // verified token, never from the request parameter.
+  if (req.user?.role === 'employee' && (!req.user?.empid || req.user.empid !== empid)) {
+    return res.status(403).json({ error: 'Access denied: employees can only view their own attendance' });
+  }
   try {
     const snap = await db.collection(ATT_COL)
       .where('empid', '==', empid)
@@ -2713,6 +2959,14 @@ export const getMonthlySummary = async (req: Request, res: Response) => {
   if (!empid || !year || !month) {
     return res.status(400).json({
       error: "empid, year and month required",
+    });
+  }
+
+  // Employees may only read their own summary — identity comes from the
+  // verified token, never from the request parameter.
+  if (req.user?.role === 'employee' && (!req.user?.empid || req.user.empid !== empid)) {
+    return res.status(403).json({
+      error: "Access denied: employees can only view their own attendance",
     });
   }
 

@@ -3,6 +3,7 @@ import { db } from '../config/firebase';
 import * as bcrypt from 'bcryptjs';
 import { Timestamp } from 'firebase-admin/firestore';
 import { trackUsage } from '../services/usageService';
+import { checkUserLimit } from '../services/entitlementService';
 
 const EMPLOYEES = 'employees';
 
@@ -96,6 +97,37 @@ export const createEmployee = async (req: Request, res: Response): Promise<Respo
 
     if (companyId !== tokenCompanyId) {
       return res.status(403).json({ error: 'Invalid companyId' });
+    }
+
+    // Tenant limits: company must exist, be active and under its maxUsers
+    // cap. Legacy/unconfigured companies (no maxUsers set) are unaffected.
+    // Fail closed: lookup failures and unknown companies are rejected.
+    const limit = await checkUserLimit(tokenCompanyId);
+    if (limit.lookupFailed) {
+      return res.status(503).json({
+        error: 'ENTITLEMENT_UNAVAILABLE',
+        message: 'Could not verify company entitlements. Please try again.',
+      });
+    }
+    if (!limit.companyExists) {
+      return res.status(403).json({
+        error: 'COMPANY_NOT_FOUND',
+        message: 'Unknown company.',
+      });
+    }
+    if (limit.companyStatus !== 'active') {
+      return res.status(403).json({
+        error: 'COMPANY_NOT_ACTIVE',
+        message: 'This company account is not active.',
+      });
+    }
+    if (!limit.allowed) {
+      return res.status(403).json({
+        error: 'MAX_USERS_REACHED',
+        message: 'Maximum user limit reached for this company.',
+        maxUsers: limit.maxUsers,
+        currentUsers: limit.currentUsers,
+      });
     }
 
     // Normalize email and empid
@@ -266,8 +298,30 @@ export const updateEmployee = async (req: Request, res: Response): Promise<Respo
       return res.status(403).json({ error: 'Access denied' });
     }
 
+    // Mass-assignment protection: only profile fields may be updated.
+    // Identity/tenant/entitlement fields are immutable through this endpoint:
+    // companyId, empid, id, role, password, email, enabledFeatures, maxUsers.
+    const ALLOWED_UPDATE_FIELDS = [
+      'name',
+      'fullName',
+      'phone',
+      'mobile',
+      'location',
+      'dept',
+      'designation',
+      'shiftGroup',
+      'shiftgroup',
+      'status',
+    ];
+    const updates: Record<string, unknown> = {};
+    for (const key of ALLOWED_UPDATE_FIELDS) {
+      if (req.body && req.body[key] !== undefined) {
+        updates[key] = req.body[key];
+      }
+    }
+
     await ref.update({
-      ...req.body,
+      ...updates,
       updatedAt: Timestamp.now()
     });
 

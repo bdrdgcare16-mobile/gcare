@@ -1143,7 +1143,9 @@ export async function getTask(req: Request, res: Response): Promise<Response> {
 
     const currentUser = req.user as AuthUser | undefined;
     const isAuthorizedAdmin =
-      currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
+      currentUser?.role === 'admin' ||
+      currentUser?.role === 'hr' ||
+      currentUser?.role === 'super_admin';
     const audience = (data.audience || 'all').toString().toLowerCase();
     const isAssignedEmployee =
       audience === 'employee' &&

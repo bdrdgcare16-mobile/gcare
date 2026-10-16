@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/services/feature_service.dart';
 import 'package:serv_app/utils/button_helpers.dart';
 import 'package:serv_app/utils/location_permission_dialog.dart';
 import 'attendance_page.dart';
@@ -207,6 +208,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                               children: [
+                                if (FeatureAccess.has(FeatureAccess.attendance))
                                 _HomeTile(
                                   icon: Icons.calendar_month,
                                   label: 'Attendance',

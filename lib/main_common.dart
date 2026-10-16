@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'
     show kIsWeb;
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/services.dart' show SystemUiOverlayStyle;
@@ -14,8 +15,11 @@ import 'package:serv_app/features/admin/leave_page.dart';
 import 'package:serv_app/features/admin/leave_form_page.dart';
 import 'package:serv_app/features/users/landing_screen.dart';
 import 'package:serv_app/features/users/background_tasks.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:serv_app/config/api_config.dart';
 import 'package:serv_app/services/connectivity_service.dart';
 import 'package:serv_app/services/fcm_test_service.dart';
+import 'package:serv_app/widgets/feature_gate.dart';
 import 'package:serv_app/widgets/network_gate.dart';
 import 'package:serv_app/config/api_config.dart';
 import 'firebase_options_prod.dart';
@@ -62,6 +66,24 @@ Future<void> startApp({
     final app = await Firebase.initializeApp(
       options: firebaseOptions,
     );
+    ApiConfig.setEnvironment(environmentName);
+    if (environmentName == 'DEV') {
+      try {
+        final emulatorHost = ApiConfig.emulatorHost;
+        await FirebaseAuth.instance.useAuthEmulator(
+          emulatorHost,
+          9099,
+        );
+        FirebaseFirestore.instance.useFirestoreEmulator(
+          emulatorHost,
+          8080,
+        );
+        debugPrint('[$environmentName] FirebaseAuth using emulator $emulatorHost:9099');
+        debugPrint('[$environmentName] Firestore using emulator $emulatorHost:8080');
+      } catch (e) {
+        debugPrint('Auth emulator setup failed [$environmentName]: $e');
+      }
+    }
     debugPrint('Firebase initialized for [$environmentName]: ${app.options.projectId}');
     debugPrint('API key configured: ${app.options.apiKey.isNotEmpty ? 'YES' : 'NO'}');
 
@@ -176,8 +198,10 @@ class MyApp extends StatelessWidget {
       home: AuthGuard(),
       routes: {
         '/login': (context) => const LoginPage(),
-        '/leave': (context) => const LeavePage(),
-        '/add-leave': (context) => const LeaveFormPage(),
+        '/leave': (context) =>
+            const FeatureGate(feature: 'leave', child: LeavePage()),
+        '/add-leave': (context) =>
+            const FeatureGate(feature: 'leave', child: LeaveFormPage()),
         '/landing': (context) => const LandingScreen(),
       },
     );

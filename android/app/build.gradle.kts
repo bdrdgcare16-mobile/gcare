@@ -75,9 +75,9 @@ android {
 
                 println("Using release keystore: ${storeFile?.absolutePath}")
                 println("Using key alias: $keyAlias")
-            } else if (releaseRequested) {
-                throw GradleException("key.properties file not found. Release build cannot be signed.")
             }
+            // Missing credentials are enforced at execution time below —
+            // throwing here (configuration time) breaks assembleDebug too.
         }
     }
 
@@ -107,4 +107,19 @@ dependencies {
     // (as an `implementation` dep, so not exposed to app code by default).
     // Needed only by the temporary NativeGpsDiagnostic comparison tool.
     implementation("com.google.android.gms:play-services-location:21.2.0")
+}
+
+// Release signing is still mandatory — but only when a release task is
+// actually requested. Throwing during configuration would also break
+// assembleDebug / flutter run, which never use the release signing config.
+gradle.taskGraph.whenReady {
+    val releaseRequested = allTasks.any {
+        it.project == project && it.name.contains("Release")
+    }
+    if (releaseRequested && !keystorePropertiesFile.exists()) {
+        throw GradleException(
+            "key.properties file not found at ${keystorePropertiesFile.absolutePath}. " +
+            "Release build cannot be signed."
+        )
+    }
 }

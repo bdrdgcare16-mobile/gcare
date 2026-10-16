@@ -233,6 +233,14 @@ class _EmployeeOnboardingFormPageState
   final TextEditingController _grossSalaryController = TextEditingController();
   final TextEditingController _netSalaryController = TextEditingController();
 
+  // Employee login credential controllers — the password is assigned by HR
+  // here and consumed only when the Company Admin approves the request.
+  final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _confirmPasswordController =
+      TextEditingController();
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
+
   // Company details controllers
   final TextEditingController _companyNameController = TextEditingController();
   final TextEditingController _branchLocationController =
@@ -281,6 +289,7 @@ class _EmployeeOnboardingFormPageState
   bool _isLoadingShifts = false;
   String? _shiftsError;
   String? _selectedShiftName;
+  String? _selectedShiftId;
 
   // Country codes with unique IDs
   final List<CountryCode> countryCodes = [
@@ -593,6 +602,10 @@ class _EmployeeOnboardingFormPageState
       _allowancesController.clear();
       _grossSalaryController.clear();
       _netSalaryController.clear();
+      _passwordController.clear();
+      _confirmPasswordController.clear();
+      _obscurePassword = true;
+      _obscureConfirmPassword = true;
       _companyNameController.clear();
       _branchLocationController.clear();
       _departmentController.clear();
@@ -633,42 +646,11 @@ class _EmployeeOnboardingFormPageState
 
       // Reset shift selection
       _selectedShiftName = null;
+      _selectedShiftId = null;
 
       // Reset form validation state
       _formKey.currentState?.reset();
     });
-  }
-
-  Future<void> _showSuccessDialog({
-    required String fullName,
-    required String dob,
-  }) async {
-    final now = DateTime.now();
-    bool isBirthday = false;
-    try {
-      final parsed = DateFormat('dd-MM-yyyy').parse(dob);
-      isBirthday = parsed.day == now.day && parsed.month == now.month;
-    } catch (_) {
-      isBirthday = false;
-    }
-
-    final message = isBirthday
-        ? 'Employee onboarded successfully!\n\nHappy Birthday, $fullName!'
-        : 'Employee onboarded successfully!';
-
-    await showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Success'),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> _submitOnboardingForm() async {
@@ -737,6 +719,7 @@ class _EmployeeOnboardingFormPageState
         officialEmail: _officialEmailController.text,
         employeeId: _employeeIdController.text,
         shiftTime: _shiftTimeController.text,
+        shiftId: _selectedShiftId,
         workMode: workMode ?? '',
         employeeType: employeeType ?? '',
         experienceLevel: experienceLevel ?? '',
@@ -765,13 +748,13 @@ class _EmployeeOnboardingFormPageState
             : '0',
         grossSalary: _grossSalaryController.text,
         netSalary: _netSalaryController.text,
+        password: _passwordController.text,
+        confirmPassword: _confirmPasswordController.text,
       );
 
       // Address is no longer collected in the Admin Employee Onboarding form,
       // so do not send it to the backend.
       formData.remove('address');
-
-      debugPrint(formData.toString());
 
       // Submit to backend
       final result = await OnboardingService.submitOnboarding(
@@ -780,10 +763,15 @@ class _EmployeeOnboardingFormPageState
       );
 
       if (result['success']) {
-        final fullName =
-            _fullNameController.text.trim().replaceAll(RegExp(r'\s+'), ' ');
-        final dob = _dobController.text;
-        await _showSuccessDialog(fullName: fullName, dob: dob);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Employee onboarding request submitted successfully. '
+              'Waiting for Company Admin approval.',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
         if (mounted) _resetOnboardingForm();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1052,7 +1040,11 @@ class _EmployeeOnboardingFormPageState
     _allowancesController.clear();
     _grossSalaryController.clear();
     _netSalaryController.clear();
+    _passwordController.clear();
+    _confirmPasswordController.clear();
 
+    _passwordController.text = OnboardingDummyData.password;
+    _confirmPasswordController.text = OnboardingDummyData.password;
     _bankNameController.text = OnboardingDummyData.bankName;
     _accountHolderNameController.text = OnboardingDummyData.accountHolderName;
     _accountNumberController.text = OnboardingDummyData.accountNumber;
@@ -1198,6 +1190,8 @@ class _EmployeeOnboardingFormPageState
     _allowancesController.dispose();
     _grossSalaryController.dispose();
     _netSalaryController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
     _companyNameController.dispose();
     _branchLocationController.dispose();
     _departmentController.dispose();
@@ -1839,6 +1833,17 @@ class _EmployeeOnboardingFormPageState
                                   onChanged: (value) {
                                     setState(() {
                                       _selectedShiftName = value;
+                                      _selectedShiftId = _shifts
+                                          .where((s) =>
+                                              (s['name']?.toString() ??
+                                                      s['shiftname']
+                                                          ?.toString() ??
+                                                      '')
+                                                  .trim() ==
+                                              value)
+                                          .map((s) => s['id']?.toString() ?? '')
+                                          .firstWhere((id) => id.isNotEmpty,
+                                              orElse: () => '');
                                       _shiftTimeController.text = value ?? '';
                                     });
                                   },
@@ -1989,9 +1994,10 @@ class _EmployeeOnboardingFormPageState
                   padding: const EdgeInsets.only(bottom: 14),
                   child: TextFormField(
                     controller: _panNumberController,
+                    keyboardType: TextInputType.text,
                     decoration: inputDecoration("PAN Number", isRequired: true),
                     inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp(r'[A-Z0-9]')),
+                      FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9]')),
                       UpperCaseTextFormatter(),
                       LengthLimitingTextInputFormatter(10),
                     ],
@@ -2140,7 +2146,84 @@ class _EmployeeOnboardingFormPageState
                   ),
                 ),
               ]),
-              sectionTitle("Section 4 - Document Uploads"),
+              sectionTitle("Section 4 - Employee Login Credentials"),
+              formCard([
+                // The employee logs in with the Official Email entered in
+                // Section 2 — no duplicate email field is needed.
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 14),
+                  child: Text(
+                    "Login email: the Official Email entered in Section 2 "
+                    "will be used for the employee account.",
+                    style: TextStyle(fontSize: 12.5, color: Colors.grey),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: TextFormField(
+                    controller: _passwordController,
+                    obscureText: _obscurePassword,
+                    keyboardType: TextInputType.visiblePassword,
+                    decoration:
+                        inputDecoration("Initial Password", isRequired: true)
+                            .copyWith(
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscurePassword
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                          size: 20,
+                          color: const Color(0xFF655193),
+                        ),
+                        onPressed: () => setState(
+                            () => _obscurePassword = !_obscurePassword),
+                      ),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return "Initial Password is required";
+                      }
+                      if (value.length < 12) {
+                        return "Password must be at least 12 characters";
+                      }
+                      return null;
+                    },
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: TextFormField(
+                    controller: _confirmPasswordController,
+                    obscureText: _obscureConfirmPassword,
+                    keyboardType: TextInputType.visiblePassword,
+                    decoration:
+                        inputDecoration("Confirm Password", isRequired: true)
+                            .copyWith(
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscureConfirmPassword
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                          size: 20,
+                          color: const Color(0xFF655193),
+                        ),
+                        onPressed: () => setState(() =>
+                            _obscureConfirmPassword = !_obscureConfirmPassword),
+                      ),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return "Confirm Password is required";
+                      }
+                      if (value != _passwordController.text) {
+                        return "Passwords do not match";
+                      }
+                      return null;
+                    },
+                  ),
+                ),
+              ]),
+              sectionTitle("Section 5 - Document Uploads"),
               formCard([
                 uploadField("Resume",
                     fileName: resumeFile,

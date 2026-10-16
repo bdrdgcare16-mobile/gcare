@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -12,6 +11,7 @@ import 'package:http/http.dart' as http;
 import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/features/users/background_tasks.dart';
 import 'package:serv_app/services/tracking_service.dart';
+import 'package:serv_app/services/tracking_events.dart';
 import 'package:serv_app/services/tracking_payload.dart';
 import 'package:serv_app/services/tracking_post_result.dart';
 import 'package:serv_app/services/connectivity_service.dart';
@@ -25,7 +25,6 @@ import 'package:serv_app/debug/native_gps_diagnostic.dart';
 import 'package:permission_handler/permission_handler.dart'
     hide ServiceStatus;
 import 'package:android_intent_plus/android_intent.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 void _log(String message) {
   if (kDebugMode) {
@@ -79,6 +78,20 @@ class _Branch {
   const _Branch(this.name, this.lat, this.lng, this.radius);
 }
 
+// Result of the employee assigned-office lookup: the office geo config (when
+// one is configured) plus the company-level geofencing policy reported by the
+// backend. [lookupOk] is false when no endpoint answered authoritatively.
+// [legacyCompatibilityMode] marks legacy tenants whose historical implicit
+// radius enforcement still applies when an office config exists.
+class _AssignedGeo {
+  final _Branch? branch;
+  final bool geofencingEnabled;
+  final bool legacyCompatibilityMode;
+  final bool lookupOk;
+  const _AssignedGeo(this.branch, this.geofencingEnabled,
+      this.legacyCompatibilityMode, this.lookupOk);
+}
+
 class AttendanceScreen extends StatefulWidget {
   final String employeeDocId;
   final Map<String, dynamic>? preloadedUserInfo;
@@ -114,6 +127,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   bool _isLoadingUserInfo = false;
   List<Map<String, String>>? _cachedReasons;
   bool _reasonsLoading = false;
+  // 'auth' | 'forbidden' | 'network' — set when the last reasons fetch
+  // failed so _pickReason can show the correct error instead of the
+  // misleading "No reasons configured" empty state.
+  String? _reasonsError;
   bool _isAttendanceStatusLoading = false;
   bool _hasAttendanceApiConfirmed = false;
 
@@ -122,7 +139,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   // ✅ FIX: prevent multiple checkout taps / duplicate API calls
   bool _checkoutInProgress = false;
-  _Branch? _cachedBranch;
+  _AssignedGeo? _cachedGeo;
 
   DateTime? _lastStatusFetch;
 
@@ -165,37 +182,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   // Optional legacy foreground tracker
   TrackingService? _tracking;
 
-  // 🔹 cache the dynamic shift times loaded from Firestore
+  // 🔹 cache the dynamic shift times loaded from the assigned-shift API
   ShiftTimes? _shiftTimes;
-
-  Future<void> _authenticateWithFirebase() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        debugPrint('[FIREBASE] Already authenticated');
-        return;
-      }
-
-      final token = CompanyData.token;
-      if (token.isEmpty) {
-        debugPrint('[FIREBASE] No token available');
-        return;
-      }
-
-      // Use the JWT token as a custom token for Firebase Auth
-      await FirebaseAuth.instance.signInWithCustomToken(token);
-      debugPrint('[FIREBASE] Successfully authenticated');
-    } catch (e) {
-      debugPrint('[FIREBASE] Authentication error occurred');
-      // Try anonymous authentication as fallback
-      try {
-        await FirebaseAuth.instance.signInAnonymously();
-        debugPrint('[FIREBASE] Using anonymous authentication');
-      } catch (e2) {
-        debugPrint('[FIREBASE] Anonymous authentication failed');
-      }
-    }
-  }
+  String? _shiftLoadError;
 
   @override
   void initState() {
@@ -1099,6 +1088,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     // part of the budget and the stream gets whatever remains.
     final deadline = startTime.add(overallTimeout);
     bool acquisitionComplete = false;
+    bool sawMocked = false;
 
     debugPrint('[GPS] Acquisition source: '
         '${_gpsWarmSub != null ? "shared warm stream" : "direct probe"}; '
@@ -1124,9 +1114,21 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               '[GPS] Initial position: accuracy=${initialPosition.accuracy.toStringAsFixed(1)}m, age=${positionAge.inSeconds}s');
           _logGpsFix('initial fresh fix', initialPosition);
 
-          // Reject mock locations outright (attendance security).
+          // Reject mock locations outright (attendance security): keep
+          // listening for a genuine fix, but audit the attempt once.
           if (initialPosition.isMocked) {
             debugPrint('[GPS] Initial position is mocked - rejecting');
+            if (!sawMocked) {
+              sawMocked = true;
+              unawaited(TrackingEvents.report(
+                type: 'mock_location_detected',
+                message:
+                    'Untrusted location source detected during $actionLabel',
+                latitude: initialPosition.latitude,
+                longitude: initialPosition.longitude,
+                accuracy: initialPosition.accuracy,
+              ));
+            }
           } else
           // Validate freshness (reject if older than 5 minutes)
           if (positionAge.inMinutes > 5) {
@@ -1260,9 +1262,21 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   'age=${positionAge.inSeconds}s${isRepeat ? ' [cached-repeat]' : ''}');
               if (!isRepeat) _logGpsFix('stream fix #$uniqueFixes', position);
 
-              // Reject mock locations outright (attendance security).
+              // Reject mock locations outright (attendance security) -
+              // never trust them, but audit once per acquisition.
               if (position.isMocked) {
                 debugPrint('[GPS] Mock location detected - skipping');
+                if (!sawMocked) {
+                  sawMocked = true;
+                  unawaited(TrackingEvents.report(
+                    type: 'mock_location_detected',
+                    message:
+                        'Untrusted location source detected during $actionLabel',
+                    latitude: position.latitude,
+                    longitude: position.longitude,
+                    accuracy: position.accuracy,
+                  ));
+                }
                 return;
               }
 
@@ -1337,7 +1351,23 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         debugPrint('[GPS] Attendance API will be called: false');
         _log('[GPS] Final: No position obtained within timeout');
         _showSingleError(
-            quiet, 'Unable to determine your location. Please try again.');
+            quiet,
+            sawMocked
+                ? 'Location verification failed. Please check your device location settings and try again.'
+                : 'Unable to determine your location. Please try again.');
+        return null;
+      }
+
+      if (finalPosition.isMocked) {
+        unawaited(TrackingEvents.report(
+          type: 'mock_location_detected',
+          message: 'Untrusted location source detected during $actionLabel',
+          latitude: finalPosition.latitude,
+          longitude: finalPosition.longitude,
+          accuracy: finalPosition.accuracy,
+        ));
+        _showSingleError(quiet,
+            'Location verification failed. Please check your device location settings and try again.');
         return null;
       }
 
@@ -1673,17 +1703,64 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     return granted;
   }
 
-  Future<_Branch?> _fetchMyBranch() async {
-    // Use cached branch if already loaded
-    if (_cachedBranch != null) return _cachedBranch;
+  // Employee self-service endpoint: returns the caller's assigned office geo
+  // config plus the company geofencing policy. Admin/HR tokens (403 there)
+  // fall back to the management listing endpoint.
+  Future<_AssignedGeo> _fetchAssignedGeo() async {
+    final cached = _cachedGeo;
+    if (cached != null) return cached;
 
+    try {
+      final res = await http.get(
+        Uri.parse('${ApiService.baseUrl}/office/assigned'),
+        headers: _authHeaders(),
+      );
+
+      if (res.statusCode == 200) {
+        final m = jsonDecode(res.body) as Map<String, dynamic>;
+        final enabled = m['geofencingEnabled'] == true;
+        final legacy = m['legacyCompatibilityMode'] == true;
+        final office = m['office'];
+        _Branch? branch;
+        if (office is Map<String, dynamic>) {
+          branch = _Branch(
+            (office['branchName'] ?? office['name'] ?? '').toString(),
+            ((office['latitude'] as num?) ?? 0).toDouble(),
+            ((office['longitude'] as num?) ?? 0).toDouble(),
+            ((office['radius'] as num?) ?? 0).toDouble(),
+          );
+        }
+        final geo = _AssignedGeo(branch, enabled, legacy, true);
+        // Only cache a resolved office — a null-office answer is retried so
+        // a later HR configuration is picked up on the next attempt.
+        if (branch != null) _cachedGeo = geo;
+        return geo;
+      }
+
+      if (res.statusCode == 403 || res.statusCode == 401) {
+        // admin/hr token — fall back to the management listing endpoint
+        return _fetchBranchFromLocations();
+      }
+      return const _AssignedGeo(null, false, false, false);
+    } catch (_) {
+      return const _AssignedGeo(null, false, false, false);
+    }
+  }
+
+  // Admin/HR fallback: match the caller's branch string against the office
+  // management list. This endpoint carries no entitlement information, so
+  // the policy flags are reported as unknown — the backend remains the
+  // authority on whether geofencing actually applies at submit time.
+  Future<_AssignedGeo> _fetchBranchFromLocations() async {
     try {
       final res = await http.get(
         Uri.parse('${ApiService.baseUrl}/office/locations'),
         headers: _authHeaders(),
       );
 
-      if (res.statusCode != 200) return null;
+      if (res.statusCode != 200) {
+        return const _AssignedGeo(null, false, false, false);
+      }
 
       final list = (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
 
@@ -1700,7 +1777,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         debugPrint(
             '[Branch] No officeLocations record matches employee location "$location" '
             '(${list.length} records fetched)');
-        return null;
+        return const _AssignedGeo(null, false, false, false);
       }
 
       // Dev-only diagnostic (coords masked to ~1km). Helps verify which
@@ -1715,17 +1792,38 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           'radius=${match['radius']}'
           '${matchCount > 1 ? ' ($matchCount same-name records - newest used)' : ''}');
 
-      final branch = _Branch(
-        (match['branchName'] ?? match['name'] ?? '').toString(),
-        (match['latitude'] as num).toDouble(),
-        (match['longitude'] as num).toDouble(),
-        (match['radius'] as num).toDouble(),
+      return _AssignedGeo(
+        _Branch(
+          (match['branchName'] ?? match['name'] ?? '').toString(),
+          ((match['latitude'] as num?) ?? 0).toDouble(),
+          ((match['longitude'] as num?) ?? 0).toDouble(),
+          ((match['radius'] as num?) ?? 0).toDouble(),
+        ),
+        false,
+        false,
+        false,
       );
+    } catch (_) {
+      return const _AssignedGeo(null, false, false, false);
+    }
+  }
 
-      // Save in cache
-      _cachedBranch = branch;
-
-      return branch;
+  // Non-blocking, permission-preserving position lookup for companies where
+  // geofencing is disabled: uses only already-granted permission and never
+  // shows a permission prompt. Returns null when no fix is available.
+  Future<Position?> _getBestEffortPosition() async {
+    try {
+      final permission = await Geolocator.checkPermission();
+      final granted = permission == LocationPermission.always ||
+          permission == LocationPermission.whileInUse;
+      if (!granted) return null;
+      if (!await Geolocator.isLocationServiceEnabled()) return null;
+      final last = await Geolocator.getLastKnownPosition();
+      if (last != null) return last;
+      return await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.medium,
+        timeLimit: const Duration(seconds: 5),
+      );
     } catch (_) {
       return null;
     }
@@ -1741,6 +1839,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Future<bool> _confirmOutside({
+    double distance = 0,
+    double radius = 0,
+    String branchName = '',
     String actionLabel = 'check-in',
   }) async {
     return await showDialog<bool>(
@@ -1748,8 +1849,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           builder: (c) => AlertDialog(
             title: const Text('Outside Office Location'),
             content: Text(
-              'You are outside your office location. '
-              'Do you want to proceed with $actionLabel?',
+              (branchName.isNotEmpty
+                      ? 'You are outside the office location for $branchName.\n\n'
+                      : 'You are outside your office location.\n\n') +
+                  (distance > 0
+                      ? 'Distance from branch: ${distance.toStringAsFixed(1)}m\n'
+                          'Allowed radius: ${radius.toStringAsFixed(1)}m\n\n'
+                      : '') +
+                  'Do you want to proceed with $actionLabel?',
             ),
             actions: [
               TextButton(
@@ -1814,6 +1921,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (_cachedReasons != null) return _cachedReasons!;
     if (_reasonsLoading) return <Map<String, String>>[];
     _reasonsLoading = true;
+    _reasonsError = null;
 
     try {
       final token = CompanyData.token;
@@ -1828,6 +1936,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
       if (res.statusCode != 200) {
         _log('Failed to load reasons: ${res.statusCode}');
+        _reasonsError = res.statusCode == 401
+            ? 'auth'
+            : res.statusCode == 403
+                ? 'forbidden'
+                : 'network';
         return <Map<String, String>>[];
       }
 
@@ -1852,6 +1965,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       return result;
     } catch (e) {
       _log('Error loading reasons: $e');
+      _reasonsError = 'network';
       return <Map<String, String>>[];
     } finally {
       _reasonsLoading = false;
@@ -1862,8 +1976,49 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       {String? prefer}) async {
     final reasons = await _fetchAllReasons();
     if (reasons.isEmpty) {
-      _showInfoDialog('No reasons configured.');
-      return null;
+      switch (_reasonsError) {
+        case 'auth':
+          _showInfoDialog(
+            'Your session has expired. Please log in again.',
+            title: 'Session Expired',
+          );
+          return null;
+        case 'forbidden':
+          _showInfoDialog(
+            'You do not have permission to view attendance reasons. '
+            'Please contact your administrator.',
+            title: 'Access Denied',
+          );
+          return null;
+        case 'network':
+          final retry = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('Connection Error'),
+              content: const Text(
+                  'Unable to load attendance reasons. Please check your '
+                  'connection and try again.'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          );
+          if (retry == true) {
+            _cachedReasons = null;
+            return _pickReason(title, prefer: prefer);
+          }
+          return null;
+        default:
+          _showInfoDialog('No reasons configured.');
+          return null;
+      }
     }
 
     String? selectedId;
@@ -2485,7 +2640,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
 
     if (_shiftTimes == null) {
-      _showInfoDialog(
+      _showInfoDialog(_shiftLoadError ??
           'Shift time is not loaded. Please refresh or contact admin.');
       return;
     }
@@ -2503,65 +2658,98 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       if (category.isNotEmpty && reasonInfo == null) return;
     }
 
+    // Geofencing is an optional company-level policy. The backend's
+    // /office/assigned response is authoritative — the local FeatureAccess
+    // snapshot can be stale or legacy-defaulted to "allow everything", so it
+    // must never decide whether office/GPS enforcement applies. When geo
+    // enforcement is off, normal attendance needs no GPS fix, office config
+    // or outside-office confirmation; coordinates are best-effort only.
+    final geo = await _fetchAssignedGeo();
+    final geoEnabled =
+        geo.lookupOk && (geo.geofencingEnabled || geo.legacyCompatibilityMode);
+
     _log(
         '[ManualAttendance] Starting location acquisition for manual check-in');
     debugPrint('[GPS] Final result: pending');
-    // Branch geofence data does not depend on the GPS fix - fetch it in
-    // parallel with acquisition so its network latency is hidden.
-    final branchFuture = _fetchMyBranch();
-    final pos = await _getHighAccuracyPosition(
-      actionLabel: 'check-in',
-      maxAccuracyMeters: 50.0,
-    );
-    debugPrint('[GPS] Final result: ${pos == null ? 'null' : 'valid'} '
-        '(${perfSw.elapsedMilliseconds}ms)');
-    if (pos == null) {
-      _log('[ManualAttendance] Location acquisition failed and returned null');
-      debugPrint('[GPS] Final failure reason: location null');
-      debugPrint('[GPS] Attendance API reached: false');
-      return;
+    Position? pos;
+    if (geoEnabled) {
+      pos = await _getHighAccuracyPosition(
+        actionLabel: 'check-in',
+        maxAccuracyMeters: 50.0,
+      );
+      debugPrint('[GPS] Final result: ${pos == null ? 'null' : 'valid'} '
+          '(${perfSw.elapsedMilliseconds}ms)');
+      if (pos == null) {
+        _log(
+            '[ManualAttendance] Location acquisition failed and returned null');
+        debugPrint('[GPS] Final failure reason: location null');
+        debugPrint('[GPS] Attendance API reached: false');
+        return;
+      }
+    } else {
+      pos = await _getBestEffortPosition();
     }
-
-    final branch = await branchFuture;
-    debugPrint('[Perf] branch lookup done (${perfSw.elapsedMilliseconds}ms)');
+    debugPrint('[Perf] geo/position lookup done (${perfSw.elapsedMilliseconds}ms)');
 
     bool within = true;
     double distance = 0.0;
     String branchName = location;
     double expLat = 0, expLng = 0, expRad = 0;
 
-    if (branch != null) {
-      branchName = branch.name;
-      expLat = branch.lat;
-      expLng = branch.lng;
-      expRad = branch.radius;
-      distance = _distanceMeters(
-        lat1: pos.latitude,
-        lng1: pos.longitude,
-        lat2: branch.lat,
-        lng2: branch.lng,
-      );
-      within = distance <= branch.radius;
+    if (geoEnabled) {
+      final branch = geo.branch;
 
-      // Dev-only diagnostic (coords masked to ~1km).
-      debugPrint(
-          '[Branch] device≈${pos.latitude.toStringAsFixed(2)},'
-          '${pos.longitude.toStringAsFixed(2)} '
-          'distance=${distance.toStringAsFixed(1)}m radius=${branch.radius}');
+      if (branch != null) {
+        branchName = branch.name;
+        expLat = branch.lat;
+        expLng = branch.lng;
+        expRad = branch.radius;
+        distance = _distanceMeters(
+          lat1: pos!.latitude,
+          lng1: pos.longitude,
+          lat2: branch.lat,
+          lng2: branch.lng,
+        );
+        within = distance <= branch.radius;
 
-      // The popup only appears when the fix is confidently outside: the
-      // reported accuracy radius must clear the geofence boundary entirely.
-      // Ambiguous fixes are recorded silently and the backend classifies
-      // office presence as 'uncertain'.
-      final confidentlyOutside = distance - pos.accuracy > branch.radius;
-      if (confidentlyOutside) {
-        final ok = await _confirmOutside(actionLabel: 'check-in');
+        // Dev-only diagnostic (coords masked to ~1km).
+        debugPrint(
+            '[Branch] device≈${pos.latitude.toStringAsFixed(2)},'
+            '${pos.longitude.toStringAsFixed(2)} '
+            'distance=${distance.toStringAsFixed(1)}m radius=${branch.radius}');
+
+        // The popup only appears when the fix is confidently outside: the
+        // reported accuracy radius must clear the geofence boundary entirely.
+        // Ambiguous fixes are recorded silently and the backend classifies
+        // office presence as 'uncertain'.
+        if (!within) {
+          final confidentlyOutside =
+              distance - pos.accuracy > branch.radius;
+          if (confidentlyOutside) {
+            final ok = await _confirmOutside(
+              distance: distance,
+              radius: branch.radius,
+              branchName: branch.name,
+              actionLabel: 'check-in',
+            );
+            if (!ok) return;
+          }
+        }
+      } else if (geo.geofencingEnabled) {
+        // Backend will also enforce this (GEO_FENCE_NOT_CONFIGURED); fail
+        // early with a clear message instead of recording a bad punch.
+        _showErrorDialog(
+            'Office location is not configured for your branch. Please contact HR.');
+        return;
+      } else {
+        final ok = await _confirmOutside(
+          branchName: location.isEmpty ? 'Unknown' : location,
+          actionLabel: 'check-in',
+        );
+
         if (!ok) return;
+        within = false;
       }
-    } else {
-      // No geofence configured for this branch - record automatically; the
-      // backend marks office presence 'uncertain' and logs the event.
-      within = false;
     }
 
     final token = CompanyData.token;
@@ -2572,13 +2760,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       'empid': userId,
       'name': userName,
       'location': location,
-      'latitude': pos.latitude,
-      'longitude': pos.longitude,
-      'accuracy': pos.accuracy,
+      'latitude': pos?.latitude,
+      'longitude': pos?.longitude,
+      'accuracy': pos?.accuracy,
+      'isMocked': pos?.isMocked ?? false,
       'source': type,
       // UTC timestamp of the accepted GPS fix itself (ISO 8601), required by
       // the deployed backend's locationTimestamp validation.
-      'locationTimestamp': pos.timestamp.toUtc().toIso8601String(),
+      'locationTimestamp': pos?.timestamp.toUtc().toIso8601String(),
       'branchName': branchName,
       'expectedLatitude': expLat,
       'expectedLongitude': expLng,
@@ -3012,7 +3201,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       }
 
       if (_shiftTimes == null) {
-        _showInfoDialog(
+        _showInfoDialog(_shiftLoadError ??
             'Shift time is not loaded. Please refresh or contact admin.');
         return;
       }
@@ -3027,51 +3216,92 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         }
       }
 
-      final branchFuture = _fetchMyBranch();
-      final pos = await _getHighAccuracyPosition(
-        quiet: silent,
-        actionLabel: 'check-out',
-        maxAccuracyMeters: 50.0,
-      );
-      if (pos == null) {
-        _log('[ManualAttendance] Checkout location acquisition failed');
-        return;
+      // Geofencing is an optional company-level policy resolved
+      // authoritatively by the backend — see _performCheckIn.
+      final geo = await _fetchAssignedGeo();
+      final geoEnabled = geo.lookupOk &&
+          (geo.geofencingEnabled || geo.legacyCompatibilityMode);
+
+      Position? pos;
+      if (geoEnabled) {
+        pos = await _getHighAccuracyPosition(
+          quiet: silent,
+          actionLabel: 'check-out',
+          maxAccuracyMeters: 50.0,
+        );
+        if (pos == null) {
+          _log('[ManualAttendance] Checkout location acquisition failed');
+          return;
+        }
+      } else {
+        pos = await _getBestEffortPosition();
       }
 
-      final branch = await branchFuture;
       bool within = true;
       double distance = 0.0;
       String branchName = location;
       double expLat = 0, expLng = 0, expRad = 0;
 
-      if (branch != null) {
-        branchName = branch.name;
-        expLat = branch.lat;
-        expLng = branch.lng;
-        expRad = branch.radius;
+      if (geoEnabled) {
+        final branch = geo.branch;
 
-        distance = _distanceMeters(
-          lat1: pos.latitude,
-          lng1: pos.longitude,
-          lat2: branch.lat,
-          lng2: branch.lng,
-        );
+        if (branch != null) {
+          branchName = branch.name;
+          expLat = branch.lat;
+          expLng = branch.lng;
+          expRad = branch.radius;
 
-        within = distance <= branch.radius;
+          distance = _distanceMeters(
+            lat1: pos!.latitude,
+            lng1: pos.longitude,
+            lat2: branch.lat,
+            lng2: branch.lng,
+          );
 
-        debugPrint('[CHECKOUT RADIUS] Branch: $branchName');
-        debugPrint(
-            '[CHECKOUT RADIUS] Distance: ${distance.toStringAsFixed(2)}m');
-        debugPrint(
-            '[CHECKOUT RADIUS] Radius: ${branch.radius.toStringAsFixed(2)}m');
-        debugPrint('[CHECKOUT RADIUS] Within radius: $within');
+          within = distance <= branch.radius;
 
-        // Same rule as check-in: prompt only when the fix is confidently
-        // outside the geofence (accuracy radius fully clears the boundary).
-        final confidentlyOutside =
-            distance - pos.accuracy > branch.radius;
-        if (confidentlyOutside) {
-          final ok = await _confirmOutside(actionLabel: 'check-out');
+          debugPrint('[CHECKOUT RADIUS] Branch: $branchName');
+          debugPrint(
+              '[CHECKOUT RADIUS] Distance: ${distance.toStringAsFixed(2)}m');
+          debugPrint(
+              '[CHECKOUT RADIUS] Radius: ${branch.radius.toStringAsFixed(2)}m');
+          debugPrint('[CHECKOUT RADIUS] Within radius: $within');
+
+          if (!within) {
+            // Same rule as check-in: prompt only when the fix is
+            // confidently outside the geofence (accuracy radius fully
+            // clears the boundary).
+            final confidentlyOutside =
+                distance - pos.accuracy > branch.radius;
+            if (confidentlyOutside) {
+              final ok = await _confirmOutside(
+                distance: distance,
+                radius: branch.radius,
+                branchName: branch.name,
+                actionLabel: 'check-out',
+              );
+
+              if (!ok) {
+                if (!silent) {
+                  _showInfoDialog('Checkout cancelled');
+                }
+                return;
+              }
+            }
+          }
+        } else if (geo.geofencingEnabled) {
+          _showErrorDialog(
+              'Office location is not configured for your branch. Please contact HR.');
+          return;
+        } else {
+          debugPrint(
+              '[CHECKOUT RADIUS] Branch not found. Asking confirmation.');
+
+          final ok = await _confirmOutside(
+            branchName:
+                location.isEmpty ? 'Unknown location' : location,
+            actionLabel: 'check-out',
+          );
 
           if (!ok) {
             if (!silent) {
@@ -3079,12 +3309,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             }
             return;
           }
-        }
-      } else {
-        debugPrint('[CHECKOUT RADIUS] Branch not found - recording anyway.');
 
-        within = false;
-        branchName = location.isEmpty ? 'Unknown location' : location;
+          within = false;
+          branchName = location.isEmpty ? 'Unknown location' : location;
+        }
       }
       final token = CompanyData.token;
       final url = Uri.parse('${ApiService.baseUrl}/attendance/check-out');
@@ -3092,11 +3320,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       final bodyMap = {
         'empid': userId,
         'location': location,
-        'latitude': pos.latitude,
-        'longitude': pos.longitude,
-        'accuracy': pos.accuracy,
+        'latitude': pos?.latitude,
+        'longitude': pos?.longitude,
+        'accuracy': pos?.accuracy,
+        'isMocked': pos?.isMocked ?? false,
         // UTC timestamp of the accepted GPS fix itself (ISO 8601).
-        'locationTimestamp': pos.timestamp.toUtc().toIso8601String(),
+        'locationTimestamp': pos?.timestamp.toUtc().toIso8601String(),
         'branchName': branchName,
         'expectedLatitude': expLat,
         'expectedLongitude': expLng,
@@ -3308,6 +3537,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         body: jsonEncode({
           'empid': userId,
           'dateIso': localDateIso,
+          'eventId': 'logout_${userId}_$localDateIso',
         }),
       );
 
@@ -3596,75 +3826,54 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         'Check-out successful!\nWork duration: ${h}h ${m}m ${s}s');
   }
 
+  /// Loads the employee's assigned shift via the backend — the server
+  /// resolves companyId + empid from the JWT, then the canonical shift doc
+  /// (shiftId first, shiftGroup name fallback). This replaces the old
+  /// client-side Firestore query, which could not satisfy the shifts
+  /// security rules (no Firebase Auth token carries the companyId claim).
   Future<void> _loadShiftTimes() async {
     try {
-      final shiftName = selectedShift.trim();
-
-      // Authenticate with Firebase using custom token
-      await _authenticateWithFirebase();
-
-      // If companyId is empty, try to extract it from JWT token
-      if (companyId.isEmpty) {
-        try {
-          final token = CompanyData.token;
-          if (token.isNotEmpty) {
-            // Parse JWT token to extract companyId
-            final parts = token.split('.');
-            if (parts.length == 3) {
-              final payload = parts[1];
-              // Fix base64 padding if needed
-              String normalizedPayload = payload;
-              while (normalizedPayload.length % 4 != 0) {
-                normalizedPayload += '=';
-              }
-              final decodedBytes = base64.decode(normalizedPayload);
-              final decodedJson = utf8.decode(decodedBytes);
-              final payloadData =
-                  jsonDecode(decodedJson) as Map<String, dynamic>;
-              companyId = payloadData['companyId']?.toString() ?? '';
-            }
-          }
-        } catch (e) {
-          debugPrint('[SHIFT] Error extracting companyId from JWT');
-        }
-      }
-
-      if (shiftName.isEmpty || shiftName == "Shift") {
+      final token = CompanyData.token;
+      if (token.isEmpty) {
         _shiftTimes = null;
+        _shiftLoadError = 'Not signed in. Please log in again.';
         return;
       }
 
-      if (companyId.isEmpty) {
-        debugPrint('[SHIFT] companyId is empty, cannot query shifts');
+      final res = await http.get(
+        Uri.parse('$_apiBase/shifts/assigned'),
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(const Duration(seconds: 12));
+
+      if (res.statusCode != 200) {
+        debugPrint('[SHIFT] assigned shift fetch failed: ${res.statusCode}');
         _shiftTimes = null;
+        _shiftLoadError =
+            'Could not load shift details. Please refresh or contact admin.';
         return;
       }
 
-      final snap = await FirebaseFirestore.instance
-          .collection('shifts')
-          .where('shiftname', isEqualTo: shiftName)
-          .where('companyId', isEqualTo: companyId)
-          .limit(1)
-          .get();
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final shift = data['shift'];
 
-      debugPrint('[SHIFT] shift docs found: ${snap.docs.length}');
-
-      if (snap.docs.isEmpty) {
-        debugPrint('[SHIFT] No shift docs found');
+      if (shift is! Map<String, dynamic>) {
+        final reason = data['reason']?.toString() ?? '';
+        debugPrint('[SHIFT] no assigned shift: $reason');
         _shiftTimes = null;
+        _shiftLoadError = reason == 'SHIFT_NOT_FOUND'
+            ? 'Your assigned shift is no longer available. Please contact admin.'
+            : 'No shift is assigned to your account. Please contact admin.';
         return;
       }
 
-      final data = snap.docs.first.data();
-
-      final startStr = (data['startTime'] ?? '').toString().trim();
-      final endStr = (data['endTime'] ?? '').toString().trim();
+      final startStr = (shift['startTime'] ?? '').toString().trim();
+      final endStr = (shift['endTime'] ?? '').toString().trim();
 
       TimeOfDay? start = _parseHHmm(startStr);
       TimeOfDay? end = _parseHHmm(endStr);
 
       if (start == null || end == null) {
-        final nameStr = (data['name'] ?? '').toString();
+        final nameStr = (shift['name'] ?? '').toString();
         final pair = _parseNameRange(nameStr);
         start ??= pair?.start;
         end ??= pair?.end;
@@ -3672,14 +3881,28 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
       if (start != null && end != null) {
         _shiftTimes = ShiftTimes(start, end);
+        _shiftLoadError = null;
+        // Sync the displayed shift name with the resolved assignment.
+        final resolvedName =
+            (shift['name'] ?? shift['shiftname'] ?? '').toString().trim();
+        if (resolvedName.isNotEmpty &&
+            (selectedShift.isEmpty || selectedShift == 'Shift')) {
+          selectedShift = resolvedName;
+          shiftClicked = true;
+          isShiftSelected = true;
+        }
         debugPrint('[SHIFT] Shift times loaded successfully');
       } else {
         _shiftTimes = null;
+        _shiftLoadError =
+            'Your shift timings are not configured. Please contact admin.';
         debugPrint('[SHIFT] Failed to parse shift times');
       }
     } catch (e) {
       debugPrint('[SHIFT] _loadShiftTimes error occurred');
       _shiftTimes = null;
+      _shiftLoadError =
+          'Could not load shift details. Please refresh or contact admin.';
     }
 
     if (mounted) setState(() {});

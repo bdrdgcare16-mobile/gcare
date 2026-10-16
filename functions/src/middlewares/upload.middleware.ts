@@ -139,7 +139,10 @@ export const uploadOnboarding = (
         });
         stream.on('limit', () => {
           fileLimited = true;
-          parserError ??= new Error('File exceeds the 10 MB limit');
+          const limitErr = new Error('File exceeds the 10 MB limit');
+          (limitErr as any).code = 'LIMIT_FILE_SIZE';
+          (limitErr as any).statusCode = 413;
+          parserError ??= limitErr;
         });
         stream.on('error', (error: Error) => {
           parserError ??= error;

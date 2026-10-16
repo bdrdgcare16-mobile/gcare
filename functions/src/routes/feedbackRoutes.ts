@@ -1,7 +1,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { createFeedback, getAllFeedback } from '../controllers/feedbackController';
 import type { Firestore } from 'firebase-admin/firestore';
-import { authMiddleware } from '../middlewares/authMiddleware';
+import { authMiddleware, roleMiddleware } from '../middlewares/authMiddleware';
+import { requireFeature } from '../middlewares/featureMiddleware';
+import { hrFeatureGate } from '../middlewares/hrFeatureMiddleware';
 
 /**
  * @openapi
@@ -43,6 +45,12 @@ export default function feedbackRoutes(db: Firestore) {
   // Protect all feedback routes
   router.use(authMiddleware);
 
+  // Tenant entitlement: feedback feature
+  router.use(requireFeature('feedback'));
+
+  // HR additionally needs 'feedback' in approvedFeatures (no-op for other roles)
+  router.use(hrFeatureGate(['feedback']));
+
   /**
    * @openapi
    * /api/feedback:
@@ -62,9 +70,7 @@ export default function feedbackRoutes(db: Firestore) {
    *       400: { description: Missing user meta or message }
    *       401: { description: Unauthorized }
    */
-  router.post('/', createFeedback);
-
-  /**
+  router.post('/', createFeedback);  /**
    * @openapi
    * /api/feedback:
    *   get:
@@ -76,7 +82,7 @@ export default function feedbackRoutes(db: Firestore) {
    *       401:
    *         description: Unauthorized
    */
-  router.get('/', getAllFeedback);
+  router.get('/', roleMiddleware(['admin', 'hr']), getAllFeedback);
 
   return router;
 }

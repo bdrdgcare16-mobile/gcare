@@ -6,7 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:serv_app/features/users/login_page.dart';
 import 'package:serv_app/features/users/background_tasks.dart';
 import 'package:serv_app/services/fcm_test_service.dart';
+import 'package:serv_app/services/feature_service.dart';
 import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/services/tracking_events.dart';
 import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/html_stub.dart'
     if (dart.library.html) 'package:serv_app/html_web.dart' as html;
@@ -41,31 +43,51 @@ Future<void> logout(BuildContext context) async {
     final token = CompanyData.token;
 
     if (empId != null && token.isNotEmpty) {
-      // Use local date for tracking document to match admin view
+      // Local date only matters for the dedupe eventId — the server resolves
+      // the tracking day itself (Asia/Kolkata).
       final localDateIso = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final eventId = 'logout_${empId}_$localDateIso';
 
+      bool delivered = false;
       final trackingUri = Uri.parse('${ApiService.baseUrl}/tracking/check-out');
-      final response = await http.post(
-        trackingUri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'empid': empId,
-          'dateIso': localDateIso,
-        }),
-      );
+      try {
+        final response = await http
+            .post(
+              trackingUri,
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer $token',
+              },
+              body: jsonEncode({
+                'empid': empId,
+                'dateIso': localDateIso,
+                'eventId': eventId,
+              }),
+            )
+            .timeout(const Duration(seconds: 10));
 
-      debugPrint('[Logout] Tracking check-out status: ${response.statusCode}');
-      if (response.statusCode != 200) {
-        debugPrint(
-            '[Logout] Tracking check-out failed: ${response.statusCode}');
+        debugPrint('[Logout] Tracking check-out status: ${response.statusCode}');
+        delivered = response.statusCode == 200;
+      } catch (_) {}
+
+      if (!delivered) {
+        // Offline/failed — persist the logout event so it syncs later while
+        // the stored JWT is still unexpired (Workmanager / next app launch).
+        await TrackingEvents.enqueue({
+          'type': 'account_logged_out',
+          'message': 'User logged out',
+          'empid': empId,
+          'eventId': eventId,
+          '__token': token,
+        });
       }
     }
   } catch (e) {
     debugPrint('[Logout] Tracking check-out error occurred');
   }
+
+  // Clear cached tenant entitlements
+  await FeatureAccess.clear();
 
   try {
     try {

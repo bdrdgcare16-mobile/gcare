@@ -390,7 +390,9 @@ class _MyTrackPageState extends State<MyTrackPage> {
           type == 'gps_disabled' ||
           type == 'account_logged_out' ||
           type == 'location_disabled' ||
-          type == 'location_enabled';
+          type == 'location_enabled' ||
+          type == 'mock_location_detected' ||
+          type == 'impossible_travel';
     }).toList();
 
     events.sort((a, b) {
@@ -434,6 +436,11 @@ class _MyTrackPageState extends State<MyTrackPage> {
         return 'Account Logged Out';
       case 'location_enabled':
         return 'Location Enabled by User';
+      // Security-related events are masked for employees — only admins see
+      // the specific detection reason.
+      case 'mock_location_detected':
+      case 'impossible_travel':
+        return 'Location Verification Issue';
       default:
         return type ?? 'Unknown Event';
     }
@@ -441,6 +448,11 @@ class _MyTrackPageState extends State<MyTrackPage> {
 
   String _formatTrackingEventMessage(Map<String, dynamic> event) {
     final type = event['type']?.toString();
+
+    if (type == 'mock_location_detected' || type == 'impossible_travel') {
+      return 'We could not verify your device location. Please check your location settings.';
+    }
+
 
     if (type == 'poor_gps') {
       final accuracy = _toDoubleOrNull(event['accuracy']);

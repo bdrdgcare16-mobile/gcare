@@ -392,6 +392,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
           type == 'gps_disabled' ||
           type == 'location_disabled' ||
           type == 'location_enabled' ||
+          type == 'mock_location_detected' ||
+          type == 'impossible_travel' ||
           type == 'permission_revoked' ||
           type == 'suspicious_location' ||
           type == 'account_logged_out';
@@ -438,6 +440,10 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
         return 'Account Logged Out';
       case 'location_enabled':
         return 'Location Enabled by User';
+      case 'mock_location_detected':
+        return 'Suspicious / Mock Location Detected';
+      case 'impossible_travel':
+        return 'Unrealistic Movement Detected';
       case 'permission_revoked':
         return 'Location Permission Revoked';
       case 'suspicious_location':
@@ -483,6 +489,17 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
     }
 
     return event['message']?.toString() ?? _formatTrackingEventType(type);
+  }
+
+  /// Optional "lat, lng (±accuracy)" line shown under the event message when
+  /// the backend recorded coordinates for the event.
+  String? _trackingEventCoordsText(Map<String, dynamic> event) {
+    final lat = _toDoubleOrNull(event['latitude']);
+    final lng = _toDoubleOrNull(event['longitude']);
+    if (lat == null || lng == null) return null;
+    final acc = _toDoubleOrNull(event['accuracy']);
+    final accPart = acc != null ? '  (±${acc.toStringAsFixed(0)}m)' : '';
+    return 'Lat: ${lat.toStringAsFixed(6)}, Lng: ${lng.toStringAsFixed(6)}$accPart';
   }
 
   IconData _trackingEventIcon(String? type) {
@@ -572,14 +589,26 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                     padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
                     child: Row(
                       children: [
-                        const Expanded(
-                          child: Text(
-                            'Tracking Events',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: kButtonColor,
-                            ),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Tracking Events',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
+                                  color: kButtonColor,
+                                ),
+                              ),
+                              Text(
+                                '$name  •  $empid',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.black54,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         IconButton(
@@ -621,6 +650,8 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                                   _formatTrackingEventMessage(event);
                               final durationText =
                                   _trackingEventDurationText(index);
+                              final coordsText =
+                                  _trackingEventCoordsText(event);
 
                               return Container(
                                 margin: const EdgeInsets.only(bottom: 12),
@@ -669,6 +700,16 @@ class _EmployeeDetailPageState extends State<EmployeeDetailPage> {
                                               color: Colors.black87,
                                             ),
                                           ),
+                                          if (coordsText != null) ...[
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              coordsText,
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey.shade600,
+                                              ),
+                                            ),
+                                          ],
                                           if (durationText != null) ...[
                                             const SizedBox(height: 5),
                                             Text(

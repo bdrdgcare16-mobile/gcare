@@ -10,15 +10,47 @@ import 'payroll_admin_page.dart';
 import 'employee_onboarding_form_page.dart';
 import 'others_page.dart';
 import 'settings_page.dart'; // ✅ Added
+import 'hr_users_page.dart';
 import 'admin_notifications_page.dart';
 import 'admin_theme.dart';
 import 'package:serv_app/services/notification_service.dart';
 import 'package:serv_app/models/company_profile.dart';
+import 'package:serv_app/services/feature_service.dart';
+import 'package:serv_app/widgets/feature_gate.dart';
+
+class _NavEntry {
+  final IconData icon;
+  final String title;
+  final int pageIndex;
+  final List<String> features; // empty => always visible
+
+  /// When true the entry is always visible to tenant admins even if none
+  /// of [features] are enabled — the page itself filters its items
+  /// (Settings contains unkeyed subpages like Profile). Has no effect in
+  /// HR mode: visibility is still driven purely by the approved set.
+  final bool adminAlways;
+
+  const _NavEntry(this.icon, this.title, this.pageIndex,
+      [this.features = const [], this.adminAlways = false]);
+}
 
 class AdminDashboard extends StatefulWidget {
   final CompanyProfile companyProfile;
 
-  const AdminDashboard({super.key, required this.companyProfile});
+  /// HR mode: when non-null, the dashboard renders ONLY the modules whose
+  /// feature keys are in this set. The set comes from
+  /// GET /api/hr/features/approved (`users/<hrUserId>.approvedFeatures` +
+  /// dependency closure) — never from company-level enabledFeatures.
+  /// null => normal admin behaviour (tenant entitlements via FeatureAccess).
+  /// An empty set means "nothing approved yet" — it never falls back to
+  /// the full admin module list.
+  final Set<String>? restrictToFeatures;
+
+  const AdminDashboard({
+    super.key,
+    required this.companyProfile,
+    this.restrictToFeatures,
+  });
 
   @override
   State<AdminDashboard> createState() => _AdminDashboardState();
@@ -31,6 +63,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
   @override
   void initState() {
     super.initState();
+    // HR mode: land on the first approved module instead of index 0,
+    // which may not be approved. Admin behaviour is unchanged.
+    if (widget.restrictToFeatures != null) {
+      final vis = _visibleEntries;
+      if (vis.isNotEmpty && !vis.any((e) => e.pageIndex == selectedIndex)) {
+        selectedIndex = vis.first.pageIndex;
+      }
+    }
     _refreshUnreadCount();
   }
 
@@ -40,49 +80,66 @@ class _AdminDashboardState extends State<AdminDashboard> {
     setState(() => _unreadNotifications = count);
   }
 
-  List<_AdminDestination> get _destinations => [
-        _AdminDestination(
-          Icons.check_circle,
-          "Live Attendance",
-          (profile) => LiveAttendancePage(companyProfile: profile),
-        ),
-        _AdminDestination(
-          Icons.calendar_today,
-          "Request and Leave Approvals",
-          (_) => const LeaveApprovalsScreen(),
-        ),
-        _AdminDestination(
-          Icons.group,
-          "Employee Management",
-          (_) => const EmployeeListScreen(),
-        ),
-        _AdminDestination(
-          Icons.bar_chart,
-          "Attendance Reports",
-          (_) => const AttendanceReportScreen(initialFilter: ''),
-        ),
-        if (FeatureFlags.showPayrollUI)
-          _AdminDestination(
-            Icons.payments_outlined,
-            "Payroll Management",
-            (_) => const PayrollAdminPage(),
-          ),
-        _AdminDestination(
-          Icons.person_add_alt_1,
-          "Employee Onboarding",
-          (_) => const EmployeeOnboardingFormPage(),
-        ),
-        _AdminDestination(
-          Icons.chat,
-          "Others",
-          (_) => const OthersPage(),
-        ),
-        _AdminDestination(
-          Icons.settings,
-          "Settings",
-          (_) => const SettingsPage(), // ✅ Navigate to settings
-        ),
-      ];
+  // Drawer entries mapped to tenant feature keys. Entries with an empty
+  // feature list are always visible; others show only when the company
+  // has the feature enabled (legacy companies => all enabled).
+  static const List<_NavEntry> _navEntries = [
+    _NavEntry(Icons.check_circle, "Live Attendance", 0, [FeatureAccess.attendance]),
+    _NavEntry(Icons.calendar_today, "Request and Leave Approvals", 1, [FeatureAccess.leave]),
+    _NavEntry(Icons.group, "Employee Management", 2, [FeatureAccess.employees]),
+    _NavEntry(Icons.bar_chart, "Attendance Reports", 3, [FeatureAccess.reports]),
+    _NavEntry(Icons.payments_outlined, "Payroll Management", 4, [FeatureAccess.payroll]),
+    _NavEntry(Icons.person_add_alt_1, "Employee Onboarding", 5, [FeatureAccess.onboarding]),
+    _NavEntry(Icons.chat, "Others", 6, [
+      FeatureAccess.tasks,
+      FeatureAccess.rewards,
+      FeatureAccess.feedback,
+      FeatureAccess.events,
+    ]),
+    _NavEntry(Icons.badge_outlined, "HR Users", 8),
+    // Settings carries the features of its gated subpages (Workdays &
+    // Shift, Leave Holiday, Office Location, Reason Master) so HR sees
+    // it only when an approved feature maps to a Settings item. Admin
+    // keeps it always visible — Profile has no feature key.
+    _NavEntry(Icons.settings, "Settings", 7,
+        [FeatureAccess.attendance, FeatureAccess.leave], true),
+  ];
+
+  /// Whether a module is visible/usable for the current viewer.
+  /// Admin: tenant entitlements (features.isEmpty => always visible).
+  /// HR (restrictToFeatures set): only keys inside the approved set;
+  /// entries without feature keys (HR Users, Settings) are hidden.
+  bool _isAllowed(List<String> features, {bool adminAlways = false}) {
+    final restrict = widget.restrictToFeatures;
+    if (restrict == null) {
+      return adminAlways ||
+          features.isEmpty ||
+          FeatureAccess.hasAny(features);
+    }
+    return features.isNotEmpty && features.any(restrict.contains);
+  }
+
+  List<_NavEntry> get _visibleEntries =>
+      _navEntries.where((e) => _isAllowed(e.features, adminAlways: e.adminAlways)).toList();
+
+  static const List<List<String>> _pageFeatures = [
+    [FeatureAccess.attendance],
+    [FeatureAccess.leave],
+    [FeatureAccess.employees],
+    [FeatureAccess.reports],
+    [FeatureAccess.payroll],
+    [FeatureAccess.onboarding],
+    [
+      FeatureAccess.tasks,
+      FeatureAccess.rewards,
+      FeatureAccess.feedback,
+      FeatureAccess.events,
+    ],
+    // index 7 = Settings: gated by the features its subpages need.
+    [FeatureAccess.attendance, FeatureAccess.leave],
+    // index 8 = HR Users: unkeyed — never visible to HR.
+    <String>[],
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -136,16 +193,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
         child: ListView(
           children: [
             _buildDrawerHeader(),
-            for (int i = 0; i < _destinations.length; i++)
-              _buildDrawerItem(
-                _destinations[i].icon,
-                _destinations[i].title,
-                i,
-              ),
+            ..._visibleEntries.map(
+              (e) => _buildDrawerItem(e.icon, e.title, e.pageIndex),
+            ),
           ],
         ),
       ),
-      body: _destinations[selectedIndex].builder(widget.companyProfile),
+      body: _buildPageContent(),
     );
   }
 
@@ -196,12 +250,59 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 
-}
+  Widget _buildPageContent() {
+    final required = _pageFeatures[selectedIndex];
+    final adminAlways = _navEntries
+        .where((e) => e.pageIndex == selectedIndex)
+        .map((e) => e.adminAlways)
+        .fold(false, (a, b) => a || b);
+    if (!_isAllowed(required, adminAlways: adminAlways)) {
+      // HR with an empty approved set gets an explicit empty state —
+      // never a fallback to the full admin module list.
+      if (widget.restrictToFeatures?.isEmpty == true) {
+        return const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'No features have been approved yet.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.black54),
+            ),
+          ),
+        );
+      }
+      return const FeatureAccessDenied();
+    }
 
-class _AdminDestination {
-  final IconData icon;
-  final String title;
-  final Widget Function(CompanyProfile) builder;
-
-  const _AdminDestination(this.icon, this.title, this.builder);
+    switch (selectedIndex) {
+      case 0:
+        return LiveAttendancePage(companyProfile: widget.companyProfile);
+      case 1:
+        return const LeaveApprovalsScreen();
+      case 2:
+        return EmployeeListScreen(
+            allowedFeatures: widget.restrictToFeatures);
+      case 3:
+        return const AttendanceReportScreen(
+          initialFilter: '',
+        );
+      case 4:
+        return PayrollAdminPage(
+            allowedFeatures: widget.restrictToFeatures);
+      case 5:
+        return const EmployeeOnboardingFormPage();
+      case 6:
+        // HR mode: filter Others items by the approved set, not the
+        // company's enabledFeatures.
+        return OthersPage(allowedFeatures: widget.restrictToFeatures);
+      case 7:
+        // HR mode: restrictToFeatures carries the approved set so the
+        // page can filter items by it instead of company entitlements.
+        return SettingsPage(allowedFeatures: widget.restrictToFeatures);
+      case 8:
+        return const HrUsersPage();
+      default:
+        return const Center(child: Text("Unknown page"));
+    }
+  }
 }
