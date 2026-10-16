@@ -67,9 +67,7 @@ class Employee {
       dept: (j['dept'] ?? '').toString(),
       designation: (j['designation'] ?? '').toString(),
       shiftGroup: (j['shiftGroup'] ?? '').toString(),
-      status: ((j['status'] ?? 'active').toString().toLowerCase() == 'active')
-          ? 'Active'
-          : 'Inactive',
+      status: _normalizeStatus(j['status']),
       role: (j['role'] ?? 'employee').toString(),
     );
   }
@@ -88,6 +86,22 @@ class Employee {
       'shiftGroup': shiftGroup.isEmpty ? null : shiftGroup,
       'role': role,
     };
+  }
+}
+
+/// Canonical status mapping shared by the table and the summary cards.
+/// The four buckets are mutually exclusive; unknown/missing values fall
+/// back to 'Inactive' so Total always equals the sum of the buckets.
+String _normalizeStatus(dynamic raw) {
+  switch ((raw ?? '').toString().trim().toLowerCase()) {
+    case 'active':
+      return 'Active';
+    case 'suspended':
+      return 'Suspended';
+    case 'relieved':
+      return 'Relieved';
+    default:
+      return 'Inactive';
   }
 }
 
@@ -749,11 +763,11 @@ class _EmployeeListScreenState extends State<EmployeeListScreen> {
     spacing: 10,
     runSpacing: 10,
     children: [
-      statButton('Total', 22),
-      statButton('Active', 21),
-      statButton('Inactive', 1),
-      statButton('Suspended', 0),
-      statButton('Relived', 0),
+      statButton('Total', employees.length),
+      statButton('Active', countStatus('active')),
+      statButton('Inactive', countStatus('inactive')),
+      statButton('Suspended', countStatus('suspended')),
+      statButton('Relieved', countStatus('relieved')),
     ],
   ),
 ),

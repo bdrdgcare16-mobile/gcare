@@ -193,10 +193,11 @@ export const getEmployees = async (req: Request, res: Response): Promise<Respons
       .where('companyId', '==', companyId) // 
       .get();
 
-    const data = snap.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    const data = snap.docs.map(doc => {
+      // Never ship credential material to admin clients.
+      const { password, ...rest } = doc.data() as Record<string, any>;
+      return { id: doc.id, ...rest };
+    });
 
     // Track usage after successful employees read
     await trackEmployeeUsage(req, {
@@ -236,9 +237,10 @@ export const getEmployeeById = async (req: Request, res: Response): Promise<Resp
       apiCalls: 1,
     });
 
+    const { password, ...rest } = data as Record<string, any>;
     return res.status(200).json({
       id: doc.id,
-      ...data
+      ...rest
     });
 
   } catch (error) {
