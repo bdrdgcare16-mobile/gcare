@@ -401,7 +401,7 @@ class _CompanyProfilePageState extends State<CompanyProfilePage> {
                                 const SizedBox(height: 4),
                                 Text(
                                   _adminNameCtrl.text.isEmpty
-                                      ? 'Admin'
+                                      ? CompanyData.roleLabel
                                       : '${_adminNameCtrl.text} · ${_adminRoleCtrl.text.isEmpty ? '—' : _adminRoleCtrl.text}',
                                   style: TextStyle(
                                     fontSize: 14,

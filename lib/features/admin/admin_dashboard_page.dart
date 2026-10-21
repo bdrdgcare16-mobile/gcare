@@ -14,6 +14,7 @@ import 'admin_notifications_page.dart';
 import 'admin_theme.dart';
 import 'package:serv_app/services/notification_service.dart';
 import 'package:serv_app/models/company_profile.dart';
+import 'package:serv_app/models/company_data.dart';
 import 'package:serv_app/services/feature_service.dart';
 import 'package:serv_app/widgets/feature_gate.dart';
 
@@ -146,7 +147,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Admin Dashboard"),
+        // Title reflects the signed-in user's display role: "Admin
+        // Dashboard" for tenant admins, "HR Dashboard" for the
+        // HR-labelled accounts created via Company Admin → HR Management
+        // (backend authorization role remains 'admin').
+        title: Text("${CompanyData.roleLabel} Dashboard"),
         backgroundColor: kAdminAppBarColor,
         actions: [
           IconButton(
@@ -208,7 +213,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
     return UserAccountsDrawerHeader(
       decoration: const BoxDecoration(color: kAdminAppBarColor),
       accountName: Text(widget.companyProfile.name),
-      accountEmail: Text("Admin: ${widget.companyProfile.adminName}"),
+      accountEmail:
+          Text("${CompanyData.roleLabel}: ${widget.companyProfile.adminName}"),
       currentAccountPicture: widget.companyProfile.hasLogo
           ? CircleAvatar(
               backgroundImage: NetworkImage(widget.companyProfile.logoUrl!),

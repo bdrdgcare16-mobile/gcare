@@ -129,6 +129,7 @@ class _AuthGuardState extends State<AuthGuard> {
       String role = await _readPersisted('role');
       String persistedCompanyId = await _readPersisted('companyId');
       String persistedStatus = await _readPersisted('status');
+      String displayRole = await _readPersisted('displayRole');
 
       // If no token or expired -> Login
       if (token.isEmpty || JwtDecoder.isExpired(token)) {
@@ -197,8 +198,17 @@ class _AuthGuardState extends State<AuthGuard> {
                 '')
             .toString()
             .trim();
+        // displayRole is a non-authoritative UI classification returned
+        // alongside role (e.g. 'hr' for CA-created HR-labelled admins).
+        final meDisplayRole = (me['displayRole'] ??
+                me['user']?['displayRole'] ??
+                me['data']?['displayRole'] ??
+                '')
+            .toString()
+            .trim();
 
         if (meRole.isNotEmpty) role = meRole;
+        if (meDisplayRole.isNotEmpty) displayRole = meDisplayRole;
         if (meStatus.isNotEmpty) persistedStatus = meStatus;
         if (meCompanyId.isNotEmpty) persistedCompanyId = meCompanyId;
       } else {
@@ -207,6 +217,7 @@ class _AuthGuardState extends State<AuthGuard> {
       }
 
       CompanyData.role = role;
+      CompanyData.displayRole = displayRole;
       CompanyData.companyId = persistedCompanyId;
 
       // Refresh tenant feature entitlements (uses persisted snapshot

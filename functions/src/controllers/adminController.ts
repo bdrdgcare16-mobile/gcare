@@ -97,13 +97,31 @@ export async function createAdmin(req: Request, res: Response) {
 
 // POST /api/admin/promote
 // body: { email }  -> sets role = "admin"
+// Tenant isolation: the target user must belong to the CALLER's company,
+// and only employee/hr accounts may be promoted — a caller must never
+// rewrite company_admin / platform_admin / super_admin role assignments.
 export async function promoteToAdmin(req: Request, res: Response) {
   try {
     const { email } = req.body || {};
     if (!email) return res.status(400).json({ error: "email is required" });
 
-    const q = await db.collection(USERS).where("email", "==", email.toLowerCase()).limit(1).get();
+    const callerCompanyId = String((req as any).user?.companyId || '').trim();
+    if (!callerCompanyId) {
+      return res.status(403).json({ error: "No company context on token" });
+    }
+
+    const q = await db
+      .collection(USERS)
+      .where("email", "==", email.toLowerCase())
+      .where("companyId", "==", callerCompanyId)
+      .limit(1)
+      .get();
     if (q.empty) return res.status(404).json({ error: "user not found" });
+
+    const targetRole = String(q.docs[0].data()?.role || '').toLowerCase();
+    if (targetRole !== 'employee' && targetRole !== 'hr' && targetRole !== 'admin') {
+      return res.status(403).json({ error: "Cannot change this account's role" });
+    }
 
     const docRef = q.docs[0].ref;
     await docRef.update({ role: "admin", updatedAt: new Date().toISOString() });
@@ -122,9 +140,13 @@ export async function promoteToAdmin(req: Request, res: Response) {
 
 // POST /api/admin/hr-users
 // body: { name, email, password?, phone?, branch, branchId?, department, departmentId? }
-// Creates an HR user bound to the CALLER's company. HR users are tenant users
-// (role 'hr') — they never receive company-admin or platform-admin
-// privileges. Tenant maxUsers limit is enforced (fail closed).
+// Creates an HR-labelled user bound to the CALLER's company. The stored
+// authorization role is 'admin' (these accounts authenticate and route
+// through the existing tenant-admin flow); 'displayRole: hr' is a
+// non-authoritative classification that keeps them visible in the Company
+// Admin's "HR Management" list and distinguishes them from other admin
+// accounts. They never receive company_admin or platform_admin privileges.
+// Tenant maxUsers limit is enforced (fail closed).
 export async function createHrUser(req: Request, res: Response) {
   try {
     const caller = (req as any).user;
@@ -226,7 +248,8 @@ export async function createHrUser(req: Request, res: Response) {
       password: hash,
       passwordHash: hash,
       hashedPassword: hash,
-      role: "hr",
+      role: "admin",
+      displayRole: "hr",
       status: "active",
       companyId,
       branch,
@@ -255,7 +278,8 @@ export async function createHrUser(req: Request, res: Response) {
         firebaseUid,
         name,
         email,
-        role: "hr",
+        role: "admin",
+        displayRole: "hr",
         status: "active",
         companyId,
         branch,
@@ -273,7 +297,12 @@ export async function createHrUser(req: Request, res: Response) {
 }
 
 // GET /api/admin/hr-users
-// Lists the HR users belonging to the CALLER's company.
+// Lists the HR-labelled users belonging to the CALLER's company. Two stored
+// shapes qualify: legacy accounts with role 'hr', and newer accounts with
+// role 'admin' + displayRole 'hr' (created through this same workflow).
+// Plain 'admin' accounts without displayRole 'hr' are NOT included — the
+// displayRole marker is a display classification only, never an
+// authorization decision.
 export async function listHrUsers(req: Request, res: Response) {
   try {
     const caller = (req as any).user;
@@ -282,13 +311,21 @@ export async function listHrUsers(req: Request, res: Response) {
       return res.status(403).json({ error: "No company context on token" });
     }
 
-    const snap = await db
-      .collection(USERS)
-      .where("companyId", "==", companyId)
-      .where("role", "==", "hr")
-      .get();
+    const [hrSnap, flaggedAdminSnap] = await Promise.all([
+      db
+        .collection(USERS)
+        .where("companyId", "==", companyId)
+        .where("role", "==", "hr")
+        .get(),
+      db
+        .collection(USERS)
+        .where("companyId", "==", companyId)
+        .where("role", "==", "admin")
+        .where("displayRole", "==", "hr")
+        .get(),
+    ]);
 
-    const hrUsers = snap.docs
+    const hrUsers = [...hrSnap.docs, ...flaggedAdminSnap.docs]
       .map((d) => {
         const u = d.data() as any;
         return {
@@ -296,6 +333,7 @@ export async function listHrUsers(req: Request, res: Response) {
           name: u.name || u.fullName || '',
           email: u.email || '',
           role: u.role || 'hr',
+          displayRole: u.displayRole || (u.role === 'hr' ? 'hr' : null),
           status: u.status || 'active',
           companyId: u.companyId || '',
           branch: u.branch || u.branchName || '',
@@ -323,11 +361,19 @@ export async function listHrUsers(req: Request, res: Response) {
 }
 
 /**
- * Load an HR user doc owned by the caller's company. Returns null (after
- * writing the error response) when the doc is missing, not an hr, or
+ * Load an HR-labelled user doc owned by the caller's company. Qualifying
+ * docs are legacy role 'hr' accounts and role 'admin' accounts carrying
+ * displayRole 'hr' (created via this workflow). Plain 'admin' accounts
+ * without the marker are NOT manageable here. Returns null (after writing
+ * the error response) when the doc is missing, not HR-labelled, or
  * belongs to another company — cross-tenant access yields 403 without
  * revealing whether the user exists.
  */
+function isHrLabelledUser(data: any): boolean {
+  const role = String(data?.role || '').toLowerCase();
+  return role === 'hr' || (role === 'admin' && data?.displayRole === 'hr');
+}
+
 async function findOwnedHrUser(
   req: Request,
   res: Response,
@@ -339,7 +385,7 @@ async function findOwnedHrUser(
     return null;
   }
   const snap = await db.collection(USERS).doc(userId).get();
-  if (!snap.exists || (snap.data() as any)?.role !== 'hr') {
+  if (!snap.exists || !isHrLabelledUser(snap.data())) {
     res.status(404).json({ error: "HR user not found" });
     return null;
   }
@@ -397,6 +443,7 @@ export async function updateHrUser(req: Request, res: Response) {
         name: u.name || '',
         email: u.email || '',
         role: u.role || 'hr',
+        displayRole: u.displayRole || (u.role === 'hr' ? 'hr' : null),
         status: u.status || 'active',
         companyId: u.companyId || '',
         branch: u.branch || '',

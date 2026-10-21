@@ -434,6 +434,12 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
         return errorResponse(res, 'This company account is not active', 403);
       }
 
+      // displayRole is a non-authoritative display classification only
+      // (e.g. 'hr' for accounts created via the Company Admin HR flow);
+      // authorization always keys off `role`.
+      const displayRole =
+        user.displayRole || (role === 'hr' ? 'hr' : null);
+
       return successResponse(
         res,
         {
@@ -441,6 +447,7 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
           tokenType: 'Bearer',
           expiresIn: JWT_EXPIRES,
           role,
+          displayRole,
           uid: doc.id,
           empid: userEmpid || null,
           companyId,
@@ -452,6 +459,7 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
             name: user.name || user.fullName || '',
             email: user.email || incoming.trim(),
             role,
+            displayRole,
             empid: userEmpid || null,
             empId: userEmpid || null,
             companyId,
@@ -1152,11 +1160,10 @@ export const createPrivilegedUser = async (
       return errorResponse(res, 'Name, email, password and companyId are required', 400);
     }
 
-    if (
-      userRole !== 'employee' &&
-      userRole !== 'admin' &&
-      userRole !== 'super_admin'
-    ) {
+    // Tenant callers may only mint tenant roles. super_admin/platform_admin
+    // accounts are platform-level and are never creatable through this
+    // endpoint — allowing them here was a privilege-escalation path.
+    if (userRole !== 'employee' && userRole !== 'admin') {
       return errorResponse(res, 'Invalid role', 400);
     }
 
@@ -1170,10 +1177,6 @@ export const createPrivilegedUser = async (
 
     if (!callerCompanyId || callerCompanyId !== userCompanyId) {
       return errorResponse(res, 'Company context mismatch', 403);
-    }
-
-    if (userRole === 'super_admin' && callerRole !== 'admin' && callerRole !== 'super_admin') {
-      return errorResponse(res, 'Not authorized to create super_admin', 403);
     }
 
     // Tenant user limit (fail closed; no-op for legacy/unlimited companies)
@@ -1357,6 +1360,10 @@ export const firebaseLogin = async (
         return errorResponse(res, 'This company account is not active', 403);
       }
 
+      // Non-authoritative display classification (see /auth/login).
+      const displayRole =
+        user.displayRole || (role === 'hr' ? 'hr' : null);
+
       return successResponse(
         res,
         {
@@ -1364,6 +1371,7 @@ export const firebaseLogin = async (
           tokenType: 'Bearer',
           expiresIn: JWT_EXPIRES,
           role,
+          displayRole,
           uid: doc.id,
           empid: userEmpid || null,
           companyId,
@@ -1375,6 +1383,7 @@ export const firebaseLogin = async (
             name: user.name || user.fullName || '',
             email: user.email || email,
             role,
+            displayRole,
             empid: userEmpid || null,
             empId: userEmpid || null,
             companyId,

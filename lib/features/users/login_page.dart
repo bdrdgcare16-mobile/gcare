@@ -283,6 +283,16 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
             (data['token'] ?? data['data']?['token'] ?? '').toString();
         final role = (data['role'] ?? data['data']?['role'] ?? '').toString();
 
+        // Non-authoritative display classification (e.g. 'hr' for accounts
+        // created via Company Admin → HR Management whose backend role is
+        // 'admin'). Used only to render the role label in the UI.
+        final displayRole = (data['displayRole'] ??
+                data['data']?['displayRole'] ??
+                data['user']?['displayRole'] ??
+                '')
+            .toString()
+            .trim();
+
         final empId = (data['empId'] ??
                 data['empid'] ??
                 data['data']?['empId'] ??
@@ -337,6 +347,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
         CompanyData.token = token;
         CompanyData.role = role;
+        CompanyData.displayRole = displayRole;
         CompanyData.empid = empId;
         CompanyData.companyId = companyId;
 
@@ -369,6 +380,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
         await _persist('token', token);
         await _persist('role', role);
+        await _persist('displayRole', displayRole);
 
         if (companyId.isNotEmpty) {
           await _persist('companyId', companyId);

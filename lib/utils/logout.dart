@@ -93,6 +93,7 @@ Future<void> logout(BuildContext context) async {
     try {
       html.window.localStorage.remove('token');
       html.window.localStorage.remove('role');
+      html.window.localStorage.remove('displayRole');
       html.window.localStorage.remove('name');
       html.window.localStorage.remove('empId');
       html.window.localStorage.remove('empid');
@@ -103,6 +104,9 @@ Future<void> logout(BuildContext context) async {
     final sp = await SharedPreferences.getInstance();
     await sp.remove('token');
     await sp.remove('role');
+    await sp.remove('displayRole');
+    CompanyData.role = '';
+    CompanyData.displayRole = '';
     await sp.remove('name');
     await sp.remove('empId');
     await sp.remove('empid');

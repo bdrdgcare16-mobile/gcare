@@ -7,9 +7,12 @@ import 'package:serv_app/services/api_service.dart';
 
 /// API client for Company Admin HR-user management.
 /// Endpoints live under /api/admin/hr-users and require an authenticated
-/// company admin (role 'company_admin') or legacy admin (role 'admin')
+/// company admin (role 'company_admin') or tenant admin (role 'admin')
 /// JWT — enforced server-side by roleMiddleware(['admin', 'company_admin']).
 /// companyId is derived from the token; the client never sends it.
+/// Accounts created through this API are stored with role 'admin' and a
+/// non-authoritative displayRole 'hr' marker; the "HR" naming here is a
+/// UI/management classification only.
 class HrUserService {
   static String get _base => '${ApiService.baseUrl}/admin/hr-users';
 

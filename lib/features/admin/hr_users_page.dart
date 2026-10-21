@@ -7,11 +7,12 @@ const Color _kBg = Color(0xFFF5F0FF);
 
 /// Company Admin — HR user management.
 ///
-/// Lists the HR users created for this company and creates new ones. Each
-/// HR user is a tenant login (role 'hr') bound to a branch and department;
-/// creation is enforced server-side by
-/// roleMiddleware(['admin', 'company_admin']) and the company's maxUsers
-/// entitlement.
+/// Lists the HR-labelled users created for this company and creates new
+/// ones. Accounts created here are stored with authorization role 'admin'
+/// plus a non-authoritative displayRole 'hr' marker (legacy 'hr' accounts
+/// remain listed); each is bound to a branch and department. Creation is
+/// enforced server-side by roleMiddleware(['admin', 'company_admin']) and
+/// the company's maxUsers entitlement.
 class HrUsersPage extends StatefulWidget {
   const HrUsersPage({super.key});
 

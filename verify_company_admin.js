@@ -146,7 +146,9 @@ async function main() {
     branch: 'Chennai', department: 'Ops',
   });
   b = await r.json();
-  check('4a: company_admin creates HR', r.status === 201 && b.hrUser?.role === 'hr', `got ${r.status} ${b?.error || ''}`);
+  check('4a: company_admin creates HR (stored role admin + displayRole hr)',
+    r.status === 201 && b.hrUser?.role === 'admin' && b.hrUser?.displayRole === 'hr',
+    `got ${r.status} ${b?.error || ''} role=${b.hrUser?.role} displayRole=${b.hrUser?.displayRole}`);
   check('4b: HR companyId = testco-ca', b.hrUser?.companyId === 'testco-ca');
 
   // create a second HR
@@ -161,7 +163,8 @@ async function main() {
   b = await r.json();
   const hrList = b.hrUsers || [];
   check('3a: list returns HR users', r.status === 200 && hrList.length === 2, `got ${hrList.length}`);
-  check('3b: details present', hrList.every((u) => u.email && u.branch && u.department && u.role === 'hr'));
+  check('3b: details present', hrList.every((u) => u.email && u.branch && u.department
+    && (u.role === 'hr' || (u.role === 'admin' && u.displayRole === 'hr'))));
 
   // ---- TEST 5: isolation — B sees own (empty) list; can't reach A's ----
   r = await getApi(`${API}/admin/hr-users`, CA_B);
@@ -231,19 +234,23 @@ async function main() {
   // ---- TEST 6/9/10: other roles unaffected ----
   const hr = await login('hr.alpha@test.local', '' ); // auto-gen password; use beta's known one
   const hrBeta = await login('hr.beta@test.local', 'HrBeta@123');
-  check('6: hr login → role hr', hrBeta.status === 200 && hrBeta.body.role === 'hr');
+  check('6: HR-labelled user login → role admin', hrBeta.status === 200 && hrBeta.body.role === 'admin',
+    `got ${hrBeta.status} role=${hrBeta.body?.role}`);
   const emp = await login('emp.c@test.local', 'EmpC@123');
   check('9: employee login → role employee', emp.status === 200 && emp.body.role === 'employee');
   check('10: platform_admin unchanged', pa.body.role === 'platform_admin');
 
-  // HR created by company_admin enters the existing HR flow (policy gate)
+  // HR-labelled accounts are stored as role 'admin' — they route through
+  // the tenant-admin surface, not the legacy hr feature-request/policy flow.
   r = await getApi(`${API}/hr/company-policy`, hrBeta.body.token);
-  b = await r.json();
-  check('6b: hr sees own policy gate', r.status === 200, `got ${r.status}`);
+  check('6b: /hr/company-policy → 403 for stored-admin HR user', r.status === 403, `got ${r.status}`);
 
-  // feature-request flow intact
   r = await getApi(`${API}/hr/feature-request`, hrBeta.body.token);
-  check('regression: hr feature-request', r.status === 200);
+  check('6c: /hr/feature-request → 403 for stored-admin HR user', r.status === 403, `got ${r.status}`);
+
+  // ...but they can use admin surfaces (companyId-scoped HR-user listing).
+  r = await getApi(`${API}/admin/hr-users`, hrBeta.body.token);
+  check('6d: HR-labelled admin can list own-company HR users', r.status === 200, `got ${r.status}`);
 
   console.log(`\n=== ${pass} passed, ${fail} failed ===`);
   process.exit(fail ? 1 : 0);
