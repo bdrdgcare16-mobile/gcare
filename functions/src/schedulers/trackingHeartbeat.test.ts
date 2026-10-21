@@ -555,3 +555,84 @@ describe('runInterruptionCleanup', () => {
     expect(currentDb._store.tracking[1].interruption).toBeUndefined();
   });
 });
+
+describe('historical-session guard (24h age bound)', () => {
+  beforeEach(() => notifyInterruption.mockClear());
+
+  test('active session stale 46 minutes still alerts', async () => {
+    currentDb = makeDb({
+      tracking: [trackingDoc({
+        lastUpdateAt: new Date(Date.now() - 46 * 60000).toISOString(),
+      })],
+      attendance: [ACTIVE_ATT],
+      employees: [{ empid: 'EMP1', companyId: 'COMP_A', name: 'Alice' }],
+    });
+    const out = await runTrackingHeartbeatSweep();
+    expect(out.alerted).toBe(1);
+    expect(notifyInterruption).toHaveBeenCalledTimes(1);
+    expect(notifyInterruption.mock.calls[0][0].kind).toBe('interrupted');
+    expect(currentDb._store.tracking[0].interruption?.alertSent).toBe(true);
+  });
+
+  test('session stale 6 days is never alerted and never flagged', async () => {
+    currentDb = makeDb({
+      tracking: [trackingDoc({
+        lastUpdateAt: new Date(Date.now() - 6 * 24 * 3600e3).toISOString(),
+      })],
+      attendance: [ACTIVE_ATT],
+      employees: [{ empid: 'EMP1', companyId: 'COMP_A', name: 'Alice' }],
+    });
+    const out = await runTrackingHeartbeatSweep();
+    // Query bound means the doc is not even scanned.
+    expect(out.scanned).toBe(0);
+    expect(out.alerted).toBe(0);
+    expect(notifyInterruption).not.toHaveBeenCalled();
+    // No interruption flag was written - a later contact can therefore
+    // never produce a false 'recovered' notification.
+    expect(currentDb._store.tracking[0].interruption).toBeUndefined();
+  });
+
+  test('session stale just under 24h still alerts; just over does not', async () => {
+    currentDb = makeDb({
+      tracking: [
+        trackingDoc({
+          id: 'fresh_gap',
+          lastUpdateAt: new Date(Date.now() - 23 * 3600e3).toISOString(),
+        }),
+        trackingDoc({
+          id: 'old_gap', empid: 'EMP2',
+          lastUpdateAt: new Date(Date.now() - 25 * 3600e3).toISOString(),
+        }),
+      ],
+      attendance: [
+        ACTIVE_ATT,
+        { empid: 'EMP2', companyId: 'COMP_A', date: DAY, checkIn: '08:00', checkOut: '' },
+      ],
+      employees: [
+        { empid: 'EMP1', companyId: 'COMP_A', name: 'Alice' },
+        { empid: 'EMP2', companyId: 'COMP_A', name: 'Bob' },
+      ],
+    });
+    const out = await runTrackingHeartbeatSweep();
+    expect(out.scanned).toBe(1); // only the <24h doc is fetched
+    expect(out.alerted).toBe(1);
+    expect(notifyInterruption).toHaveBeenCalledTimes(1);
+    expect(notifyInterruption.mock.calls[0][0].empid).toBe('EMP1');
+  });
+
+  test('duplicate sweep does not re-alert the same gap', async () => {
+    currentDb = makeDb({
+      tracking: [trackingDoc({
+        lastUpdateAt: new Date(Date.now() - 60 * 60000).toISOString(),
+      })],
+      attendance: [ACTIVE_ATT],
+      employees: [{ empid: 'EMP1', companyId: 'COMP_A', name: 'Alice' }],
+    });
+    const first = await runTrackingHeartbeatSweep();
+    const second = await runTrackingHeartbeatSweep();
+    expect(first.alerted).toBe(1);
+    expect(second.alerted).toBe(0);
+    expect(second.alreadyAlerted).toBe(1);
+    expect(notifyInterruption).toHaveBeenCalledTimes(1);
+  });
+});

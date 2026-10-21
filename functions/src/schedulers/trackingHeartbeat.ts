@@ -36,6 +36,11 @@ const EMP_COL = 'employees';
  *  single Doze-deferred tick cannot alert. */
 export const HEARTBEAT_STALE_AFTER_MIN = 45;
 
+/** Gaps older than 24h are abandoned sessions (forgotten check-out,
+ *  dead device), not actionable interruptions. The sweep query bounds
+ *  lastUpdateAt to (floor, cutoff) so they are never scanned or flagged. */
+const INTERRUPTION_ALERT_MAX_AGE_MS = 24 * 60 * 60000;
+
 /** Page size per query; cursor pagination continues within a run. */
 const SWEEP_BATCH_LIMIT = 300;
 
@@ -76,8 +81,19 @@ export async function runTrackingHeartbeatSweep(
   const staleAfterMin = opts?.staleAfterMin ?? HEARTBEAT_STALE_AFTER_MIN;
   const cutoffIso =
     new Date(now.getTime() - staleAfterMin * 60000).toISOString();
+  // Lower bound on the gap: a session whose last contact is more than
+  // INTERRUPTION_ALERT_MAX_AGE_MS old is abandoned (forgotten check-out,
+  // dead/uninstalled device) - not an actionable interruption. Bounding
+  // lastUpdateAt on BOTH sides keeps the query on the existing
+  // (endedAt, companyId, lastUpdateAt) composite index - same three
+  // fields, no new index required - and means abandoned docs are never
+  // scanned, never flagged, and can never emit a false "Tracking
+  // Resumed" later (recovery requires interruption.alertSent, which a
+  // skipped doc never receives).
+  const floorIso =
+    new Date(now.getTime() - INTERRUPTION_ALERT_MAX_AGE_MS).toISOString();
 
-  // Index-backed: (endedAt ASC, lastUpdateAt ASC, companyId ASC) in
+  // Index-backed: (endedAt ASC, companyId ASC, lastUpdateAt ASC) in
   // firestore.indexes.json. Only OPEN sessions are ever scanned, ordered
   // by lastUpdateAt so the most-stale sessions are always processed first
   // regardless of which company they belong to.
@@ -101,6 +117,7 @@ export async function runTrackingHeartbeatSweep(
         .collection(TRACKING_COL)
         .where('endedAt', '==', null)
         .where('companyId', '>=', '')
+        .where('lastUpdateAt', '>', floorIso)
         .where('lastUpdateAt', '<', cutoffIso)
         .limit(SWEEP_BATCH_LIMIT);
       if (lastDoc) q = q.startAfter(lastDoc);

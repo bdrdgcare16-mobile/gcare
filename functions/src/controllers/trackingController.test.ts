@@ -4,6 +4,7 @@
  * companies, and closed-session reopen rules.
  */
 import * as ctrl from './trackingController';
+import * as notifService from '../services/notification.service';
 
 // ---- Fake Firestore plumbing -------------------------------------------
 
@@ -1330,5 +1331,60 @@ describe('Employee GPS Restored notification gating', () => {
     }), r);
     expect(r.statusCode).toBe(200);
     expect(currentDb._docs[`tracking/${docId}`].pendingAdminNotify).toBe(true);
+  });
+});
+
+describe('interruption recovery gating', () => {
+  const DOC_ID = `COMP_A_EMP001_${DAY}`;
+  const attendance = [{
+    empid: 'EMP001', companyId: 'COMP_A', date: DAY,
+    checkIn: '09:00:00', checkOut: null,
+  }];
+  const docBase = {
+    empid: 'EMP001', companyId: 'COMP_A', dateIso: DAY,
+    pathMap: [], events: [], endedAt: null,
+    startedAt: '2026-10-12T08:00:00Z',
+    lastUpdateAt: '2026-10-12T09:00:00Z',
+  };
+  const pos = () => ({
+    lat: 12.5, lng: 77.5, accuracy: 10,
+    ts: '2026-10-12T10:00:00.000Z', dateIso: DAY,
+  });
+
+  test('abandoned session (never flagged) resuming sends no false Tracking Resumed', async () => {
+    useDb({ docs: { [`tracking/${DOC_ID}`]: { ...docBase } },
+      attendanceRows: attendance });
+    const spy = jest
+      .spyOn(notifService, 'notifyCompanyAdminsOfTrackingInterruption')
+      .mockResolvedValue({ sent: 0, failed: 0, records: 0 });
+    const r = res();
+    await ctrl.trackingAppendPos(
+      req({ empid: 'EMP001', body: pos() }), r);
+    expect(r.statusCode).toBe(200);
+    // No interruption.alertSent existed -> no recovered notification.
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  test('legit alerted interruption resuming sends Tracking Resumed once', async () => {
+    useDb({ docs: { [`tracking/${DOC_ID}`]: { ...docBase,
+      interruption: {
+        since: '2026-10-12T09:00:00Z', alertSent: true,
+        alertedAt: '2026-10-12T09:50:00Z',
+      } } },
+      attendanceRows: attendance });
+    const spy = jest
+      .spyOn(notifService, 'notifyCompanyAdminsOfTrackingInterruption')
+      .mockResolvedValue({ sent: 0, failed: 0, records: 0 });
+    const r = res();
+    await ctrl.trackingAppendPos(
+      req({ empid: 'EMP001', body: pos() }), r);
+    expect(r.statusCode).toBe(200);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0].kind).toBe('recovered');
+    // Flag cleared by the contact.
+    expect(currentDb._docs[`tracking/${DOC_ID}`].interruption)
+      .toBeUndefined();
+    spy.mockRestore();
   });
 });
