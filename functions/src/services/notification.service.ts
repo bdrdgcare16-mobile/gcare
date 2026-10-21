@@ -214,19 +214,22 @@ export async function createAndSend(
 }
 
 /**
- * Fetch all admin users (role='admin' or 'super_admin') for a given company.
- * Used to notify all company admins when an employee submits a request.
+ * Fetch admin users for a given company.
+ * Default role set is ['admin', 'super_admin'] (request submissions and
+ * suspicious-location alerts keep that behavior). Tracking-alert callers
+ * pass ['admin'] so GPS/heartbeat notifications reach tenant admins only.
  */
 export async function getCompanyAdmins(
-  companyId: string
+  companyId: string,
+  roles: string[] = ['admin', 'super_admin']
 ): Promise<Array<{ userId: string; empid: string | null }>> {
-  if (!companyId) return [];
+  if (!companyId || roles.length === 0) return [];
 
   try {
     const adminSnap = await db
       .collection(COLLECTIONS.USERS)
       .where('companyId', '==', companyId)
-      .where('role', 'in', ['admin', 'super_admin'])
+      .where('role', 'in', roles)
       .get();
 
     console.log('[REQUEST ADMIN COUNT]', {
@@ -512,9 +515,11 @@ export async function notifyCompanyAdminsOfSuspiciousLocation(params: {
 }
 
 /**
- * Notify all Company Admins when a live tracking session misses location
- * updates past the heartbeat threshold ("Tracking Interrupted"), or when
- * contact resumes after an alerted interruption ("Tracking Resumed").
+ * Notify tenant admins (role 'admin' only — super_admin / platform_admin
+ * and other roles are excluded) when a live tracking session misses
+ * location updates past the heartbeat threshold ("Tracking Interrupted"),
+ * or when contact resumes after an alerted interruption ("Tracking
+ * Resumed").
  *
  * Wording deliberately avoids asserting a cause: a gap can mean Doze,
  * airplane mode, dead battery, app swipe-kill, force-stop, or a network
@@ -536,7 +541,9 @@ export async function notifyCompanyAdminsOfTrackingInterruption(params: {
   const { companyId, empid, employeeName, kind, sinceTs, dateIso } = params;
 
   try {
-    const admins = await getCompanyAdmins(companyId);
+    // Tracking/GPS alerts go to tenant admins only — never super_admin,
+    // platform_admin, or any other role.
+    const admins = await getCompanyAdmins(companyId, ['admin']);
     if (admins.length === 0) {
       console.log('[HEARTBEAT NOTIFY] No admins for company', companyId);
       return { sent: 0, failed: 0, records: 0 };
