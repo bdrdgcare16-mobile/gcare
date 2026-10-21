@@ -5,7 +5,10 @@
  */
 import {
   getCompanyAdmins,
+  notifyCompanyAdminsOfTrackingEvent,
+  notifyCompanyAdminsOfSuspiciousLocation,
   notifyCompanyAdminsOfTrackingInterruption,
+  reconcilePendingAdminNotifies,
 } from './notification.service';
 
 // ---- Predicate-aware fake Firestore (same pattern as
@@ -30,6 +33,18 @@ function match(row: Row, p: Pred): boolean {
 
 let autoId = 0;
 
+function applyUpdate(target: Row, data: Row) {
+  for (const [k, v] of Object.entries(data)) {
+    if (v !== null && typeof v === 'object' &&
+        ((v as any)._methodName === 'FieldValue.delete' ||
+          v.constructor?.name === 'DeleteTransform')) {
+      delete target[k];
+    } else {
+      target[k] = v;
+    }
+  }
+}
+
 function makeDb(collections: Record<string, Row[]>) {
   const store: Record<string, Row[]> = {};
   for (const [name, rows] of Object.entries(collections)) {
@@ -51,11 +66,11 @@ function makeDb(collections: Record<string, Row[]>) {
           },
           update: jest.fn(async (data: Row) => {
             const d = rows().find((r) => r.id === docId);
-            if (d) Object.assign(d, data);
+            if (d) applyUpdate(d, data);
           }),
           set: jest.fn(async (data: Row, _o?: any) => {
             const d = rows().find((r) => r.id === docId);
-            if (d) Object.assign(d, data);
+            if (d) applyUpdate(d, data);
             else rows().push({ id: docId, ...data });
           }),
         };
@@ -118,6 +133,8 @@ function seed() {
     users: USERS,
     notifications: [],
     deviceRegistrations: [],
+    employees: [{ empid: 'EMP1', companyId: 'COMP_A', name: 'Alice' }],
+    tracking: [],
   });
 }
 
@@ -209,6 +226,8 @@ describe('notifyCompanyAdminsOfTrackingInterruption recipients', () => {
       ],
       notifications: [],
       deviceRegistrations: [],
+      employees: [],
+      tracking: [],
     });
 
     const out = await notifyCompanyAdminsOfTrackingInterruption({
@@ -222,5 +241,124 @@ describe('notifyCompanyAdminsOfTrackingInterruption recipients', () => {
 
     expect(out.records).toBe(0);
     expect(currentDb._store.notifications).toHaveLength(0);
+  });
+});
+
+describe('notifyCompanyAdminsOfTrackingEvent recipients', () => {
+  beforeEach(() => {
+    seed();
+    sendEachForMulticast.mockClear();
+  });
+
+  test('GPS Turned Off (location_disabled) reaches admin only', async () => {
+    const out = await notifyCompanyAdminsOfTrackingEvent({
+      companyId: 'COMP_A',
+      empid: 'EMP1',
+      employeeName: 'Alice',
+      eventType: 'location_disabled',
+      eventTs: '2026-10-21T08:00:00.000Z',
+      dateIso: '2026-10-21',
+    });
+
+    expect(out.records).toBe(1);
+    const notifs = currentDb._store.notifications;
+    expect(notifs.map((n: Row) => n.recipientUserId)).toEqual(['U_ADMIN']);
+    expect(notifs[0].type).toBe('LOCATION_DISABLED');
+    expect(notifs[0].title).toBe('Employee GPS Turned Off');
+  });
+
+  test('Location Permission Revoked reaches admin only', async () => {
+    const out = await notifyCompanyAdminsOfTrackingEvent({
+      companyId: 'COMP_A',
+      empid: 'EMP1',
+      employeeName: 'Alice',
+      eventType: 'permission_revoked',
+      eventTs: '2026-10-21T08:00:00.000Z',
+      dateIso: '2026-10-21',
+    });
+
+    expect(out.records).toBe(1);
+    const notifs = currentDb._store.notifications;
+    expect(notifs.map((n: Row) => n.recipientUserId)).toEqual(['U_ADMIN']);
+    expect(notifs[0].type).toBe('PERMISSION_REVOKED');
+    expect(notifs[0].title).toBe('Location Permission Revoked');
+  });
+});
+
+describe('notifyCompanyAdminsOfSuspiciousLocation recipients', () => {
+  beforeEach(() => {
+    seed();
+    sendEachForMulticast.mockClear();
+  });
+
+  test('suspicious-location alert reaches admin only', async () => {
+    const out = await notifyCompanyAdminsOfSuspiciousLocation({
+      companyId: 'COMP_A',
+      empid: 'EMP1',
+      employeeName: 'Alice',
+      flags: ['replay'],
+      eventTs: '2026-10-21T08:00:00.000Z',
+      dateIso: '2026-10-21',
+    });
+
+    expect(out.records).toBe(1);
+    const notifs = currentDb._store.notifications;
+    expect(notifs.map((n: Row) => n.recipientUserId)).toEqual(['U_ADMIN']);
+    expect(notifs[0].type).toBe('SUSPICIOUS_LOCATION');
+    expect(notifs[0].companyId).toBe('COMP_A');
+  });
+});
+
+describe('reconcilePendingAdminNotifies (retry path)', () => {
+  const TS = '2026-10-21T08:30:00.000Z';
+
+  function pendingDoc(over: Row = {}): Row {
+    return {
+      id: `COMP_A_EMP1_2026-10-21`,
+      empid: 'EMP1', companyId: 'COMP_A', dateIso: '2026-10-21',
+      endedAt: null,
+      pendingAdminNotify: true,
+      pendingAdminNotifyEvent: {
+        type: 'location_disabled', ts: TS,
+        empid: 'EMP1', dateIso: '2026-10-21',
+      },
+      ...over,
+    };
+  }
+
+  beforeEach(() => {
+    seed();
+    sendEachForMulticast.mockClear();
+  });
+
+  test('retry notifies admin only and clears the pending flag', async () => {
+    currentDb._store.tracking.push(pendingDoc());
+
+    const out = await reconcilePendingAdminNotifies('COMP_A');
+    expect(out.notified).toBe(1);
+
+    const notifs = currentDb._store.notifications;
+    expect(notifs).toHaveLength(1);
+    expect(notifs[0].recipientUserId).toBe('U_ADMIN');
+    expect(notifs[0].type).toBe('LOCATION_DISABLED');
+    expect(currentDb._store.tracking[0].pendingAdminNotify).toBeUndefined();
+  });
+
+  test('existing record for the same event is not duplicated', async () => {
+    currentDb._store.tracking.push(pendingDoc());
+    currentDb._store.notifications.push({
+      id: 'N_EXIST',
+      companyId: 'COMP_A',
+      recipientUserId: 'U_ADMIN',
+      entityType: 'tracking_event',
+      entityId: 'EMP1_2026-10-21',
+      type: 'LOCATION_DISABLED',
+      data: { eventTs: TS },
+    });
+
+    const out = await reconcilePendingAdminNotifies('COMP_A');
+    expect(out.notified).toBe(0);
+    expect(currentDb._store.notifications).toHaveLength(1);
+    expect(currentDb._store.tracking[0].pendingAdminNotify).toBeUndefined();
   });
 });

@@ -365,8 +365,8 @@ export async function notifyCompanyAdminsOfRequest(params: {
 }
 
 /**
- * Notify all Company Admins (admin + super_admin) of the employee's own
- * company when GPS is switched off or back on during active tracking.
+ * Notify tenant admins (role 'admin' only) of the employee's own company
+ * when GPS is switched off or back on during active tracking.
  * Company isolation is inherited from getCompanyAdmins + createAndSend
  * (both filter strictly by companyId). Never throws.
  */
@@ -381,7 +381,7 @@ export async function notifyCompanyAdminsOfTrackingEvent(params: {
   const { companyId, empid, employeeName, eventType, eventTs, dateIso } = params;
 
   try {
-    const admins = await getCompanyAdmins(companyId);
+    const admins = await getCompanyAdmins(companyId, ['admin']);
     if (admins.length === 0) {
       console.log('[TRACKING NOTIFICATION] No admins for company', companyId);
       return { sent: 0, failed: 0, records: 0 };
@@ -444,12 +444,12 @@ export async function notifyCompanyAdminsOfTrackingEvent(params: {
 }
 
 /**
- * Notify all Company Admins when a stored tracking point was flagged as
- * suspicious (mock provider, impossible speed, replay). The caller dedupes
- * per flag kind per session, so a persistent spoofer produces one alert
- * per anomaly class - not one per point. Wording is deliberately factual:
- * flags are evidence for review, never an accusation of fraud.
- * Never throws.
+ * Notify tenant admins (role 'admin' only) when a stored tracking point
+ * was flagged as suspicious (mock provider, impossible speed, replay).
+ * The caller dedupes per flag kind per session, so a persistent spoofer
+ * produces one alert per anomaly class - not one per point. Wording is
+ * deliberately factual: flags are evidence for review, never an
+ * accusation of fraud. Never throws.
  */
 export async function notifyCompanyAdminsOfSuspiciousLocation(params: {
   companyId: string;
@@ -463,7 +463,7 @@ export async function notifyCompanyAdminsOfSuspiciousLocation(params: {
   if (!flags.length) return { sent: 0, failed: 0, records: 0 };
 
   try {
-    const admins = await getCompanyAdmins(companyId);
+    const admins = await getCompanyAdmins(companyId, ['admin']);
     if (admins.length === 0) {
       console.log('[SUSPICIOUS NOTIFY] No admins for company', companyId);
       return { sent: 0, failed: 0, records: 0 };
