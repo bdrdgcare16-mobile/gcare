@@ -1,6 +1,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { db, messaging } from '../config/firebase';
 import { COLLECTIONS } from '../constants/collections';
+import { gpsConfirmedOffThisSession } from '../common/utils';
 
 export type NotificationType =
   | 'TASK_ASSIGNED'
@@ -670,6 +671,17 @@ export async function reconcilePendingAdminNotifies(
 
       if (!empid || !dateIso || !ts) {
         // Flag with no usable event payload - clear it, there is nothing to send.
+        await clearFlags(docSnap.ref);
+        out.cleared++;
+        continue;
+      }
+
+      // A 'restored' retry is only notify-worthy when THIS session holds
+      // a recorded GPS-OFF event - same rule as trackingAddEvent. Stale
+      // flags predating the gate (or queued from a previous session) are
+      // cleared, never delivered.
+      if (type === 'location_enabled' &&
+          !gpsConfirmedOffThisSession(docSnap.data())) {
         await clearFlags(docSnap.ref);
         out.cleared++;
         continue;

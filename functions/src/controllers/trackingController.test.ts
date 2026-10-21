@@ -1223,3 +1223,112 @@ describe('queued account_logged_out closes the session', () => {
     expect(currentDb._docs[`tracking/${id}`].endedAt ?? null).toBeNull();
   });
 });
+
+describe('Employee GPS Restored notification gating', () => {
+  const DAY2 = '2026-10-12';
+  const docId = `COMP_A_EMP001_${DAY2}`;
+  const sessionDoc = (over: Record<string, any> = {}) => ({
+    empid: 'EMP001', companyId: 'COMP_A', dateIso: DAY2,
+    pathMap: [], events: [], endedAt: null,
+    startedAt: '2026-10-12T08:00:00.000Z',
+    currentSessionStartedAt: '2026-10-12T08:00:00.000Z',
+    lastUpdateAt: '', ...over,
+  });
+  const enabledReq = () => req({
+    empid: 'EMP001',
+    body: { type: 'location_enabled', dateIso: DAY2 },
+  });
+
+  // The fake db has no `users` rows, so an attempted admin notify always
+  // produces 0 records -> pendingAdminNotify is flagged. Flag presence is
+  // therefore an exact proxy for "a restored notification was generated".
+
+  test('check-in / first fix: location_enabled on fresh session is evidence only', async () => {
+    useDb({ docs: { [`tracking/${docId}`]: sessionDoc() } });
+    const r = res();
+    await ctrl.trackingAddEvent(enabledReq(), r);
+    expect(r.statusCode).toBe(200);
+    expect(r.body.status).toBe('added');
+    const doc = currentDb._docs[`tracking/${docId}`];
+    // Event recorded, explicitly marked, no notify flag set.
+    expect(doc.events).toHaveLength(1);
+    expect(doc.events[0].restoredUnconfirmed).toBe(true);
+    expect(doc.pendingAdminNotify).toBeUndefined();
+  });
+
+  test('GPS already ON all session: enabled event does not notify', async () => {
+    useDb({ docs: { [`tracking/${docId}`]: sessionDoc({
+      events: [{ type: 'poor_gps', ts: '2026-10-12T09:00:00Z' }],
+    }) } });
+    const r = res();
+    await ctrl.trackingAddEvent(enabledReq(), r);
+    expect(r.statusCode).toBe(200);
+    expect(currentDb._docs[`tracking/${docId}`].pendingAdminNotify)
+      .toBeUndefined();
+  });
+
+  test('genuine OFF -> ON in same session notifies (flagged for retry)', async () => {
+    useDb({ docs: { [`tracking/${docId}`]: sessionDoc({
+      events: [
+        { type: 'location_disabled', ts: '2026-10-12T09:30:00Z' },
+      ],
+    }) } });
+    const r = res();
+    await ctrl.trackingAddEvent(enabledReq(), r);
+    expect(r.statusCode).toBe(200);
+    const doc = currentDb._docs[`tracking/${docId}`];
+    // Notify was attempted -> pending flag set (no admins in fake db).
+    expect(doc.pendingAdminNotify).toBe(true);
+    expect(doc.events[1].restoredUnconfirmed).toBeUndefined();
+  });
+
+  test('legacy gps_disabled event also counts as confirmed OFF', async () => {
+    useDb({ docs: { [`tracking/${docId}`]: sessionDoc({
+      events: [{ type: 'gps_disabled', ts: '2026-10-12T09:30:00Z' }],
+    }) } });
+    const r = res();
+    await ctrl.trackingAddEvent(enabledReq(), r);
+    expect(currentDb._docs[`tracking/${docId}`].pendingAdminNotify).toBe(true);
+  });
+
+  test('OFF event from a previous session does not trigger restored', async () => {
+    useDb({ docs: { [`tracking/${docId}`]: sessionDoc({
+      // Session reopened at 12:00 - the OFF event is 3h stale.
+      currentSessionStartedAt: '2026-10-12T12:00:00.000Z',
+      events: [
+        { type: 'location_disabled', ts: '2026-10-12T09:30:00Z' },
+        { type: 'location_enabled', ts: '2026-10-12T09:45:00Z' },
+      ],
+    }) } });
+    const r = res();
+    await ctrl.trackingAddEvent(enabledReq(), r);
+    expect(r.statusCode).toBe(200);
+    const doc = currentDb._docs[`tracking/${docId}`];
+    expect(doc.pendingAdminNotify).toBeUndefined();
+    expect(doc.events[2].restoredUnconfirmed).toBe(true);
+  });
+
+  test('duplicate enabled event stays deduped and silent', async () => {
+    useDb({ docs: { [`tracking/${docId}`]: sessionDoc() } });
+    const r1 = res();
+    await ctrl.trackingAddEvent(enabledReq(), r1);
+    expect(r1.body.status).toBe('added');
+    const r2 = res();
+    await ctrl.trackingAddEvent(enabledReq(), r2);
+    expect(r2.body.status).toBe('duplicate');
+    const doc = currentDb._docs[`tracking/${docId}`];
+    expect(doc.pendingAdminNotify).toBeUndefined();
+    expect(doc.events).toHaveLength(1);
+  });
+
+  test('location_disabled still notifies unconditionally (control)', async () => {
+    useDb({ docs: { [`tracking/${docId}`]: sessionDoc() } });
+    const r = res();
+    await ctrl.trackingAddEvent(req({
+      empid: 'EMP001',
+      body: { type: 'location_disabled', dateIso: DAY2 },
+    }), r);
+    expect(r.statusCode).toBe(200);
+    expect(currentDb._docs[`tracking/${docId}`].pendingAdminNotify).toBe(true);
+  });
+});

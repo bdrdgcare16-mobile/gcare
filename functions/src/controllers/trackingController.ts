@@ -6,6 +6,7 @@ import {
   notifyCompanyAdminsOfTrackingInterruption,
   notifyCompanyAdminsOfSuspiciousLocation,
 } from '../services/notification.service';
+import { gpsConfirmedOffThisSession } from '../common/utils';
 
 export type AuthUser = {
   userId: string;
@@ -1335,6 +1336,11 @@ export async function trackingAddEvent(req: Request, res: Response) {
     // Set inside the transaction when this event clears an alerted
     // heartbeat interruption; the "resumed" notification fires post-commit.
     let recoveredFromInterruption = false;
+    // "Employee GPS Restored" requires a CONFIRMED off->on transition
+    // inside this session: a recorded GPS-OFF event stamped since the
+    // session started. A location_enabled arriving at check-in, at
+    // service start, or queued from a previous session is evidence only.
+    let locationEnabledNotify = false;
 
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
@@ -1410,6 +1416,14 @@ export async function trackingAddEvent(req: Request, res: Response) {
         tx.update(ref, livenessUpdate as any);
         return;
       }
+      if (eventType === 'location_enabled') {
+        locationEnabledNotify = gpsConfirmedOffThisSession(data);
+        if (!locationEnabledNotify) {
+          // Recorded as evidence but marked so audits can see why no
+          // 'Employee GPS Restored' notification was generated.
+          (newEvent as any).restoredUnconfirmed = true;
+        }
+      }
       tx.update(ref, {
         ...livenessUpdate,
         events: FieldValue.arrayUnion(newEvent),
@@ -1420,10 +1434,13 @@ export async function trackingAddEvent(req: Request, res: Response) {
 
     // Notify Company Admins on GPS OFF/ON transitions (fire-and-forget is
     // NOT acceptable for observability, but must never fail the request:
-    // the helper swallows errors and never throws).
+    // the helper swallows errors and never throws). location_enabled only
+    // notifies when the transaction found a recorded OFF event in THIS
+    // session - first-fix/check-in restores are never alerts.
     if (status === 'added' &&
-        (eventType === 'location_disabled' || eventType === 'location_enabled'
-          || eventType === 'permission_revoked')) {
+        (eventType === 'location_disabled' ||
+          eventType === 'permission_revoked' ||
+          (eventType === 'location_enabled' && locationEnabledNotify))) {
       let employeeName = actor.empid;
       try {
         const empSnap = await db.collection(EMP_COL)

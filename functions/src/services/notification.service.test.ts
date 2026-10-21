@@ -361,4 +361,63 @@ describe('reconcilePendingAdminNotifies (retry path)', () => {
     expect(currentDb._store.notifications).toHaveLength(1);
     expect(currentDb._store.tracking[0].pendingAdminNotify).toBeUndefined();
   });
+
+  test('queued location_enabled with no session OFF event is cleared, not sent', async () => {
+    currentDb._store.tracking.push(pendingDoc({
+      events: [],
+      startedAt: '2026-10-21T08:00:00.000Z',
+      currentSessionStartedAt: '2026-10-21T08:00:00.000Z',
+      pendingAdminNotifyEvent: {
+        type: 'location_enabled', ts: TS,
+        empid: 'EMP1', dateIso: '2026-10-21',
+      },
+    }));
+
+    const out = await reconcilePendingAdminNotifies('COMP_A');
+    expect(out.notified).toBe(0);
+    expect(currentDb._store.notifications).toHaveLength(0);
+    expect(currentDb._store.tracking[0].pendingAdminNotify).toBeUndefined();
+  });
+
+  test('queued location_enabled with session OFF event notifies admin', async () => {
+    currentDb._store.tracking.push(pendingDoc({
+      events: [
+        { type: 'location_disabled', ts: '2026-10-21T08:15:00.000Z' },
+      ],
+      startedAt: '2026-10-21T08:00:00.000Z',
+      currentSessionStartedAt: '2026-10-21T08:00:00.000Z',
+      pendingAdminNotifyEvent: {
+        type: 'location_enabled', ts: TS,
+        empid: 'EMP1', dateIso: '2026-10-21',
+      },
+    }));
+
+    const out = await reconcilePendingAdminNotifies('COMP_A');
+    expect(out.notified).toBe(1);
+    const notifs = currentDb._store.notifications;
+    expect(notifs).toHaveLength(1);
+    expect(notifs[0].recipientUserId).toBe('U_ADMIN');
+    expect(notifs[0].type).toBe('LOCATION_ENABLED');
+    expect(notifs[0].title).toBe('Employee GPS Restored');
+  });
+
+  test('OFF event from before the session boundary does not qualify', async () => {
+    currentDb._store.tracking.push(pendingDoc({
+      // Session reopened at 12:00; the OFF event predates the boundary.
+      events: [
+        { type: 'location_disabled', ts: '2026-10-21T09:15:00.000Z' },
+      ],
+      startedAt: '2026-10-21T08:00:00.000Z',
+      currentSessionStartedAt: '2026-10-21T12:00:00.000Z',
+      pendingAdminNotifyEvent: {
+        type: 'location_enabled', ts: TS,
+        empid: 'EMP1', dateIso: '2026-10-21',
+      },
+    }));
+
+    const out = await reconcilePendingAdminNotifies('COMP_A');
+    expect(out.notified).toBe(0);
+    expect(currentDb._store.notifications).toHaveLength(0);
+    expect(currentDb._store.tracking[0].pendingAdminNotify).toBeUndefined();
+  });
 });
