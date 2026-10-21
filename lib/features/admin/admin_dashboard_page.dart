@@ -10,7 +10,6 @@ import 'payroll_admin_page.dart';
 import 'employee_onboarding_form_page.dart';
 import 'others_page.dart';
 import 'settings_page.dart'; // ✅ Added
-import 'hr_users_page.dart';
 import 'admin_notifications_page.dart';
 import 'admin_theme.dart';
 import 'package:serv_app/services/notification_service.dart';
@@ -88,7 +87,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
     _NavEntry(Icons.calendar_today, "Request and Leave Approvals", 1, [FeatureAccess.leave]),
     _NavEntry(Icons.group, "Employee Management", 2, [FeatureAccess.employees]),
     _NavEntry(Icons.bar_chart, "Attendance Reports", 3, [FeatureAccess.reports]),
-    _NavEntry(Icons.payments_outlined, "Payroll Management", 4, [FeatureAccess.payroll]),
+    // "Payroll Management" (pageIndex 4) is temporarily hidden from the
+    // drawer — re-enable by restoring this entry. The page and its
+    // feature gate remain in _pageFeatures/_buildPageContent.
     _NavEntry(Icons.person_add_alt_1, "Employee Onboarding", 5, [FeatureAccess.onboarding]),
     _NavEntry(Icons.chat, "Others", 6, [
       FeatureAccess.tasks,
@@ -96,7 +97,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
       FeatureAccess.feedback,
       FeatureAccess.events,
     ]),
-    _NavEntry(Icons.badge_outlined, "HR Users", 8),
     // Settings carries the features of its gated subpages (Workdays &
     // Shift, Leave Holiday, Office Location, Reason Master) so HR sees
     // it only when an approved feature maps to a Settings item. Admin
@@ -108,7 +108,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
   /// Whether a module is visible/usable for the current viewer.
   /// Admin: tenant entitlements (features.isEmpty => always visible).
   /// HR (restrictToFeatures set): only keys inside the approved set;
-  /// entries without feature keys (HR Users, Settings) are hidden.
+  /// entries without feature keys are hidden.
   bool _isAllowed(List<String> features, {bool adminAlways = false}) {
     final restrict = widget.restrictToFeatures;
     if (restrict == null) {
@@ -137,7 +137,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
     ],
     // index 7 = Settings: gated by the features its subpages need.
     [FeatureAccess.attendance, FeatureAccess.leave],
-    // index 8 = HR Users: unkeyed — never visible to HR.
+    // index 8 = former HR Users entry — removed from navigation; the
+    // unkeyed feature list below is kept so the index stays aligned.
     <String>[],
   ];
 
@@ -299,8 +300,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
         // HR mode: restrictToFeatures carries the approved set so the
         // page can filter items by it instead of company entitlements.
         return SettingsPage(allowedFeatures: widget.restrictToFeatures);
-      case 8:
-        return const HrUsersPage();
       default:
         return const Center(child: Text("Unknown page"));
     }

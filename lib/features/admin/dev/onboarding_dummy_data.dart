@@ -1,6 +1,11 @@
+import 'package:flutter/foundation.dart';
+
 // TEMP DEV TEST DATA - DISABLE/REMOVE BEFORE PRODUCTION
 class OnboardingDummyData {
-  static const bool enabled = true;
+  /// Auto-fill only ever runs in debug builds. `kDebugMode` is a
+  /// compile-time constant, so the entire fill path is tree-shaken out of
+  /// release/profile builds - this can never leak to production.
+  static const bool enabled = kDebugMode;
 
   static const String fullName = 'Test Employee';
   static const String gender = 'Female';
