@@ -242,12 +242,27 @@ Future<void> stopForegroundTracking() async {
 /// Stops early if accuracy <= 10m.
 /// Returns null if all samples exceed maxAccuracy (50m dev, 30m production).
 /// Uses bestForNavigation accuracy for best results.
+/// True when a GPS fix's own timestamp is fresh enough to count as the
+/// result of a capture attempt evaluated at [referenceTime]. The platform
+/// can hand back a cached fix many minutes old (observed in production: a
+/// WorkManager cycle stored a fix captured 9 minutes earlier); a stale fix
+/// must never substitute for a live one. Exported for regression tests.
+bool gpsFixIsFresh(DateTime fixTimestamp, DateTime referenceTime,
+    {Duration maxAge = const Duration(seconds: 120)}) {
+  return referenceTime.difference(fixTimestamp) <= maxAge;
+}
+
 Future<Position?> _captureBestPositionWithSampling({
   int maxSamples = 5,
   double targetAccuracyMeters = 10.0,
   double maxAccuracyMeters = 50.0,
   Duration sampleTimeout = const Duration(seconds: 15),
   Duration totalTimeout = const Duration(seconds: 120),
+  // Freshness bound: the platform can hand back a cached fix many minutes
+  // old (observed in production: a WorkManager cycle stored a fix captured
+  // 9 minutes earlier). A stale fix must never substitute for a live one -
+  // keep sampling for a genuinely fresh fix within the window.
+  Duration maxFixAge = const Duration(seconds: 120),
 }) async {
   try {
     final startTime = DateTime.now();
@@ -271,6 +286,14 @@ Future<Position?> _captureBestPositionWithSampling({
           desiredAccuracy: LocationAccuracy.bestForNavigation,
           timeLimit: sampleTimeout,
         );
+
+        if (!gpsFixIsFresh(pos.timestamp, DateTime.now(),
+            maxAge: maxFixAge)) {
+          final fixAge = DateTime.now().difference(pos.timestamp);
+          debugPrint('[BG] sample $sampleCount: stale cached fix '
+              '(age=${fixAge.inSeconds}s > ${maxFixAge.inSeconds}s) - skipping');
+          continue;
+        }
 
         if (bestPosition == null || pos.accuracy < bestPosition.accuracy) {
           bestPosition = pos;
@@ -850,7 +873,11 @@ Future<bool> runTrackingCycle({required String origin, DateTime? scheduledAt}) a
         DateTime.now().millisecondsSinceEpoch - lastPosMs <
             const Duration(minutes: 14).inMilliseconds) {
       debugPrint('[BG] accepted position <14min old - skipping fresh capture');
-      // Still beat: a skipped capture must not read as silence.
+      // Still beat: a skipped capture must not read as silence. The diag
+      // travels WITH the heartbeat, so the outcome must be written into it
+      // before posting - finish() runs too late (server already stored it).
+      diag['captureResult'] = 'skipped_recent';
+      diag['failureReason'] = 'accepted_<14min';
       final ended = await _sendHeartbeat(
           _empid!, _token!, TrackingGpsState.ok, diag: diag);
       return await finish('skipped_recent', reason: 'accepted_<14min',
@@ -869,6 +896,8 @@ Future<bool> runTrackingCycle({required String origin, DateTime? scheduledAt}) a
       // server shows a live 'permission_revoked' status rather than
       // a cause-less gap.
       diag['actualCaptureStartedAt'] = DateTime.now().toUtc().toIso8601String();
+      diag['captureResult'] = 'perm_denied';
+      diag['failureReason'] = '$perm';
       final ended = await _sendHeartbeat(
           _empid!, _token!, TrackingGpsState.permDenied, diag: diag);
       return await finish('perm_denied', reason: '$perm', ended: ended);
@@ -882,6 +911,8 @@ Future<bool> runTrackingCycle({required String origin, DateTime? scheduledAt}) a
       // event above already notified once; the heartbeat keeps the
       // server status current for the gap's whole duration.
       diag['actualCaptureStartedAt'] = DateTime.now().toUtc().toIso8601String();
+      diag['captureResult'] = 'service_off';
+      diag['failureReason'] = 'gps_disabled';
       final ended = await _sendHeartbeat(
           _empid!, _token!, TrackingGpsState.serviceOff, diag: diag);
       return await finish('service_off', reason: 'gps_disabled', ended: ended);
@@ -901,6 +932,8 @@ Future<bool> runTrackingCycle({required String origin, DateTime? scheduledAt}) a
       debugPrint('[BG] location rejected due to poor accuracy in tick()');
       // Service alive, GPS produced no usable fix - the server sees
       // contact but a missing fix, i.e. gps_delayed after grace.
+      diag['captureResult'] = 'no_fix';
+      diag['failureReason'] = 'accuracy_or_timeout';
       final ended = await _sendHeartbeat(
           _empid!, _token!, TrackingGpsState.noFix, diag: diag);
       return await finish('no_fix', reason: 'accuracy_or_timeout', ended: ended);

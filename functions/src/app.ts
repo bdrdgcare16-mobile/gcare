@@ -212,6 +212,7 @@ const corsOptions: cors.CorsOptions = {
 
     const allowedOrigins = [
       "https://servappbackend.web.app",
+      "https://serv-platform-admin.web.app",
       "https://api-zmj7dqloiq-uc.a.run.app",
     ];
 

@@ -65,4 +65,38 @@ void main() {
       expect(kTrackingInitRetryBackoffs, hasLength(kMaxTrackingInitAttempts));
     });
   });
+
+  group('gpsFixIsFresh (cached-fix rejection)', () {
+    final ref = DateTime.utc(2026, 10, 16, 9, 47, 40);
+
+    test('a fix captured 9 minutes ago is stale (production case)', () {
+      // The 09:47 WorkManager cycle in COMP001_dsfd_2026-10-16 stored a
+      // fix captured at 09:38 - it must be resampled, not reported.
+      final stale = ref.subtract(const Duration(minutes: 9));
+      expect(gpsFixIsFresh(stale, ref), isFalse);
+    });
+
+    test('a fix at the 120-second boundary is still fresh', () {
+      final edge = ref.subtract(const Duration(seconds: 120));
+      expect(gpsFixIsFresh(edge, ref), isTrue);
+    });
+
+    test('a fix 121 seconds old is rejected', () {
+      final old = ref.subtract(const Duration(seconds: 121));
+      expect(gpsFixIsFresh(old, ref), isFalse);
+    });
+
+    test('a fresh fix is accepted', () {
+      final recent = ref.subtract(const Duration(seconds: 5));
+      expect(gpsFixIsFresh(recent, ref), isTrue);
+    });
+
+    test('custom bounds are honored', () {
+      final at = ref.subtract(const Duration(seconds: 30));
+      expect(gpsFixIsFresh(at, ref, maxAge: const Duration(seconds: 10)),
+          isFalse);
+      expect(gpsFixIsFresh(at, ref, maxAge: const Duration(seconds: 60)),
+          isTrue);
+    });
+  });
 }

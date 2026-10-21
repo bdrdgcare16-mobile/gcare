@@ -1,6 +1,6 @@
 {
   "projects": {
-    "default": "serv-dev-f2557",
+    "default": "servappbackend",
     "production": "servappbackend"
   },
   "targets": {

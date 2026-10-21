@@ -13,8 +13,16 @@ export const COMPANIES_COLLECTION = 'companies';
  *  - LEGACY: the company document EXISTS and `enabledFeatures` is absent /
  *    not an array → every feature is allowed, no user limit. This preserves
  *    existing production companies until the Platform Admin configures them.
- *  - MISSING: the company document does not exist → exists=false,
- *    isLegacy=false → feature checks DENY. Unknown tenants get nothing.
+ *  - LEGACY-PRE-ENTITLEMENT: no `companies/<id>` document exists, but the
+ *    companyId is referenced by real tenant data (`employees` or `users`).
+ *    Production companies created before the entitlement layer never got a
+ *    document — treating them as missing would lock out every existing
+ *    employee. They are treated as legacy until Platform Admin creates the
+ *    document. Tenant isolation is unaffected: a fabricated companyId has
+ *    no tenant data and is still denied.
+ *  - MISSING: the company document does not exist AND no tenant data
+ *    references the companyId → exists=false, isLegacy=false → feature
+ *    checks DENY. Unknown tenants get nothing.
  *  - FAILED: Firestore/network/internal error → lookupFailed=true → feature
  *    checks must NOT grant access (callers return 503 or use the
  *    last-known-valid cache via getCompanyEntitlementSafe).
@@ -76,8 +84,52 @@ export async function getCompanyEntitlement(
   }
 
   if (!data) {
-    // Company document genuinely absent → unknown tenant → deny.
-    return EMPTY_ENTITLEMENT(id, false);
+    // No company document. Before denying, distinguish a genuinely unknown
+    // tenant from a pre-entitlement production company: tenants created
+    // before this layer have employees/users (and attendance, tasks, …)
+    // referencing their companyId but never received a `companies` doc.
+    // Regression: requireFeature() on every route returned
+    // COMPANY_NOT_FOUND for all existing production employees because the
+    // collection is empty in production. A companyId backed by real tenant
+    // data is treated as legacy; anything else is still denied.
+    let tenantKnown = false;
+    try {
+      const empSnap = await db
+        .collection('employees')
+        .where('companyId', '==', id)
+        .limit(1)
+        .get();
+      if (!empSnap.empty) {
+        tenantKnown = true;
+      } else {
+        const userSnap = await db
+          .collection('users')
+          .where('companyId', '==', id)
+          .limit(1)
+          .get();
+        tenantKnown = !userSnap.empty;
+      }
+    } catch (e) {
+      // FAIL CLOSED: the probe itself failing is a lookup failure, not a
+      // missing tenant — callers respond 503 / use the last-good cache.
+      console.error('[entitlement] legacy tenant probe failed', id, e);
+      return EMPTY_ENTITLEMENT(id, true);
+    }
+    if (!tenantKnown) {
+      return EMPTY_ENTITLEMENT(id, false);
+    }
+    return {
+      companyId: id,
+      exists: true,
+      lookupFailed: false,
+      name: null,
+      status: 'active',
+      plan: null,
+      enabledFeatures: null,
+      effectiveFeatures: null,
+      maxUsers: null,
+      isLegacy: true,
+    };
   }
 
   const rawFeatures = data.enabledFeatures;

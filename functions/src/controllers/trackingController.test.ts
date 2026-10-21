@@ -36,15 +36,39 @@ function makeDb(opts: {
   trackingRows?: any[];
 }) {
   const docs = { ...(opts.docs ?? {}) };
+  // Interpret FieldValue sentinels so assertions see the same shape a real
+  // write produces: delete removes the key, arrayUnion appends to an array.
+  const applyFields = (target: Record<string, any>, data: Record<string, any>) => {
+    for (const [k, val] of Object.entries(data)) {
+      const m = (val as any)?.methodName;
+      if (m === 'FieldValue.delete') {
+        delete target[k];
+      } else if (m === 'FieldValue.arrayUnion') {
+        const els = (val as any).elements ?? [];
+        const cur = Array.isArray(target[k]) ? target[k] : [];
+        for (const e of els) {
+          if (!cur.some((x: any) => JSON.stringify(x) === JSON.stringify(e))) {
+            cur.push(e);
+          }
+        }
+        target[k] = cur;
+      } else {
+        target[k] = val;
+      }
+    }
+    return target;
+  };
   const collection = (name: string) => {
     const api: any = {
       doc: (id: string) => ({
         get: async () => makeSnap(docs[`${name}/${id}`]),
         set: jest.fn(async (data: any, _opts?: any) => {
-          docs[`${name}/${id}`] = { ...(docs[`${name}/${id}`] ?? {}), ...data };
+          docs[`${name}/${id}`] =
+            applyFields({ ...(docs[`${name}/${id}`] ?? {}) }, data);
         }),
         update: jest.fn(async (data: any) => {
-          docs[`${name}/${id}`] = { ...(docs[`${name}/${id}`] ?? {}), ...data };
+          docs[`${name}/${id}`] =
+            applyFields({ ...(docs[`${name}/${id}`] ?? {}) }, data);
         }),
       }),
       where: () => {
@@ -319,13 +343,20 @@ describe('tracking authorization', () => {
     useDb({
       docs: { [`tracking/COMP_A_EMP001_${DAY}`]: {
         empid: 'EMP001', companyId: 'COMP_A', dateIso: DAY,
-        pathMap: [], events: [], endedAt: '2026-10-12T10:00:00Z', lastUpdateAt: '' } },
+        pathMap: [], events: [], endedAt: '2026-10-12T10:00:00Z',
+        startedAt: '2026-10-12T08:00:00.000Z', lastUpdateAt: '' } },
       attendanceRows: [{ empid: 'EMP001', companyId: 'COMP_A', date: DAY, checkIn: '09:00:00', checkOut: null }],
     });
     const r = res();
     await ctrl.trackingCheckIn(req({ empid: 'EMP001', body: { dateIso: DAY } }), r);
     expect(r.statusCode).toBe(200);
     expect(r.body.reopened).toBe(true);
+    // Reopen re-stamps the session boundary so queued events from the
+    // previous session can be identified as stale.
+    const doc = currentDb._docs[`tracking/COMP_A_EMP001_${DAY}`];
+    expect(doc.currentSessionStartedAt).toBeTruthy();
+    expect(doc.currentSessionStartedAt)
+      .not.toBe('2026-10-12T08:00:00.000Z');
   });
 
   test('closed session NOT reopened when attendance shows check-out', async () => {
@@ -749,6 +780,34 @@ describe('GPS freshness fields (heartbeat vs fix vs stored point)', () => {
       .toBe(NOW_FRESH);
   });
 
+  test('movement of 9.56 metres does NOT pass the 10m movement gate '
+      + '(no rounding up)', async () => {
+    // Regression: distanceMeters used Math.round, so a 9.58m move (seen
+    // in production doc COMP001_dsfd_2026-10-16) was stored. 0.0000860 deg
+    // latitude at lat 12 = ~9.56m - must be rejected as too_close.
+    useDb({ docs: { [`tracking/${DOC_ID}`]: { ...OPEN } },
+      attendanceRows: activeAttendance });
+    const r = res();
+    await ctrl.trackingAppendPos(req({ empid: 'EMP001', body: pos({
+      lat: 12.0000860, lng: 77.0, pointId: 'pt-9m',
+    }) }), r);
+    expect(r.body.status).toBe('too_close');
+    expect(currentDb._docs[`tracking/${DOC_ID}`].pathMap).toHaveLength(1);
+  });
+
+  test('movement of ~10.0 metres IS appended when the interval '
+      + 'condition holds', async () => {
+    // 0.0000900 deg latitude at lat 12 = ~10.01m - just over the gate.
+    useDb({ docs: { [`tracking/${DOC_ID}`]: { ...OPEN } },
+      attendanceRows: activeAttendance });
+    const r = res();
+    await ctrl.trackingAppendPos(req({ empid: 'EMP001', body: pos({
+      lat: 12.0000900, lng: 77.0, pointId: 'pt-10m',
+    }) }), r);
+    expect(r.body.status).toBe('appended');
+    expect(currentDb._docs[`tracking/${DOC_ID}`].pathMap).toHaveLength(2);
+  });
+
   test('a fresh fix clears an alerted gpsGap', async () => {
     const gapSince = new Date(Date.now() - 40 * 60000).toISOString();
     useDb({ docs: { [`tracking/${DOC_ID}`]: { ...OPEN,
@@ -807,6 +866,31 @@ describe('POST /tracking/heartbeat', () => {
     expect(doc.lastHeartbeatAt).toBeTruthy();
     expect(doc.lastGpsState).toBe('no_fix');
     expect(doc.pathMap).toHaveLength(0); // heartbeat never writes points
+  });
+
+  test('heartbeat persists capture diagnostics (result + reason) so '
+      + 'a skipped/failed capture is explainable', async () => {
+    useDb({ docs: { [`tracking/${DOC_ID}`]: { ...OPEN } },
+      attendanceRows: activeAttendance });
+    const r = res();
+    await ctrl.trackingHeartbeat(hbReq({
+      diag: {
+        captureId: 'cap-fg-1',
+        origin: 'fg',
+        captureResult: 'skipped_recent',
+        failureReason: 'none',
+        scheduledCaptureAt: '2026-10-12T08:48:00.000Z',
+        apiRequestStartedAt: '2026-10-12T08:48:01.000Z',
+      },
+    }), r);
+    expect(r.statusCode).toBe(200);
+    const doc = currentDb._docs[`tracking/${DOC_ID}`];
+    expect(doc.lastCaptureDiag?.captureResult).toBe('skipped_recent');
+    expect(doc.lastCaptureDiag?.failureReason).toBe('none');
+    expect(doc.lastCaptureDiag?.captureId).toBe('cap-fg-1');
+    // ...and never fabricates a stored route point.
+    expect(doc.pathMap).toHaveLength(0);
+    expect(doc.lastLocationAt ?? null).toBeNull();
   });
 
   test('heartbeat carrying a fix timestamp advances lastGpsFixAt', async () => {
@@ -1002,5 +1086,140 @@ describe('idempotent duplicate delivery vs replay detection', () => {
     const susp = (doc.events ?? [])
       .filter((e: any) => e.type === 'suspicious_location');
     expect(susp).toHaveLength(0);
+  });
+});
+
+describe('queued account_logged_out closes the session', () => {
+  // Regression for production doc COMP001_dsfd_2026-10-16: when the
+  // /tracking/check-out POST fails at logout, the client enqueues
+  // account_logged_out and it is later delivered through /tracking/event.
+  // Before the fix that path appended the event but left endedAt null, so
+  // heartbeats kept the session open as long as attendance stayed active.
+  test('account_logged_out event stamps endedAt on an open session', async () => {
+    const id = `COMP_A_EMP001_${DAY}`;
+    const hourAgo = new Date(Date.now() - 3600000).toISOString();
+    useDb({ docs: { [`tracking/${id}`]: {
+      empid: 'EMP001', companyId: 'COMP_A', dateIso: DAY,
+      pathMap: [], events: [], endedAt: null, lastUpdateAt: '',
+      startedAt: hourAgo, currentSessionStartedAt: hourAgo,
+      interruption: { alertSent: true }, gpsGap: { alertSent: true },
+    } } });
+    const r = res();
+    await ctrl.trackingAddEvent(req({
+      empid: 'EMP001',
+      body: { type: 'account_logged_out', dateIso: DAY, message: 'User logged out',
+        createdAtUtc: new Date().toISOString() },
+    }), r);
+    expect(r.statusCode).toBe(200);
+    const doc = currentDb._docs[`tracking/${id}`];
+    expect(doc.endedAt).toBeTruthy();
+    expect(doc.events.some((e: any) => e.type === 'account_logged_out')).toBe(true);
+    // Alert state is cleared - a closed session is never mid-gap.
+    expect(doc.interruption).toBeUndefined();
+    expect(doc.gpsGap).toBeUndefined();
+  });
+
+  test('deduped re-delivery of the logout event still closes the session', async () => {
+    const id = `COMP_A_EMP001_${DAY}`;
+    const hourAgo = new Date(Date.now() - 3600000).toISOString();
+    useDb({ docs: { [`tracking/${id}`]: {
+      empid: 'EMP001', companyId: 'COMP_A', dateIso: DAY,
+      pathMap: [], endedAt: null, lastUpdateAt: '',
+      startedAt: hourAgo, currentSessionStartedAt: hourAgo,
+      events: [{ type: 'account_logged_out', ts: '2026-10-12T10:00:00Z',
+        clientEventId: 'logout-1' }],
+    } } });
+    const r = res();
+    await ctrl.trackingAddEvent(req({
+      empid: 'EMP001',
+      body: { type: 'account_logged_out', dateIso: DAY,
+        clientEventId: 'logout-1',
+        createdAtUtc: new Date().toISOString() },
+    }), r);
+    expect(r.statusCode).toBe(200);
+    expect(r.body.status).toBe('duplicate');
+    const doc = currentDb._docs[`tracking/${id}`];
+    expect(doc.endedAt).toBeTruthy();
+  });
+
+  test('a logout event generated BEFORE the current session began '
+      + 'cannot close it (queued stale delivery)', async () => {
+    const id = `COMP_A_EMP001_${DAY}`;
+    // Session reopened at T-30min; the queued logout was generated at
+    // T-60min during the previous session on the same day document.
+    const reopenedAt = new Date(Date.now() - 30 * 60000).toISOString();
+    const queuedAt = new Date(Date.now() - 60 * 60000).toISOString();
+    useDb({ docs: { [`tracking/${id}`]: {
+      empid: 'EMP001', companyId: 'COMP_A', dateIso: DAY,
+      pathMap: [], events: [], endedAt: null, lastUpdateAt: '',
+      startedAt: new Date(Date.now() - 5 * 3600000).toISOString(),
+      currentSessionStartedAt: reopenedAt,
+    } } });
+    const r = res();
+    await ctrl.trackingAddEvent(req({
+      empid: 'EMP001',
+      body: { type: 'account_logged_out', dateIso: DAY,
+        createdAtUtc: queuedAt },
+    }), r);
+    expect(r.statusCode).toBe(200);
+    const doc = currentDb._docs[`tracking/${id}`];
+    // Evidence recorded - but the newer session survives.
+    expect(doc.endedAt ?? null).toBeNull();
+    expect(doc.events.some((e: any) =>
+      e.type === 'account_logged_out' && e.staleDelivery === true)).toBe(true);
+  });
+
+  test('a logout event without createdAtUtc is recorded but cannot '
+      + 'close the session (unverifiable, legacy client)', async () => {
+    const id = `COMP_A_EMP001_${DAY}`;
+    const hourAgo = new Date(Date.now() - 3600000).toISOString();
+    useDb({ docs: { [`tracking/${id}`]: {
+      empid: 'EMP001', companyId: 'COMP_A', dateIso: DAY,
+      pathMap: [], events: [], endedAt: null, lastUpdateAt: '',
+      startedAt: hourAgo, currentSessionStartedAt: hourAgo,
+    } } });
+    const r = res();
+    await ctrl.trackingAddEvent(req({
+      empid: 'EMP001',
+      body: { type: 'account_logged_out', dateIso: DAY },
+    }), r);
+    expect(r.statusCode).toBe(200);
+    const doc = currentDb._docs[`tracking/${id}`];
+    expect(doc.endedAt ?? null).toBeNull();
+    expect(doc.events.some((e: any) => e.type === 'account_logged_out'))
+      .toBe(true);
+  });
+
+  test('a logout event with a future createdAtUtc beyond skew is '
+      + 'not trusted to close', async () => {
+    const id = `COMP_A_EMP001_${DAY}`;
+    const hourAgo = new Date(Date.now() - 3600000).toISOString();
+    useDb({ docs: { [`tracking/${id}`]: {
+      empid: 'EMP001', companyId: 'COMP_A', dateIso: DAY,
+      pathMap: [], events: [], endedAt: null, lastUpdateAt: '',
+      startedAt: hourAgo, currentSessionStartedAt: hourAgo,
+    } } });
+    const r = res();
+    await ctrl.trackingAddEvent(req({
+      empid: 'EMP001',
+      body: { type: 'account_logged_out', dateIso: DAY,
+        createdAtUtc: new Date(Date.now() + 60 * 60000).toISOString() },
+    }), r);
+    expect(r.statusCode).toBe(200);
+    expect(currentDb._docs[`tracking/${id}`].endedAt ?? null).toBeNull();
+  });
+
+  test('non-logout events do not close the session', async () => {
+    const id = `COMP_A_EMP001_${DAY}`;
+    useDb({ docs: { [`tracking/${id}`]: {
+      empid: 'EMP001', companyId: 'COMP_A', dateIso: DAY,
+      pathMap: [], events: [], endedAt: null, lastUpdateAt: '' } } });
+    const r = res();
+    await ctrl.trackingAddEvent(req({
+      empid: 'EMP001',
+      body: { type: 'location_disabled', dateIso: DAY },
+    }), r);
+    expect(r.statusCode).toBe(200);
+    expect(currentDb._docs[`tracking/${id}`].endedAt ?? null).toBeNull();
   });
 });

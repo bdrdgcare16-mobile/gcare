@@ -133,6 +133,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   String? _reasonsError;
   bool _isAttendanceStatusLoading = false;
   bool _hasAttendanceApiConfirmed = false;
+  // Non-null when the last status fetch failed (401/403/5xx/network). The
+  // attendance state is then UNKNOWN - the UI must not present "not checked
+  // in" and must not offer Check-In as an action.
+  String? _attendanceStatusError;
 
   // ✅ SAFETY: Cache the user info future to prevent duplicate calls
   Future<void>? _loadUserInfoFuture;
@@ -625,6 +629,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     setState(() {
       _isAttendanceStatusLoading = true;
       _hasAttendanceApiConfirmed = false;
+      _attendanceStatusError = null;
     });
 
     if (_lastStatusFetch != null &&
@@ -655,6 +660,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final url = Uri.parse('${ApiService.baseUrl}/attendance/live');
     debugPrint('[Attendance] Fetching attendance status from API');
 
+    bool confirmed = false;
     try {
       final res =
           await http.get(url, headers: {'Authorization': 'Bearer $token'});
@@ -672,11 +678,32 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
       debugPrint('[Attendance] API status: ${res.statusCode}');
 
-      if (res.statusCode != 200) return;
+      if (res.statusCode != 200) {
+        // A non-200 (auth/expired-token/server error) is a data-loading
+        // failure, NOT proof the employee hasn't checked in. Keep whatever
+        // state the local cache restored, mark the status as unverified so
+        // Check-In is not offered, and surface an error to the user.
+        if (mounted) {
+          setState(() {
+            _attendanceStatusError =
+                'Status unavailable (${res.statusCode})';
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Could not verify attendance status (server error '
+                '${res.statusCode}). Showing last known state.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
 
       _lastStatusFetch = DateTime.now();
 
       final list = List<Map<String, dynamic>>.from(jsonDecode(res.body));
+      confirmed = true;
       final wantEmp = userId.trim().toLowerCase();
       final me = list.firstWhere(
         (e) =>
@@ -745,12 +772,19 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         error: e.toString(),
       );
       debugPrint('[Attendance] Error loading attendance status: $e');
+      if (mounted) {
+        setState(() {
+          _attendanceStatusError = 'Status unavailable (network error)';
+        });
+      }
     } finally {
-      // Always clear loading state
+      // Clear loading state. Only a successful API response confirms the
+      // status - failures leave _hasAttendanceApiConfirmed=false so the UI
+      // shows the error state instead of "not checked in".
       if (!mounted) return;
       setState(() {
         _isAttendanceStatusLoading = false;
-        _hasAttendanceApiConfirmed = true;
+        _hasAttendanceApiConfirmed = confirmed;
       });
     }
   }
@@ -4033,7 +4067,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                               Text(
                                 !_hasAttendanceApiConfirmed ||
                                         _isAttendanceStatusLoading
-                                    ? 'In: Syncing attendance...'
+                                    ? (_attendanceStatusError != null
+                                        ? 'In: $_attendanceStatusError'
+                                        : 'In: Syncing attendance...')
                                     : _checkInTime != null
                                         ? 'In: ${_formatTime(_checkInTime)}'
                                         : 'In: Not checked in',
@@ -4048,7 +4084,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                               Text(
                                 !_hasAttendanceApiConfirmed ||
                                         _isAttendanceStatusLoading
-                                    ? 'Out: Syncing attendance...'
+                                    ? (_attendanceStatusError != null
+                                        ? 'Out: $_attendanceStatusError'
+                                        : 'Out: Syncing attendance...')
                                     : _checkOutTime != null
                                         ? 'Out: ${_formatTime(_checkOutTime)}'
                                         : 'Out: Not checked out',
@@ -4284,7 +4322,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                               child: ElevatedButton(
                                 onPressed: (_isManualLoading ||
                                         _isBiometricLoading ||
-                                        _locationServiceEnabled == false)
+                                        _locationServiceEnabled == false ||
+                                        !_hasAttendanceApiConfirmed)
                                     ? null
                                     : () async {
                                         await _authenticateAndCheckIn();
@@ -4343,7 +4382,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                               child: ElevatedButton(
                                 onPressed: (_isManualLoading ||
                                         _isBiometricLoading ||
-                                        _locationServiceEnabled == false)
+                                        _locationServiceEnabled == false ||
+                                        !_hasAttendanceApiConfirmed)
                                     ? null
                                     : () async {
                                         await _handleManualCheckInTap();

@@ -59,6 +59,10 @@ type TrackEvent = {
   accuracy?: number;
   eventId?: string;       // client/supplier idempotency key
   clientEventId?: string; // offline-queue retry dedup key
+  /** Set when the event was created before the CURRENT session began
+   *  (queued delivery landed on a newer session). Evidence is kept, but
+   *  session-closing semantics must not apply. */
+  staleDelivery?: boolean;
 };
 
 type TrackDayDoc = {
@@ -68,7 +72,11 @@ type TrackDayDoc = {
   dateIso: string;        // YYYY-MM-DD
   pathMap: TrackPoint[];
   events: TrackEvent[];   // Tracking events array
-  startedAt?: string;     // ISO
+  startedAt?: string;     // ISO - first session of the day (audit)
+  /** ISO - start of the CURRENT session. Equal to startedAt on create;
+   *  re-stamped when an ended doc is reopened, so a queued event from an
+   *  earlier same-day session can be told apart from this session. */
+  currentSessionStartedAt?: string;
   endedAt?: string | null;
   lastUpdateAt: string;   // ISO - last authenticated contact (liveness)
   /** ISO - last authenticated device contact. Same instant as
@@ -527,7 +535,10 @@ function distanceMeters(a: {lat:number; lng:number}, b: {lat:number; lng:number}
   const dLng = toRad(b.lng - a.lng);
   const s1 = Math.sin(dLat/2), s2 = Math.sin(dLng/2);
   const aa = s1*s1 + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*s2*s2;
-  return Math.round(R * (2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1-aa))));
+  // Precise metres - no rounding. Rounding before the MIN_MOVE_METERS
+  // comparison let 9.58m pass as 10m (observed in production doc
+  // COMP001_dsfd_2026-10-16); the threshold must compare the real value.
+  return R * (2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1-aa)));
 }
 const MIN_MOVE_METERS = 10;
 
@@ -573,6 +584,10 @@ export async function trackingCheckIn(req: Request, res: Response) {
             endedAt: null,
             lastUpdateAt: now,
             lastHeartbeatAt: now,
+            // New session boundary: events generated before this instant
+            // (e.g. a logout queued during the previous session) must not
+            // terminate the reopened session.
+            currentSessionStartedAt: now,
           });
         }
         const pathMapCount = Array.isArray(doc?.pathMap) ? doc!.pathMap.length : 0;
@@ -595,6 +610,7 @@ export async function trackingCheckIn(req: Request, res: Response) {
         pathMap: [],
         events: [],
         startedAt: now,
+        currentSessionStartedAt: now,
         endedAt: null,
         lastUpdateAt: now,
         lastHeartbeatAt: now,
@@ -1302,6 +1318,7 @@ export async function trackingAddEvent(req: Request, res: Response) {
       return res.status(400).json({ error: 'Invalid event type. Must be one of: ' + validTypes.join(', ') });
     }
 
+    const nowMs = Date.now();
     const nowIso = new Date().toISOString();
     const newEvent: TrackEvent & { eventId?: string; clientEventId?: string } = {
       type: eventType as any,
@@ -1345,6 +1362,39 @@ export async function trackingAddEvent(req: Request, res: Response) {
       if (data.interruption?.alertSent) {
         recoveredFromInterruption = true;
         livenessUpdate['interruption'] = FieldValue.delete();
+      }
+      // A late-delivered logout event must still close the session - but
+      // only the session it was generated in. The client's offline
+      // fallback enqueues account_logged_out when the /check-out POST
+      // fails; that event may be delivered hours or days later, after
+      // re-login, so it can land on a DIFFERENT (newer) session on the
+      // same document. A blanket "logout event closes the open doc" rule
+      // would let a stale event kill a live session.
+      //
+      // Session binding: the client stamps createdAtUtc when the event is
+      // generated; it must validate (finite, bounded future skew) and
+      // fall at/after the server-stamped start of the CURRENT session
+      // (currentSessionStartedAt, re-stamped on reopen; startedAt for
+      // legacy docs). 60s tolerance covers clock skew between the event
+      // stamp and session creation. A stale or unverifiable event is
+      // still recorded as evidence (marked staleDelivery) but must never
+      // set endedAt - attendance stays untouched either way; this only
+      // ends the device's tracking session.
+      if (eventType === 'account_logged_out') {
+        const createdMs = Date.parse(String(req.body?.createdAtUtc ?? ''));
+        const sessionStartMs = Date.parse(String(
+            data.currentSessionStartedAt ?? data.startedAt ?? ''));
+        const belongsToCurrentSession = Number.isFinite(createdMs) &&
+            createdMs <= nowMs + MAX_FUTURE_SKEW_MIN * 60000 &&
+            Number.isFinite(sessionStartMs) &&
+            createdMs >= sessionStartMs - 60000;
+        if (belongsToCurrentSession) {
+          livenessUpdate['endedAt'] = nowIso;
+          livenessUpdate['interruption'] = FieldValue.delete();
+          livenessUpdate['gpsGap'] = FieldValue.delete();
+        } else {
+          newEvent.staleDelivery = true;
+        }
       }
 
       // Dedup 1: idempotent retry of the same client-generated event.
@@ -1544,6 +1594,7 @@ export async function trackingHeartbeat(req: Request, res: Response) {
           pathMap: [],
           events: [],
           startedAt: nowIso,
+          currentSessionStartedAt: nowIso,
           endedAt: null,
           lastUpdateAt: nowIso,
           lastHeartbeatAt: nowIso,
@@ -1692,6 +1743,7 @@ export async function appendTrackingEventInternal(
         pathMap: [],
         events: [ev],
         startedAt: now,
+        currentSessionStartedAt: now,
         endedAt: null,
         lastUpdateAt: now,
       } as TrackDayDoc);

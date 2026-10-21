@@ -149,6 +149,9 @@ Future<void> _emitTrackingEvent({
     // session's original tracking document, not a new-day doc.
     'dateIso': await trackingSessionDateIso(),
     'clientEventId': clientEventId,
+    // Generation time - validated server-side when the event carries
+    // session-closing semantics (account_logged_out).
+    'createdAtUtc': DateTime.now().toUtc().toIso8601String(),
     'message': type == 'location_disabled'
         ? 'Location services turned off during tracking'
         : type == 'permission_revoked'
@@ -194,6 +197,18 @@ Future<void> _emitTrackingEvent({
 Future<void> _enqueueTrackingEvent(Map<String, dynamic> payload) async {
   final prefs = await SharedPreferences.getInstance();
   final list = prefs.getStringList(kPendingTrackingEventsKey) ?? <String>[];
+  // Stamp generation-time metadata so a delayed delivery can be routed to
+  // the session the event belongs to and validated server-side:
+  // - createdAtUtc lets the backend tell an event generated inside the
+  //   current session apart from one queued in an earlier session (a
+  //   stale account_logged_out must never close a newer session).
+  // - dateIso pins the session's tracking-document date so delivery after
+  //   midnight / re-login does not land on a different day's document.
+  // - clientEventId gives the backend a retry-dedup key when the payload
+  //   only carried the queue-local eventId.
+  payload['createdAtUtc'] ??= DateTime.now().toUtc().toIso8601String();
+  payload['clientEventId'] ??= payload['eventId'];
+  payload['dateIso'] ??= await trackingSessionDateIso();
   list.add(jsonEncode(payload));
   await prefs.setStringList(kPendingTrackingEventsKey, list);
 }
