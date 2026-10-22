@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:serv_app/features/admin/tracking_status.dart';
 import 'package:serv_app/features/users/background_tasks.dart';
@@ -161,6 +162,25 @@ void main() {
         empid: 'E1', gpsState: TrackingGpsState.serviceOff,
         dateIso: '2026-10-15');
       expect(p.containsKey('gpsFixAtUtc'), isFalse);
+    });
+
+    test('network loss is an interface report, not an internet-disconnection claim', () {
+      expect(trackingNetworkState([ConnectivityResult.none]), 'none');
+      expect(trackingNetworkState([ConnectivityResult.wifi]), 'wifi');
+      expect(trackingNetworkState([ConnectivityResult.mobile]), 'mobile');
+      expect(trackingNetworkState([]), isNull);
+      final payload = buildTrackingHeartbeatPayload(empid: 'E1', gpsState: TrackingGpsState.serviceOff,
+        networkState: trackingNetworkState([ConnectivityResult.none]));
+      expect(payload['networkState'], 'none');
+      expect(payload.containsKey('isOnline'), isFalse);
+      expect(payload.containsKey('batteryPercent'), isFalse);
+    });
+
+    test('missing or invalid network diagnostics remain unknown', () {
+      final payload = buildTrackingHeartbeatPayload(empid: 'E1', gpsState: TrackingGpsState.permDenied,
+        networkState: 'internet disconnected');
+      expect(payload.containsKey('networkState'), isFalse);
+      expect(payload['gpsState'], 'perm_denied');
     });
 
     test('gps state constants match the wire contract', () {

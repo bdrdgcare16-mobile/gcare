@@ -891,6 +891,37 @@ describe('POST /tracking/heartbeat', () => {
     expect(doc.pathMap).toHaveLength(0); // heartbeat never writes points
   });
 
+  test('heartbeat stores network interface evidence with its receive time in the existing tracking doc', async () => {
+    useDb({ docs: { [`tracking/${DOC_ID}`]: { ...OPEN } }, attendanceRows: activeAttendance });
+    const r = res();
+    await ctrl.trackingHeartbeat(hbReq({ networkState: 'none', gpsState: 'service_off' }), r);
+    const doc = currentDb._docs[`tracking/${DOC_ID}`];
+    expect(doc.lastDeviceReport).toEqual({ gpsState: 'service_off', networkState: 'none',
+      receivedAt: doc.lastHeartbeatAt, networkReceivedAt: doc.lastHeartbeatAt });
+    expect(doc.pathMap).toHaveLength(0);
+  });
+
+  test('old clients preserve network observation time rather than relabeling it as fresh', async () => {
+    const receivedAt = '2026-10-12T07:00:00.000Z';
+    useDb({ docs: { [`tracking/${DOC_ID}`]: { ...OPEN,
+      lastDeviceReport: { receivedAt, networkState: 'wifi' } } }, attendanceRows: activeAttendance });
+    const r = res();
+    await ctrl.trackingHeartbeat(hbReq(), r);
+    const report = currentDb._docs[`tracking/${DOC_ID}`].lastDeviceReport;
+    expect(report.networkState).toBe('wifi');
+    expect(report.networkReceivedAt).toBe(receivedAt);
+  });
+
+  test('malformed diagnostics do not become confirmed device evidence', async () => {
+    useDb({ docs: { [`tracking/${DOC_ID}`]: { ...OPEN } }, attendanceRows: activeAttendance });
+    const r = res();
+    await ctrl.trackingHeartbeat(hbReq({ networkState: 'internet disconnected', gpsState: 'invalid', batteryPercent: 0 }), r);
+    const report = currentDb._docs[`tracking/${DOC_ID}`].lastDeviceReport;
+    expect(report.gpsState).toBe('unknown');
+    expect(report.networkState).toBeUndefined();
+    expect(report.batteryPercent).toBeUndefined();
+  });
+
   test('heartbeat persists capture diagnostics (result + reason) so '
       + 'a skipped/failed capture is explainable', async () => {
     useDb({ docs: { [`tracking/${DOC_ID}`]: { ...OPEN } },

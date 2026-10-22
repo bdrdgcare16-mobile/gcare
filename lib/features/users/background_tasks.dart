@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
@@ -879,7 +880,7 @@ Future<bool> runTrackingCycle({required String origin, DateTime? scheduledAt}) a
       diag['captureResult'] = 'skipped_recent';
       diag['failureReason'] = 'accepted_<14min';
       final ended = await _sendHeartbeat(
-          _empid!, _token!, TrackingGpsState.ok, diag: diag);
+          _empid!, _token!, gpsEnabledNow ? TrackingGpsState.ok : TrackingGpsState.serviceOff, diag: diag);
       return await finish('skipped_recent', reason: 'accepted_<14min',
           ended: ended);
     }
@@ -1034,6 +1035,11 @@ Future<bool> _sendHeartbeat(
   try {
     final sp = await _prefs();
     final fixMs = sp.getInt(_spLastFixMs) ?? 0;
+    String? networkState;
+    try {
+      networkState = trackingNetworkState(await Connectivity().checkConnectivity()
+          .timeout(const Duration(seconds: 2)));
+    } catch (_) {}
     final res = await http
         .post(
           Uri.parse('${ApiService.baseUrl}/tracking/heartbeat'),
@@ -1045,6 +1051,7 @@ Future<bool> _sendHeartbeat(
           body: jsonEncode(buildTrackingHeartbeatPayload(
             empid: empid,
             gpsState: gpsState,
+            networkState: networkState,
             dateIso: await trackingSessionDateIso(),
             gpsFixAt: fixMs > 0
                 ? DateTime.fromMillisecondsSinceEpoch(fixMs)

@@ -96,6 +96,7 @@ type TrackDayDoc = {
   /** Device-reported state at the most recent heartbeat:
    *  ok | no_fix | service_off | perm_denied. Absent on pre-upgrade docs. */
   lastGpsState?: string;
+  lastDeviceReport?: { receivedAt: string; gpsState: string; networkState?: string; networkReceivedAt?: string };
   interruption?: InterruptionState;
   /** Gap where the device KEEPS CONTACTING but produces no valid GPS fix.
    *  Separate dedup state from `interruption` (which is no-contact). */
@@ -1536,6 +1537,8 @@ export async function trackingHeartbeat(req: Request, res: Response) {
 
     const rawState = String(req.body?.gpsState || '').trim();
     const gpsState = GPS_HEARTBEAT_STATES.has(rawState) ? rawState : 'ok';
+    const networkState = ['wifi', 'mobile', 'ethernet', 'none', 'other'].includes(req.body?.networkState)
+      ? req.body.networkState as string : undefined;
 
     // Device-reported time of its most recent valid fix. Validated with
     // the same skew/age bounds as points - never trusted blindly.
@@ -1597,6 +1600,12 @@ export async function trackingHeartbeat(req: Request, res: Response) {
       if (diag) {
         console.log('[TrackingController] heartbeat diag', actor.empid, diag);
       }
+      const previousReport = data?.lastDeviceReport;
+      const lastDeviceReport = { receivedAt: nowIso,
+        gpsState: GPS_HEARTBEAT_STATES.has(rawState) ? rawState : 'unknown',
+        ...(networkState ? { networkState, networkReceivedAt: nowIso } : previousReport?.networkState
+          ? { networkState: previousReport.networkState, networkReceivedAt: previousReport.networkReceivedAt || previousReport.receivedAt } : {}),
+      };
 
       if (!snap.exists) {
         // Session doc missing but attendance is live (e.g. the check-in
@@ -1615,6 +1624,7 @@ export async function trackingHeartbeat(req: Request, res: Response) {
           lastUpdateAt: nowIso,
           lastHeartbeatAt: nowIso,
           lastGpsState: gpsState,
+          lastDeviceReport,
           ...(fixIso ? { lastGpsFixAt: fixIso } : {}),
           ...(diag ? { lastCaptureDiag: diag } : {}),
         } as TrackDayDoc);
@@ -1625,6 +1635,7 @@ export async function trackingHeartbeat(req: Request, res: Response) {
         lastUpdateAt: nowIso,
         lastHeartbeatAt: nowIso,
         lastGpsState: gpsState,
+        lastDeviceReport,
       };
       if (diag) update['lastCaptureDiag'] = diag;
       const prevFix = String(data!.lastGpsFixAt || '');

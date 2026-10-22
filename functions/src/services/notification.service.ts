@@ -395,12 +395,12 @@ export async function notifyCompanyAdminsOfTrackingEvent(params: {
       ? 'PERMISSION_REVOKED'
       : (off ? 'LOCATION_DISABLED' : 'LOCATION_ENABLED');
     const title = revoked
-      ? 'Location Permission Revoked'
-      : (off ? 'Employee GPS Turned Off' : 'Employee GPS Restored');
+      ? 'Location Permission Revoked — Confirmed'
+      : (off ? 'Location Disabled — Confirmed' : 'Employee GPS Restored');
     const body = revoked
-      ? `Location permission was revoked for ${employeeName} (${empid}) during tracking at ${eventTs}.`
+      ? `${employeeName} (${empid}): location permission unavailable — confirmed by device report received at ${eventTs}.`
       : off
-        ? `${employeeName} (${empid}) turned OFF location services during tracking at ${eventTs}.`
+        ? `${employeeName} (${empid}): location disabled — confirmed by device report received at ${eventTs}.`
         : `${employeeName} (${empid}) turned location services back ON at ${eventTs}.`;
     const entityId = `${empid}_${dateIso}`;
 
@@ -516,6 +516,49 @@ export async function notifyCompanyAdminsOfSuspiciousLocation(params: {
   }
 }
 
+export function trackingInterruptionDetails(tracking: Record<string, any> = {}, lastContact?: string): string {
+  const time = (value: unknown) => typeof value === 'string' && Number.isFinite(Date.parse(value))
+    ? new Date(value).toISOString() : 'Unknown';
+  const label = (values: Record<string, string>, key: unknown) =>
+    typeof key === 'string' && Object.prototype.hasOwnProperty.call(values, key) ? values[key] : undefined;
+  const report = tracking.lastDeviceReport || {};
+  let state = report.gpsState || tracking.lastGpsState;
+  let stateAt = ['ok', 'no_fix', 'service_off'].includes(state) ? time(report.receivedAt) : 'Unknown';
+  let permissionAt = state === 'perm_denied' ? time(report.receivedAt) : 'Unknown';
+  let permission = state === 'perm_denied' ? 'Revoked' : 'Unknown';
+  for (const event of Array.isArray(tracking.events) ? tracking.events : []) {
+    if (!event || typeof event !== 'object') continue;
+    if (event.type === 'permission_revoked' && time(event.ts) !== 'Unknown' &&
+        (permissionAt === 'Unknown' || Date.parse(event.ts) > Date.parse(permissionAt))) {
+      permission = 'Revoked';
+      permissionAt = time(event.ts);
+    }
+    const next = label({ location_disabled: 'service_off', gps_disabled: 'service_off',
+      location_enabled: 'ok' }, event.type);
+    if (next && time(event.ts) !== 'Unknown' &&
+        (stateAt === 'Unknown' || Date.parse(event.ts) > Date.parse(stateAt))) {
+      state = next;
+      stateAt = time(event.ts);
+    }
+  }
+  const gps = state === 'service_off' ? 'Disabled' : ['ok', 'no_fix'].includes(state) ? 'Enabled' : 'Unknown';
+  const network = label({ wifi: 'Wi-Fi', mobile: 'Mobile', ethernet: 'Ethernet', none: 'No interface',
+    other: 'Other' }, report.networkState) || 'Unknown';
+  const networkAt = network === 'Unknown' ? 'Unknown' : time(report.networkReceivedAt || report.receivedAt);
+  const battery = typeof report.batteryPercent === 'number' && Number.isInteger(report.batteryPercent) &&
+    report.batteryPercent >= 0 && report.batteryPercent <= 100 && time(report.receivedAt) !== 'Unknown'
+    ? `${report.batteryPercent}% (last reported at ${time(report.receivedAt)})` : 'Unknown';
+  const origin = label({ fg: 'Foreground service', wm: 'WorkManager', service: 'Tracking service', seed: 'Check-in seed' },
+    tracking.lastCaptureDiag?.origin) || 'Unknown';
+  const point = Array.isArray(tracking.pathMap) ? tracking.pathMap[tracking.pathMap.length - 1] : undefined;
+  const fix = time(tracking.lastGpsFixAt) !== 'Unknown' ? time(tracking.lastGpsFixAt) : time(point?.capturedAt || point?.ts);
+  return `Last successful contact: ${time(lastContact || tracking.lastUpdateAt)}. Last GPS update: ${fix}. ` +
+    `GPS (last reported): ${gps}; report received: ${stateAt}. ` +
+    `Permission (last reported): ${permission}; report received: ${permissionAt}. ` +
+    `Network interface (last reported): ${network}; report received: ${networkAt}; current internet reachability: Unknown. ` +
+    `Battery: ${battery}. Last reporting component: ${origin}; current app/device state: Unknown.`;
+}
+
 /**
  * Notify tenant admins (role 'admin' only — super_admin / platform_admin
  * and other roles are excluded) when a live tracking session misses
@@ -539,6 +582,7 @@ export async function notifyCompanyAdminsOfTrackingInterruption(params: {
   /** ISO timestamp - interruption: last contact; recovered: resume time. */
   sinceTs: string;
   dateIso: string;
+  tracking?: Record<string, any>;
 }): Promise<{ sent: number; failed: number; records: number }> {
   const { companyId, empid, employeeName, kind, sinceTs, dateIso } = params;
 
@@ -564,14 +608,13 @@ export async function notifyCompanyAdminsOfTrackingInterruption(params: {
       : 'GPS Updates Recovered';
     const body =
       kind === 'interrupted'
-        ? `Location updates missing for ${employeeName} (${empid}) since ${sinceTs}. ` +
-          'The app may be closed, offline, out of battery, or GPS may be off.'
+        ? `Tracking Interrupted — Device contact lost. Exact cause unknown. ${employeeName} (${empid}). ` +
+          trackingInterruptionDetails(params.tracking, sinceTs)
       : kind === 'recovered'
-        ? `${employeeName} (${empid}) location updates resumed at ${sinceTs}.`
+        ? `${employeeName} (${empid}) device contact resumed at ${sinceTs}.`
       : kind === 'gps_delayed'
-        ? `${employeeName} (${empid}) has no valid GPS fix since ${sinceTs}, ` +
-          'but the tracking service is still running. GPS may be obstructed, ' +
-          'unavailable, or unable to get a lock.'
+        ? `${employeeName} (${empid}) has no valid GPS fix since ${sinceTs}. ` +
+          'Recent device contact was received. Exact cause of the missing GPS fix is unknown.'
         : `${employeeName} (${empid}) GPS fixes resumed at ${sinceTs}.`;
     const entityId = gpsGap
       ? `${empid}_${dateIso}_gps` : `${empid}_${dateIso}`;

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:geolocator/geolocator.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:serv_app/services/tracking_post_result.dart';
 
 /// Builds the canonical POST /tracking/pos payload used by every producer
@@ -125,6 +126,14 @@ Map<String, dynamic> buildCaptureDiag({
   };
 }
 
+String? trackingNetworkState(List<ConnectivityResult> interfaces) {
+  if (interfaces.contains(ConnectivityResult.wifi)) return 'wifi';
+  if (interfaces.contains(ConnectivityResult.mobile)) return 'mobile';
+  if (interfaces.contains(ConnectivityResult.ethernet)) return 'ethernet';
+  if (interfaces.isEmpty) return null;
+  return interfaces.every((value) => value == ConnectivityResult.none) ? 'none' : 'other';
+}
+
 /// Builds the POST /tracking/heartbeat payload - a lightweight liveness +
 /// GPS-state ping carrying NO coordinates. [gpsFixAt] is the device's most
 /// recent valid fix (persisted across ticks), letting the server advance
@@ -133,6 +142,7 @@ Map<String, dynamic> buildCaptureDiag({
 Map<String, dynamic> buildTrackingHeartbeatPayload({
   required String empid,
   required String gpsState,
+  String? networkState,
   String? dateIso,
   DateTime? gpsFixAt,
   Map<String, dynamic>? diag,
@@ -140,6 +150,8 @@ Map<String, dynamic> buildTrackingHeartbeatPayload({
   return {
     'empid': empid,
     'gpsState': gpsState,
+    if (['wifi', 'mobile', 'ethernet', 'none', 'other'].contains(networkState))
+      'networkState': networkState,
     'dateIso': dateIso ?? trackingDateIso(),
     if (gpsFixAt != null) 'gpsFixAtUtc': gpsFixAt.toUtc().toIso8601String(),
     if (diag != null) 'diag': diag,

@@ -195,6 +195,7 @@ export async function runTrackingHeartbeatSweep(
         kind: 'interrupted',
         sinceTs: lastUpdateAt,
         dateIso,
+        tracking: data,
       });
       out.alerted++;
     } catch (err: any) {

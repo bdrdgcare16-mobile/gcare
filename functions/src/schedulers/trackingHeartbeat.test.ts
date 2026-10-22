@@ -168,6 +168,19 @@ describe('runTrackingHeartbeatSweep', () => {
     expect(doc.interruption?.since).toBe(doc.lastUpdateAt);
   });
 
+  test('interruption diagnostics reuse the tracking snapshot and do not bypass gap deduplication', async () => {
+    const doc = trackingDoc({ lastGpsFixAt: '2026-10-12T08:00:00.000Z',
+      lastDeviceReport: { gpsState: 'service_off', networkState: 'none', receivedAt: '2026-10-12T09:00:00.000Z' } });
+    currentDb = makeDb({ tracking: [doc], attendance: [ACTIVE_ATT] });
+    await runTrackingHeartbeatSweep();
+    await runTrackingHeartbeatSweep();
+    expect(notifyInterruption).toHaveBeenCalledTimes(1);
+    expect(notifyInterruption).toHaveBeenCalledWith(expect.objectContaining({
+      companyId: 'COMP_A', tracking: expect.objectContaining({ lastGpsFixAt: doc.lastGpsFixAt,
+        lastDeviceReport: doc.lastDeviceReport }),
+    }));
+  });
+
   test('fresh session is never scanned (lastUpdateAt newer than cutoff)', async () => {
     currentDb = makeDb({
       tracking: [trackingDoc({

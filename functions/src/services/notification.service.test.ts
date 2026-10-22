@@ -9,6 +9,7 @@ import {
   notifyCompanyAdminsOfSuspiciousLocation,
   notifyCompanyAdminsOfTrackingInterruption,
   reconcilePendingAdminNotifies,
+  trackingInterruptionDetails,
 } from './notification.service';
 
 // ---- Predicate-aware fake Firestore (same pattern as
@@ -160,6 +161,45 @@ describe('getCompanyAdmins', () => {
   });
 });
 
+describe('tracking interruption diagnostic evidence', () => {
+  const receivedAt = '2026-10-21T10:00:00.000Z';
+  test('missing fields are unknown and session start is never a fabricated GPS fix', () => {
+    const text = trackingInterruptionDetails({ startedAt: receivedAt, events: [null, {}] });
+    expect(text).toContain('Last GPS update: Unknown');
+    expect(text).toContain('Battery: Unknown');
+    expect(text).toContain('Network interface (last reported): Unknown');
+    expect(text).not.toContain('Invalid Date');
+  });
+
+  test('low battery and network loss are last reports, never inferred causes', () => {
+    const text = trackingInterruptionDetails({ lastUpdateAt: receivedAt, lastGpsFixAt: receivedAt,
+      lastDeviceReport: { receivedAt, gpsState: 'service_off', networkState: 'none', batteryPercent: 4 },
+      lastCaptureDiag: { origin: 'wm' } });
+    expect(text).toContain('4% (last reported at');
+    expect(text).toContain('GPS (last reported): Disabled');
+    expect(text).toContain('No interface');
+    expect(text).toContain('current internet reachability: Unknown');
+    expect(text).toContain('WorkManager');
+    expect(text).not.toMatch(/battery is dead|phone is off|internet is disconnected|force.closed/i);
+  });
+
+  test('GPS enabled reports do not erase the last explicit permission-revoked evidence', () => {
+    const text = trackingInterruptionDetails({ events: [
+      { type: 'permission_revoked', ts: '2026-10-21T09:00:00Z' },
+      { type: 'location_enabled', ts: receivedAt },
+    ] });
+    expect(text).toContain('GPS (last reported): Enabled');
+    expect(text).toContain('Permission (last reported): Revoked');
+    expect(text).toContain('2026-10-21T09:00:00.000Z');
+  });
+
+  test('malformed battery and unknown network are not displayed as reliable evidence', () => {
+    const text = trackingInterruptionDetails({ lastDeviceReport: { receivedAt, batteryPercent: 101, networkState: 'offline' } });
+    expect(text).toContain('Battery: Unknown');
+    expect(text).toContain('Network interface (last reported): Unknown');
+  });
+});
+
 describe('notifyCompanyAdminsOfTrackingInterruption recipients', () => {
   beforeEach(() => {
     seed();
@@ -217,6 +257,10 @@ describe('notifyCompanyAdminsOfTrackingInterruption recipients', () => {
       .toBe('U_ADMIN');
     expect(currentDb._store.notifications[0].title)
       .toBe('Tracking Interrupted');
+    expect(currentDb._store.notifications[0].body).toContain('Tracking Interrupted — Device contact lost. Exact cause unknown.');
+    expect(currentDb._store.notifications[0].body).toContain('Alice (EMP1)');
+    expect(currentDb._store.notifications[0].body).toContain('Last successful contact: 2026-10-21T10:00:00.000Z');
+    expect(currentDb._store.notifications[0].body).not.toContain('The app may be');
   });
 
   test('company with no admin produces no notification records', async () => {
@@ -264,7 +308,7 @@ describe('notifyCompanyAdminsOfTrackingEvent recipients', () => {
     const notifs = currentDb._store.notifications;
     expect(notifs.map((n: Row) => n.recipientUserId)).toEqual(['U_ADMIN']);
     expect(notifs[0].type).toBe('LOCATION_DISABLED');
-    expect(notifs[0].title).toBe('Employee GPS Turned Off');
+    expect(notifs[0].title).toBe('Location Disabled — Confirmed');
   });
 
   test('Location Permission Revoked reaches admin only', async () => {
@@ -281,7 +325,7 @@ describe('notifyCompanyAdminsOfTrackingEvent recipients', () => {
     const notifs = currentDb._store.notifications;
     expect(notifs.map((n: Row) => n.recipientUserId)).toEqual(['U_ADMIN']);
     expect(notifs[0].type).toBe('PERMISSION_REVOKED');
-    expect(notifs[0].title).toBe('Location Permission Revoked');
+    expect(notifs[0].title).toBe('Location Permission Revoked — Confirmed');
   });
 });
 
