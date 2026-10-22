@@ -12,6 +12,7 @@ import {
   resolveAttendancePolicy,
 } from '../utils/attendancePolicy';
 import { closeTrackingSession } from './trackingController';
+import { employeeAttendance, isOpenAttendance, selectAttendance, commitAttendanceCheckIn, completeAttendanceSession, attendanceSessionFields, attendanceInstant, reconcileEmployeeAttendance } from '../services/attendanceSession';
 
 // Helper functions for request processing
 const getReqCompanyId = (req: Request) => req.user?.companyId;
@@ -42,7 +43,7 @@ function toYMD(d: Date = new Date()): string {
   return fmt.format(d); // YYYY-MM-DD
 }
 
-function nowTimeIST(): string {
+function nowTimeIST(at: Date = new Date()): string {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: IST_TZ,
     hour: '2-digit',
@@ -50,7 +51,7 @@ function nowTimeIST(): string {
     second: '2-digit',
     hour12: false,
   })
-    .formatToParts(new Date())
+    .formatToParts(at)
     .reduce<Record<string, string>>((acc, p) => {
       if (p.type !== 'literal') acc[p.type] = p.value;
       return acc;
@@ -362,7 +363,8 @@ export const checkIn = async (req: Request, res: Response) => {
   if (!empid || !name) {
     return res.status(400).json({ error: 'empid and name are required' });
   }
-  const today = toYMD(new Date());
+  const attendanceAt = new Date();
+  const today = toYMD(attendanceAt);
 
   try {
     // 1) find/create today's doc
@@ -373,8 +375,15 @@ export const checkIn = async (req: Request, res: Response) => {
       .limit(1)
       .get();
 
-    const nowTime = nowTimeIST(); // HH:mm:ss (IST)
-    const checkInTsUtc = nowUtcISO(); // authoritative UTC timestamp, committed below
+    await reconcileEmployeeAttendance(companyId, empid);
+    const sessions = await employeeAttendance(companyId, empid).get();
+    if (sessions.docs.some(d => isOpenAttendance(d.data()) ||
+        (d.data().date === today && (d.data().checkIn || d.data().checkInTsUtc || d.data().checkOut || d.data().checkOutTsUtc)))) {
+      return res.status(409).json({ error: 'Already checked in', code: 'ALREADY_CHECKED_IN' });
+    }
+
+    const nowTime = nowTimeIST(attendanceAt); // HH:mm:ss (IST)
+    const checkInTsUtc = attendanceAt.toISOString(); // authoritative UTC timestamp, committed below
 
     // 2) company attendance geo policy — resolved once per request from the
     //    verified tenant context (JWT companyId), never request input.
@@ -587,7 +596,7 @@ export const checkIn = async (req: Request, res: Response) => {
         });
       }
 
-      await doc.ref.update({
+      const committed = await commitAttendanceCheckIn(companyId, empid, today, {
         checkIn: nowTime,
         checkInTsUtc,                           // <<< AUDIT FIELD
         name,
@@ -614,6 +623,7 @@ export const checkIn = async (req: Request, res: Response) => {
         approvalStatus: 'Pending',
         updatedAt:FieldValue.serverTimestamp(),
       });
+      if (!committed) return res.status(409).json({ error: 'Already checked in', code: 'ALREADY_CHECKED_IN' });
 
       if (withinRadius === false || (otherLocation && otherLocation.trim() !== '')) {
         await createOtherLocationEvent({
@@ -638,14 +648,13 @@ export const checkIn = async (req: Request, res: Response) => {
           : 'Check-in updated',
         withinRadius,
         pendingLocationApproval: withinRadius === false,
-        checkIn: nowTime,
-        checkInTsUtc,
+        ...attendanceSessionFields((await employeeAttendance(companyId, empid).where('date', '==', today).limit(1).get()).docs[0]?.data() || {}),
         officePresence: checkInOfficePresence,
       });
     }
 
     // new record
-    await db.collection(ATT_COL).add({
+    const committed = await commitAttendanceCheckIn(companyId, empid, today, {
       empid,
       name,
       date: today,
@@ -676,6 +685,7 @@ export const checkIn = async (req: Request, res: Response) => {
       createdAt:FieldValue.serverTimestamp(),
       updatedAt:FieldValue.serverTimestamp(),
     });
+    if (!committed) return res.status(409).json({ error: 'Already checked in', code: 'ALREADY_CHECKED_IN' });
 
     if (withinRadius === false || (otherLocation && otherLocation.trim() !== '')) {
       await createOtherLocationEvent({
@@ -708,8 +718,7 @@ export const checkIn = async (req: Request, res: Response) => {
         : 'Checked-in successfully',
       withinRadius,
       pendingLocationApproval: withinRadius === false,
-      checkIn: nowTime,
-      checkInTsUtc,
+      ...attendanceSessionFields((await employeeAttendance(companyId, empid).where('date', '==', today).limit(1).get()).docs[0]?.data() || {}),
       officePresence: checkInOfficePresence,
     });
   } catch (err: any) {
@@ -744,16 +753,17 @@ export const checkOut = async (req: Request, res: Response) => {
   const today = toYMD(new Date());
 
   try {
-    const snap = await db.collection(ATT_COL)
-      .where('empid', '==', empid)
-      .where('date', '==', today)
-      .where('companyId', '==', companyId)
-      .limit(1)
-      .get();
+    await reconcileEmployeeAttendance(companyId, empid);
+    const snap = await employeeAttendance(companyId, empid).get();
+    const active = snap.docs.filter(d => isOpenAttendance(d.data()));
+    if (active.length > 1) return res.status(409).json({ error: 'Multiple active sessions; administrator review required' });
+    if (!active.length) {
+      const expired = snap.docs.some(d => d.data().sessionState === 'auto_inactive');
+      return res.status(expired ? 409 : 400).json({ error: expired ? 'Attendance session auto-inactivated' : 'You need to check in first',
+        ...(expired ? { code: 'ATTENDANCE_AUTO_INACTIVE' } : {}) });
+    }
 
-    if (snap.empty) return res.status(400).json({ error: 'You need to check in first' });
-
-    const doc = snap.docs[0];
+    const doc = active[0];
     if (doc.data().checkOut) {
       // still allow saving/overriding reason if sent
       if (reasonText) {
@@ -769,6 +779,9 @@ export const checkOut = async (req: Request, res: Response) => {
     }
 
     const current = doc.data() as any;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(current.date || '') || !attendanceInstant(current, 'checkIn')) {
+      return res.status(409).json({ error: 'Invalid active session timestamps; administrator review required' });
+    }
     const branchName = normStr(current.branchName || location || current.location || '');
 
     // Company attendance geo policy — resolved once per request from the
@@ -909,11 +922,14 @@ export const checkOut = async (req: Request, res: Response) => {
     const gate = evaluateAttendanceGate(hasFix, checkOutOfficePresence, attPolicy);
     const checkOutPolicyViolation = gate === 'allow' ? null : gate;
 
-    const nowTime = nowTimeIST();
-
-    await doc.ref.update({
+    const checkOutTsUtc = nowUtcISO();
+    const nowTime = nowTimeIST(new Date(checkOutTsUtc));
+    const session = { ...current, checkOut: nowTime, checkOutTsUtc, checkOutDate: toYMD(new Date(checkOutTsUtc)) };
+    const completed = await completeAttendanceSession(companyId, empid, doc.id, {
       checkOut: nowTime,
-      checkOutTsUtc: nowUtcISO(),               // <<< AUDIT FIELD
+      checkOutDate: session.checkOutDate,
+      workedSeconds: attendanceSessionFields(session).workedSeconds,
+      checkOutTsUtc,               // <<< AUDIT FIELD
       location: branchName,
       checkOutLatitude,
       checkOutLongitude,
@@ -934,6 +950,8 @@ export const checkOut = async (req: Request, res: Response) => {
       ...(reasonTypeName ? { reasonTypeName } : {}),
       updatedAt: FieldValue.serverTimestamp(),
     });
+
+    if (!completed) return res.status(409).json({ error: 'Session already checked out' });
 
     // Server-authoritative tracking close. The client also calls
     // /tracking/check-out, but it can die between this write and that call
@@ -986,6 +1004,8 @@ export const checkOut = async (req: Request, res: Response) => {
 
     return res.json({
       message: 'Checked-out & set inactive',
+      ...attendanceSessionFields(session),
+      checkOut: nowTime,                        // HH:mm:ss IST, same write
       officePresence: checkOutOfficePresence,
       policyViolation: checkOutPolicyViolation,
     });
@@ -1024,6 +1044,16 @@ export const getLiveAttendance = async (req: Request, res: Response) => {
 
     const attSnap = await db.collection(ATT_COL).where('date', '==', today).where('companyId', '==', companyId).get();
     const attMap: Record<string, any> = Object.fromEntries(attSnap.docs.map(d => [d.data().empid, d.data()]));
+    let hasAttendanceToday = false;
+    if (!isRosterView) {
+      const empid = getReqEmpId(req);
+      await reconcileEmployeeAttendance(companyId, empid);
+    const sessions = await employeeAttendance(companyId, empid).get();
+      hasAttendanceToday = sessions.docs.some(d => d.data().date === today &&
+        !!(d.data().checkIn || d.data().checkInTsUtc || d.data().checkOut || d.data().checkOutTsUtc));
+      const selected = selectAttendance(sessions.docs, today);
+      if (selected) attMap[empid] = selected.data();
+    }
 
     console.log('=== LIVE ATTENDANCE HALF-DAY DEBUG START ===');
     console.log('Today:', today);
@@ -1284,7 +1314,8 @@ export const getLiveAttendance = async (req: Request, res: Response) => {
         empid:          (emp as any).empid,
         name:           (emp as any).name,
         shiftGroup:     (emp as any).shiftGroup,
-        date:           today,
+        ...attendanceSessionFields(rec || { date: today }),
+        hasAttendanceToday: isRosterView ? !!rec?.checkIn : hasAttendanceToday,
         status,
         checkIn:        rec?.checkIn || null,
         checkOut:       rec?.checkOut || null,
@@ -1723,7 +1754,8 @@ export const getRangeSummary = async (req: Request, res: Response) => {
               checkOut: att?.checkOut || '-',
               department: (emp as any).dept || (emp as any).department || '',
               attendance: status,
-              workedHours: att?.workedHours ? String(att.workedHours) : '-',
+              sessionState: att?.sessionState || null,
+              workedHours: att?.sessionState === 'auto_inactive' ? '-' : att?.workedHours ? String(att.workedHours) : '-',
               late: isLate,
               early: isEarly,
               approval: att?.approvalStatus || 'Pending',

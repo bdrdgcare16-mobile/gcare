@@ -124,6 +124,8 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
 
   IconData _iconFor(String type) {
     switch (type) {
+      case 'ATTENDANCE_AUTO_INACTIVATED':
+        return Icons.timer_off_outlined;
       case 'LOCATION_DISABLED':
         return Icons.location_off;
       case 'LOCATION_ENABLED':

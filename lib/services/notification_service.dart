@@ -57,11 +57,13 @@ class AppNotification {
   /// EmployeeDetailPage: per-event notifications (tracking_event) and
   /// heartbeat alerts (tracking_heartbeat) share that payload shape.
   bool get isTrackingEvent =>
-      entityType == 'tracking_event' || entityType == 'tracking_heartbeat';
+      entityType == 'tracking_event' || entityType == 'tracking_heartbeat' || entityType == 'attendance_expiry';
 
   /// Short label for the notification kind shown in the history list.
   String get kindLabel {
     switch (type) {
+      case 'ATTENDANCE_AUTO_INACTIVATED':
+        return 'Attendance Auto-Inactivated';
       case 'LOCATION_DISABLED':
         return 'GPS Disabled';
       case 'LOCATION_ENABLED':

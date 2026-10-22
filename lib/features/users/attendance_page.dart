@@ -20,6 +20,7 @@ import 'package:serv_app/main_common.dart';
 import 'package:serv_app/services/api_service.dart';
 import 'package:serv_app/utils/performance_logger.dart';
 import 'package:serv_app/utils/office_presence.dart';
+import 'package:serv_app/utils/attendance_time.dart';
 import 'package:serv_app/utils/battery_optimization.dart';
 import 'package:serv_app/debug/native_gps_diagnostic.dart';
 import 'package:permission_handler/permission_handler.dart'
@@ -145,7 +146,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   bool _checkoutInProgress = false;
   _AssignedGeo? _cachedGeo;
 
-  DateTime? _lastStatusFetch;
+  String? _attendanceDate;
+  bool _hasAttendanceToday = false;
+  int _statusGeneration = 0;
+
+  DateTime _attendanceNow() => attendanceWallTime();
+
+  DateTime? _attendanceInstant(dynamic timestamp, String? hms, String? date) =>
+      parseAttendanceTime(timestamp, hms, date);
 
   // Track check-in and check-out times (for UI labels only)
   DateTime? _checkInTime;
@@ -158,7 +166,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final hour =
         time.hour > 12 ? time.hour - 12 : (time.hour == 0 ? 12 : time.hour);
     final amPm = time.hour >= 12 ? 'PM' : 'AM';
-    return '${hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')} $amPm';
+    final date = '${time.year.toString().padLeft(4, '0')}-${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')}';
+    final suffix = _attendanceDate != null && date != _attendanceDate ? ' ($date)' : '';
+    return '${hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')} $amPm$suffix';
   }
 
   String userName = "";
@@ -299,7 +309,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       if (_loadUserInfoFuture != null) {
         _loadUserInfoFuture!.then((_) => _loadTodayStatus());
       } else {
-        _restoreCheckInFromPrefs().then((_) => _loadTodayStatus());
+        _loadTodayStatus();
       }
     }
   }
@@ -340,6 +350,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Future<void> _restoreCheckInFromPrefs() async {
+    if (!_hasAttendanceApiConfirmed || !isCheckedIn || _checkOutTime != null) return;
     if (userId.isEmpty) return;
     final prefs = await _prefs();
     final locallyCheckedIn = prefs.getBool(_key(_kCheckedInKeyBase)) ?? false;
@@ -429,6 +440,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Future<DateTime?> _getCachedCheckInTime() async {
+    if (!_hasAttendanceApiConfirmed || !isCheckedIn || _checkOutTime != null) return null;
     if (userId.isEmpty) return null;
     final prefs = await _prefs();
     final cacheKey = _getCheckInCacheKey();
@@ -632,9 +644,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       _attendanceStatusError = null;
     });
 
-    if (_lastStatusFetch != null &&
-        DateTime.now().difference(_lastStatusFetch!) <
-            const Duration(minutes: 2)) {
+    final generation = ++_statusGeneration;
+    if (_checkoutInProgress) {
       debugPrint(
           '[Attendance] Using cached status (last fetch < 2 minutes ago)');
       if (!mounted) return;
@@ -664,6 +675,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     try {
       final res =
           await http.get(url, headers: {'Authorization': 'Bearer $token'});
+      if (!mounted || generation != _statusGeneration) return;
 
       final endTime = DateTime.now();
       PerformanceLogger.logApiCall(
@@ -700,7 +712,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         return;
       }
 
-      _lastStatusFetch = DateTime.now();
+      _hasAttendanceApiConfirmed = true;
 
       final list = List<Map<String, dynamic>>.from(jsonDecode(res.body));
       confirmed = true;
@@ -715,34 +727,61 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             '[Attendance] /live returned ${list.length} rows, none matched empid=$userId');
       }
 
-      final checkIn = (me['checkIn']) as String?;
-      final checkOut = (me['checkOut']) as String?;
+      final checkIn = me['checkIn']?.toString();
+      final checkOut = me['checkOut']?.toString();
+      _attendanceDate = me['date']?.toString();
+      final start = _attendanceInstant(me['checkInTsUtc'], checkIn, _attendanceDate);
+      final end = _attendanceInstant(me['checkOutTsUtc'], checkOut,
+          me['checkOutDate']?.toString() ?? _attendanceDate);
+      _hasAttendanceToday = me['hasAttendanceToday'] == true ||
+          (_attendanceDate == _todayYmd() && (start != null || end != null));
+      if ((start == null &&
+              ((checkIn?.isNotEmpty ?? false) || me['checkInTsUtc'] != null)) ||
+          (end == null &&
+              ((checkOut?.isNotEmpty ?? false) || me['checkOutTsUtc'] != null))) {
+        confirmed = false;
+        throw const FormatException('Invalid attendance timestamps');
+      }
       _checkInSource =
           (me['checkInSource'] ?? me['source'] ?? '').toString().toLowerCase();
 
       print("CHECK IN TIME: $_checkInTime");
       print("CHECK OUT TIME: $_checkOutTime");
 
-      if (checkOut != null && checkOut.isNotEmpty) {
-        // User already checked out - clear state and show not checked in
-        debugPrint('[Attendance] User already checked out, clearing cache');
-        _resetTimerAndState();
+      if (end != null) {
+        // Completed session: keep BOTH server timestamps visible ("In:"/
+        // "Out:") and freeze the timer at the worked duration. Only the
+        // active-session flags are cleared - never the recorded times.
+        debugPrint('[Attendance] User already checked out, showing session');
+        _checkInTime = start;
+        _checkOutTime = end;
+        _applyCheckedOutState(
+            serverCheckIn: checkIn, serverCheckOut: checkOut, checkOut: end);
+        final prefs = await _prefs();
+        await prefs.setString(kTrackingSessionDateKey, _attendanceDate ?? _todayYmd());
+        await _clearTrackingState();
+        await stopFgTracking();
+        await cancelBackgroundTracking(empid: userId);
+        await _tracking?.stopAfterCheckOut();
+        await clearTrackingSessionIdentity();
         await _clearCheckInFromPrefs();
         await _clearCheckInCache(); // Clear cache on checkout
         if (!mounted) return;
         setState(() {
-          isCheckedIn = false;
           _checkInSource = '';
         });
-        // Checked-in state just resolved to false - warm-up may have been
-        // skipped at page open while stale prefs said checked-in.
-        unawaited(_maybeStartGpsWarmup());
+        // The day's session is complete and no further check-in is
+        // possible - stop GPS warm-up instead of starting it so the page
+        // does not sit on a misleading "Preparing GPS…" status.
+        _stopGpsWarmup();
         return;
       }
 
-      if (checkIn != null && checkIn.isNotEmpty) {
+      if (start != null) {
         // User is checked in - apply check-in data and start timer
-        _applyCheckedInFromServer(checkIn);
+        _applyCheckedInFromServer(checkIn ?? '', instant: start);
+        final prefs = await _prefs();
+        await prefs.setString(kTrackingSessionDateKey, _attendanceDate ?? _todayYmd());
         // Persist the SERVER-confirmed time, not the local clock.
         await _saveCheckInToPrefs(at: _checkInTime);
         debugPrint('[Timer] Timer started');
@@ -781,7 +820,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       // Clear loading state. Only a successful API response confirms the
       // status - failures leave _hasAttendanceApiConfirmed=false so the UI
       // shows the error state instead of "not checked in".
-      if (!mounted) return;
+      if (!mounted || generation != _statusGeneration) return;
       setState(() {
         _isAttendanceStatusLoading = false;
         _hasAttendanceApiConfirmed = confirmed;
@@ -789,22 +828,62 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
   }
 
-  void _applyCheckedInFromServer(String hhmmss) {
+  /// Parses an "HH:mm:ss" value (IST, as stored on the attendance record)
+  /// into a DateTime for today in local time. Returns null when the value
+  /// is missing or malformed so callers can keep their current state.
+  DateTime? _parseHmsToday(String? hms) {
+    return _attendanceInstant(null, hms, _attendanceDate ?? _todayYmd());
+  }
+
+  /// Applies a completed (checked-out) session to the UI. Stops the work
+  /// timer and freezes it at the worked duration while PRESERVING both
+  /// timestamps so the card keeps showing the recorded In/Out times.
+  /// Server values are authoritative; locally held times are kept only
+  /// when the server did not send a parseable value.
+  void _applyCheckedOutState(
+      {String? serverCheckIn,
+      String? serverCheckOut,
+      DateTime? checkOut}) {
+    final inTime = _checkInTime ?? _parseHmsToday(serverCheckIn);
+    var outTime =
+        checkOut ?? _checkOutTime ?? _parseHmsToday(serverCheckOut);
+    if (outTime == null) return;
+
+    // Overnight checkout: an "Out" time earlier than "In" belongs to the
+    // following day.
+    if (inTime != null && outTime.isBefore(inTime)) {
+      outTime = outTime.add(const Duration(days: 1));
+    }
+
+    final worked = inTime != null ? outTime.difference(inTime).inSeconds : 0;
+
+    _timer?.cancel();
+    _timer = null;
+    isCheckedIn = false;
+    isTimerRunning = false;
+    _checkInTime = inTime;
+    _checkOutTime = outTime;
+    if (!mounted) return;
+    setState(() {
+      totalSeconds = worked > 0 ? worked : 0;
+      hours = (totalSeconds ~/ 3600).toString().padLeft(2, '0');
+      minutes = ((totalSeconds % 3600) ~/ 60).toString().padLeft(2, '0');
+      seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+    });
+  }
+
+  void _applyCheckedInFromServer(String hhmmss, {DateTime? instant}) {
     try {
-      final now = DateTime.now();
-      final parts = hhmmss.split(':').map((s) => int.tryParse(s) ?? 0).toList();
+      final now = _attendanceNow();
 
       // Use actual server check-in time, not current time
-      final checkInDateTime = DateTime(now.year, now.month, now.day, parts[0],
-          parts[1], parts.length > 2 ? parts[2] : 0);
+      final checkInDateTime = instant ?? _parseHmsToday(hhmmss);
+      if (checkInDateTime == null) return;
 
       debugPrint('[Attendance] Server check-in time received');
 
       // Check if server time is different from current check-in time
-      final timeChanged = _checkInTime == null ||
-          _checkInTime!.hour != checkInDateTime.hour ||
-          _checkInTime!.minute != checkInDateTime.minute ||
-          _checkInTime!.second != checkInDateTime.second;
+      final timeChanged = _checkInTime != checkInDateTime || !(_timer?.isActive ?? false);
 
       if (timeChanged) {
         debugPrint(
@@ -848,6 +927,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             '[Attendance] Server check-in time matches current, no timer adjustment needed');
         // Just ensure cache is up to date
         _cacheCheckInTime(checkInDateTime);
+        _startWorkTimer();
         // The server still reports an active check-in - the UI must reflect
         // it even when _checkInTime already matched (e.g. it survived a
         // local state reset). Leaving isCheckedIn=false here would wrongly
@@ -893,7 +973,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   String _todayYmd() {
-    final now = DateTime.now();
+    final now = _attendanceNow();
     return '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
   }
 
@@ -2240,7 +2320,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       // IMPORTANT:
       // If a check-in already exists today, block any further check-in attempts.
       // This is true even if checkout is already completed.
-      return checkIn.isNotEmpty;
+      return me['hasAttendanceToday'] == true ||
+          (checkIn.isNotEmpty && me['checkOut'] == null);
     } catch (e) {
       _log('Error checking existing check-in: $e');
       return false;
@@ -2304,12 +2385,20 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       debugPrint('[GPS] warm-up skipped: not mounted');
       return;
     }
+    if (!_hasAttendanceApiConfirmed) return;
     if (_gpsWarmSub != null) return; // already running
     if (isCheckedIn) {
       // isCheckedIn can be transiently true while cached prefs are
       // reconciled by _loadTodayStatus - the false-resolution path calls
       // this again, so skipping here is safe.
       debugPrint('[GPS] warm-up skipped: checked in (or status pending)');
+      return;
+    }
+    if (_checkOutTime != null && _hasAttendanceToday) {
+      // Today's session is already complete - no further check-in can
+      // happen, so warming GNSS would only burn battery and show a
+      // misleading "Preparing GPS…" status.
+      debugPrint('[GPS] warm-up skipped: session already checked out');
       return;
     }
     if (CompanyData.token.isEmpty) {
@@ -2892,10 +2981,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         final serverCheckIn = (responseData['checkIn'] ?? '').toString();
         final serverCheckInTsUtc =
             (responseData['checkInTsUtc'] ?? '').toString();
+        _attendanceDate = responseData['date']?.toString() ?? _todayYmd();
+        _hasAttendanceToday = true;
+        _statusGeneration++;
         if (serverCheckIn.isNotEmpty) {
-          _applyCheckedInFromServer(serverCheckIn);
+          _applyCheckedInFromServer(serverCheckIn,
+              instant: _attendanceInstant(serverCheckInTsUtc, serverCheckIn, _attendanceDate));
         } else if (serverCheckInTsUtc.isNotEmpty) {
-          final ts = DateTime.tryParse(serverCheckInTsUtc)?.toLocal();
+          final ts = _attendanceInstant(serverCheckInTsUtc, serverCheckIn, _attendanceDate);
           if (ts != null) {
             _applyCheckedInFromServer(
                 '${ts.hour.toString().padLeft(2, '0')}:'
@@ -2908,7 +3001,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           // Authoritative time applied - persist exactly that timestamp and
           // skip the redundant status fetch.
           await _saveCheckInToPrefs(at: _checkInTime);
-          _lastStatusFetch = DateTime.now();
+          _hasAttendanceApiConfirmed = true;
         } else {
           // Older backend omitted the timestamp - brief confirming state,
           // then reconcile via the authoritative status endpoint.
@@ -2918,7 +3011,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               _isAttendanceStatusLoading = true;
             });
           }
-          _lastStatusFetch = null;
+          _hasAttendanceApiConfirmed = false;
           await _loadTodayStatus();
         }
 
@@ -2966,7 +3059,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       // A timeout/network failure is ambiguous - the write may actually have
       // landed. Reconcile with the authoritative status before declaring
       // failure; if the server shows the check-in, treat it as success.
-      _lastStatusFetch = null;
+      _hasAttendanceApiConfirmed = false;
       await _loadTodayStatus();
       if (isCheckedIn) {
         if (!mounted) return;
@@ -3031,7 +3124,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final sp = await _prefs();
     await sp.setString(kTrackingStateKey, state);
     await sp.setString(kTrackingStateEmpKey, userId);
-    await sp.setString(kTrackingStateDateKey, _todayYmd());
+    await sp.setString(kTrackingStateDateKey, _attendanceDate ?? _todayYmd());
   }
 
   Future<void> _clearTrackingState() async {
@@ -3064,6 +3157,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     _trackingInitInFlight = true;
     final sw = Stopwatch()..start();
     try {
+      if (!isCheckedIn || _checkOutTime != null) return;
+      final prefs = await _prefs();
+      await prefs.setString(kTrackingSessionDateKey, _attendanceDate ?? _todayYmd());
       await _setTrackingState(isRecovery ? _trkRecovering : _trkStarting);
 
       if (pos != null) {
@@ -3074,6 +3170,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         // or stale position - a live capture is only done by the services.
         await _trackingSessionCheckIn();
       }
+      if (!isCheckedIn || _checkOutTime != null) return;
       debugPrint('[Perf] tracking session up (${sw.elapsedMilliseconds}ms)');
 
       // A fresh check-in re-pins the tracking session date to today;
@@ -3082,7 +3179,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       await startFgTracking(
           empid: userId,
           token: CompanyData.token,
-          newSession: !isRecovery);
+          newSession: false);
+      if (!isCheckedIn || _checkOutTime != null) {
+        await stopFgTracking();
+        return;
+      }
       // A persisted flag does not prove the Android service is alive.
       if (!await isForegroundTrackingRunning()) {
         throw StateError('foreground service did not start');
@@ -3164,7 +3265,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       final owner = sp.getString(kTrackingStateEmpKey);
       final date = sp.getString(kTrackingStateDateKey);
       // A different employee's or day's recovery state must never be reused.
-      if (owner != userId || date != _todayYmd()) {
+      if (owner != userId || date != (_attendanceDate ?? _todayYmd())) {
         await _clearTrackingState();
         unawaited(_runTrackingInit(null, isRecovery: true));
         return;
@@ -3389,6 +3490,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       );
 
       if (res.statusCode == 200) {
+        _statusGeneration++;
+        final completed = Map<String, dynamic>.from(jsonDecode(res.body));
+        _attendanceDate = completed['date']?.toString() ?? _attendanceDate;
+        final start = _attendanceInstant(completed['checkInTsUtc'], completed['checkIn']?.toString(), _attendanceDate);
+        final end = _attendanceInstant(completed['checkOutTsUtc'], completed['checkOut']?.toString(), completed['checkOutDate']?.toString() ?? _attendanceDate);
+        if (start != null) _checkInTime = start;
+        _applyCheckedOutState(serverCheckOut: completed['checkOut']?.toString(), checkOut: end);
+        _hasAttendanceToday = _attendanceDate == _todayYmd();
         // Stop retries/recovery BEFORE clearing checked-in state.
         await _clearTrackingState();
         await stopFgTracking();
@@ -3404,14 +3513,30 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         // signed in; only tracking attribution keys are cleared.
         await clearTrackingSessionIdentity();
 
-        _stopWorkTimer();
+        // Freeze the elapsed duration for the success dialog before the
+        // timer is stopped.
+        final h = hours, m = minutes, s = seconds;
+
+        // Completed session: keep the recorded check-in time on screen and
+        // show the server-committed check-out time (fall back to the local
+        // clock only if an older backend omitted it).
+        String serverCheckOut = '';
+        try {
+          serverCheckOut =
+              (jsonDecode(res.body)['checkOut'] ?? '').toString();
+        } catch (_) {}
+        _applyCheckedOutState(serverCheckOut: serverCheckOut);
         await _clearCheckInFromPrefs();
         await _clearCheckInCache(); // Clear cache on successful check-out
+        if (!mounted) return;
         setState(() {
-          isCheckedIn = false;
-          _checkOutTime = DateTime.now();
           _checkInSource = '';
         });
+        // No further check-in is possible today - stop the warm-up stream
+        // so the page does not show "Preparing GPS…" for a finished day.
+        _stopGpsWarmup();
+        _showSuccessDialog(
+            'Check-out successful!\nWork duration: ${h}h ${m}m ${s}s');
       } else {
         final msg =
             (jsonDecode(res.body)['error'] ?? jsonDecode(res.body)['message'])
@@ -3444,7 +3569,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             'Authorization': 'Bearer $token',
             'x-empid': userId,
           },
-          body: jsonEncode({'dateIso': trackingDateIso()}),
+          body: jsonEncode({'dateIso': _attendanceDate ?? _todayYmd()}),
         )
         .timeout(const Duration(seconds: 15));
     debugPrint('[TRACKING] session creation status=${res.statusCode}');
@@ -3488,7 +3613,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       throw StateError('check-in fix too old for seed (${fixAge.inSeconds}s)');
     }
 
-    final dateIso = trackingDateIso();
+    final dateIso = _attendanceDate ?? _todayYmd();
     // Same id on every retry -> backend stores the seed at most once.
     // `mocked` propagates the platform's mock-location flag so a spoofed
     // check-in seed is flagged server-side rather than trusted silently.
@@ -3828,7 +3953,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     _timer?.cancel();
 
     // Calculate elapsed time from actual check-in time
-    final now = DateTime.now();
+    final now = _attendanceNow();
     final elapsedSeconds = now.difference(_checkInTime!).inSeconds;
     final startSeconds = elapsedSeconds > 0 ? elapsedSeconds : 0;
 
@@ -3851,13 +3976,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         seconds = (totalSeconds % 60).toString().padLeft(2, '0');
       });
     });
-  }
-
-  void _stopWorkTimer() {
-    final h = hours, m = minutes, s = seconds;
-    _resetTimerAndState();
-    _showSuccessDialog(
-        'Check-out successful!\nWork duration: ${h}h ${m}m ${s}s');
   }
 
   /// Loads the employee's assigned shift via the backend — the server
@@ -4249,9 +4367,35 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                       ],
                     ),
                   ),
+                // Completed session: the In/Out card already shows both
+                // recorded times; this row makes the finished state
+                // explicit and replaces the GPS warm-up status (tracking
+                // and warm-up are no longer running).
+                if (!isCheckedIn && _checkOutTime != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: const [
+                        Icon(Icons.check_circle,
+                            color: Colors.green, size: 14),
+                        SizedBox(width: 6),
+                        Text(
+                          'Checked out',
+                          style: TextStyle(
+                              color: Colors.green,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  ),
                 // Live GPS readiness: shows real warm-up accuracy so the
-                // employee knows check-in is ready before tapping.
-                if (!isCheckedIn && _locationServiceEnabled != false)
+                // employee knows check-in is ready before tapping. Hidden
+                // once the session is complete (checkOutTime != null).
+                if (!isCheckedIn &&
+                    _checkOutTime == null &&
+                    _locationServiceEnabled != false)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 10),
                     child: Builder(builder: (_) {

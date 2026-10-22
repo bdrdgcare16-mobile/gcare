@@ -18,6 +18,7 @@ const JWT_SECRET = defineSecret("JWT_SECRET");
 // intentionally NOT exported - they have never been deployed, and
 // enabling them changes production behavior outside this change's scope.
 export { trackingHeartbeatMonitor } from './schedulers/trackingHeartbeat';
+export { attendanceExpiryMonitor } from './schedulers/attendanceExpiry';
 
 // Export function
 export const api = onRequest(

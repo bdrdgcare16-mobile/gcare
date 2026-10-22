@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { db } from '../config/firebase';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Transaction } from 'firebase-admin/firestore';
+import { attendanceIsDue, isOpenAttendance, reconcileEmployeeAttendance } from '../services/attendanceSession';
 import {
   notifyCompanyAdminsOfTrackingEvent,
   notifyCompanyAdminsOfTrackingInterruption,
@@ -264,19 +265,14 @@ async function safeLegacyDoc(actor: Actor, data: any): Promise<TrackDayDoc | nul
  * (e.g. logout/re-login without check-out). Same-day re-check-in after
  * check-out is handled by attendance flow, not tracking.
  */
-async function attendanceSessionActive(actor: Actor, dateIso: string): Promise<boolean> {
-  const snap = await db.collection(ATT_COL)
+async function attendanceSessionActive(actor: Actor, dateIso: string, tx: Transaction): Promise<boolean> {
+  const query = db.collection(ATT_COL)
     .where('empid', '==', actor.empid)
     .where('companyId', '==', actor.companyId)
     .where('date', '==', dateIso)
-    .limit(1)
-    .get();
-  if (snap.empty) return false;
-  const d = snap.docs[0].data() as any;
-  const checkIn = String(d?.checkIn || '').trim();
-  const checkOut = d?.checkOut;
-  const hasCheckOut = !!(checkOut === true || (typeof checkOut === 'string' && checkOut.trim()));
-  return checkIn !== '' && !hasCheckOut;
+    .limit(2);
+  const snap = await tx.get(query);
+  return snap.docs.length === 1 && isOpenAttendance(snap.docs[0].data()) && !attendanceIsDue(snap.docs[0].data());
 }
 
 /* ---------- Live status computation (admin dashboard) ---------- */
@@ -554,6 +550,7 @@ const ALERTABLE_POINT_FLAGS = new Set([
 export async function trackingCheckIn(req: Request, res: Response) {
   try {
     const actor = await resolveActor(req);
+    await reconcileEmployeeAttendance(actor.companyId, actor.empid);
     const dateIso = dateFromReq(req);
     const id = docId(actor.companyId, actor.empid, dateIso);
     const now = new Date().toISOString();
@@ -573,14 +570,12 @@ export async function trackingCheckIn(req: Request, res: Response) {
         if (doc?.companyId && doc.companyId !== actor.companyId) {
           throw new HttpError(403, 'tracking session belongs to another company');
         }
+        const active = await attendanceSessionActive(actor, dateIso, tx);
+        if (!active) throw new HttpError(403, 'tracking session is closed - no active attendance');
         const ended = !!doc?.endedAt;
         if (ended) {
           // Outside a transaction would allow a stale read to reopen a
           // session after check-out - verify attendance inside it.
-          const active = await attendanceSessionActive(actor, dateIso);
-          if (!active) {
-            throw new HttpError(403, 'tracking session is closed - no active attendance');
-          }
           tx.update(ref, {
             endedAt: null,
             lastUpdateAt: now,
@@ -598,7 +593,7 @@ export async function trackingCheckIn(req: Request, res: Response) {
       // Never create a tracking session without an authoritative active
       // attendance record (checked in and not checked out). Evaluated inside
       // the transaction so retries re-verify current attendance state.
-      const active = await attendanceSessionActive(actor, dateIso);
+      const active = await attendanceSessionActive(actor, dateIso, tx);
       if (!active) {
         throw new HttpError(403, 'no active attendance - cannot start tracking');
       }
@@ -635,6 +630,7 @@ export async function trackingAppendPos(req: Request, res: Response) {
 
   try {
     const actor = await resolveActor(req);
+    await reconcileEmployeeAttendance(actor.companyId, actor.empid);
     const dateIso = dateFromReq(req);
     const id = docId(actor.companyId, actor.empid, dateIso);
     const pt = pointFromBody(req.body);
@@ -673,7 +669,7 @@ export async function trackingAppendPos(req: Request, res: Response) {
         // A first point may only create a session when an authoritative
         // active attendance record exists - prevents fabricated tracking
         // days without a real check-in.
-        const active = await attendanceSessionActive(actor, dateIso);
+        const active = await attendanceSessionActive(actor, dateIso, tx);
         if (!active) {
           throw new HttpError(403, 'no active attendance - cannot add tracking point');
         }
@@ -723,7 +719,7 @@ export async function trackingAppendPos(req: Request, res: Response) {
       // session server-side and reject the point. This also self-heals
       // orphaned open sessions so they cannot keep accepting locations.
       const sessionStillActive =
-        await attendanceSessionActive(actor, dateIso);
+        await attendanceSessionActive(actor, dateIso, tx);
       if (!sessionStillActive) {
         console.log('[TrackingController] LOG: APPEND REJECTED - attendance no longer active, closing session');
         status = 'session_ended';
@@ -1034,6 +1030,7 @@ export async function trackingCheckOut(req: Request, res: Response) {
   console.log('[TrackingController] CHECKOUT FUNCTION STARTED - NEW VERSION 2026-08-11');
   try {
     const actor = await resolveActor(req);
+    await reconcileEmployeeAttendance(actor.companyId, actor.empid);
     const dateIso = dateFromReq(req);
     const id = docId(actor.companyId, actor.empid, dateIso);
     const ref = db.collection(COL).doc(id);
@@ -1293,6 +1290,7 @@ export async function trackingLiveStatus(req: Request, res: Response) {
 export async function trackingAddEvent(req: Request, res: Response) {
   try {
     const actor = await resolveActor(req);
+    await reconcileEmployeeAttendance(actor.companyId, actor.empid);
     const dateIso = dateFromReq(req);
     const id = docId(actor.companyId, actor.empid, dateIso);
 
@@ -1530,6 +1528,7 @@ const GPS_HEARTBEAT_STATES = new Set([
 export async function trackingHeartbeat(req: Request, res: Response) {
   try {
     const actor = await resolveActor(req);
+    await reconcileEmployeeAttendance(actor.companyId, actor.empid);
     const dateIso = dateFromReq(req);
     const id = docId(actor.companyId, actor.empid, dateIso);
     const nowIso = new Date().toISOString();
@@ -1575,7 +1574,7 @@ export async function trackingHeartbeat(req: Request, res: Response) {
       // An open doc (or a missing one) is not proof the shift is active:
       // verify attendance inside the transaction. Inactive -> close and
       // tell the client to stop beating against a dead session.
-      const active = await attendanceSessionActive(actor, dateIso);
+      const active = await attendanceSessionActive(actor, dateIso, tx);
       if (!active) {
         status = 'session_ended';
         if (snap.exists) {

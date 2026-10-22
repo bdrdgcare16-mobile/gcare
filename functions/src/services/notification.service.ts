@@ -4,6 +4,7 @@ import { COLLECTIONS } from '../constants/collections';
 import { gpsConfirmedOffThisSession } from '../common/utils';
 
 export type NotificationType =
+  | 'ATTENDANCE_AUTO_INACTIVATED'
   | 'TASK_ASSIGNED'
   | 'TASK_COMPLETED'
   | 'LEAVE_REQUEST'

@@ -154,7 +154,7 @@ class FcmTestService {
     // GPS OFF/ON admin alerts (tracking_event) and request lifecycle
     // notifications open the notification history screen, which lists the
     // record and navigates onward to the employee's day detail.
-    if (entityType == 'tracking_event' ||
+    if (entityType == 'attendance_expiry' || entityType == 'tracking_event' ||
         type == 'LOCATION_DISABLED' ||
         type == 'LOCATION_ENABLED' ||
         type.startsWith('REQUEST_') ||

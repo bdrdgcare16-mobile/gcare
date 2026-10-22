@@ -4,6 +4,32 @@
       "collectionGroup": "attendance",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "companyId", "order": "ASCENDING" },
+        { "fieldPath": "sessionState", "order": "ASCENDING" },
+        { "fieldPath": "expiresAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "attendanceExpiryEvents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "companyId", "order": "ASCENDING" },
+        { "fieldPath": "deliveryState", "order": "ASCENDING" },
+        { "fieldPath": "nextAttemptAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "attendance",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "companyId", "order": "ASCENDING" },
+        { "fieldPath": "empid", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "attendance",
+      "queryScope": "COLLECTION",
+      "fields": [
         {
           "fieldPath": "companyId",
           "order": "ASCENDING"

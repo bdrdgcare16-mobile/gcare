@@ -472,6 +472,28 @@ describe('session close enforcement', () => {
     expect(currentDb._docs[`tracking/${DOC_ID}`].endedAt).toBeTruthy();
   });
 
+  test.each([null, '2026-10-12T10:00:00Z'])('auto-inactive attendance cannot start or reopen GPS (%s)', async endedAt => {
+    useDb({ docs: { [`tracking/${DOC_ID}`]: { ...openTrackingDoc, endedAt } },
+      attendanceRows: [{ empid: 'EMP001', companyId: 'COMP_A', date: DAY,
+        checkIn: '09:00:00', sessionState: 'auto_inactive' }] });
+    const r = res();
+    await ctrl.trackingCheckIn(req({ empid: 'EMP001', body: { dateIso: DAY } }), r);
+    expect(r.statusCode).toBe(403);
+    expect(currentDb._docs[`tracking/${DOC_ID}`].endedAt).toBe(endedAt);
+  });
+
+  test.each(['position', 'heartbeat'])('auto-inactive attendance stops %s and preserves GPS history', async kind => {
+    useDb({ docs: { [`tracking/${DOC_ID}`]: { ...openTrackingDoc } },
+      attendanceRows: [{ empid: 'EMP001', companyId: 'COMP_A', date: DAY,
+        checkIn: '09:00:00', sessionState: 'auto_inactive' }] });
+    const r = res();
+    if (kind === 'position') await ctrl.trackingAppendPos(req({ empid: 'EMP001', body: posBody }), r);
+    else await ctrl.trackingHeartbeat(req({ empid: 'EMP001', body: { dateIso: DAY, gpsState: 'service_on' } }), r);
+    expect(r.body.status).toBe('session_ended');
+    expect(currentDb._docs[`tracking/${DOC_ID}`].pathMap).toHaveLength(1);
+    expect(currentDb._docs[`tracking/${DOC_ID}`].endedAt).toBeTruthy();
+  });
+
   test('append still accepted while attendance session is active', async () => {
     useDb({
       docs: { [`tracking/${DOC_ID}`]: { ...openTrackingDoc } },

@@ -1,6 +1,7 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { FieldValue } from 'firebase-admin/firestore';
 import { db } from '../config/firebase';
+import { attendanceIsDue, isOpenAttendance } from '../services/attendanceSession';
 import { GPS_STALE_AFTER_MIN } from '../controllers/trackingController';
 import { notifyCompanyAdminsOfTrackingInterruption } from '../services/notification.service';
 
@@ -53,12 +54,7 @@ function activeAttendanceExists(
   if (attendanceRowsSnap.empty) return false;
   for (const d of attendanceRowsSnap.docs) {
     const data = d.data() as any;
-    const checkIn = String(data?.checkIn || '').trim();
-    const checkOut = data?.checkOut;
-    const hasCheckOut =
-      checkOut === true ||
-      (typeof checkOut === 'string' && checkOut.trim().length > 0);
-    if (checkIn !== '' && !hasCheckOut) return true;
+    if (isOpenAttendance(data) && !attendanceIsDue(data)) return true;
   }
   return false;
 }

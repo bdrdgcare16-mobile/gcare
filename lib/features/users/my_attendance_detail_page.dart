@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:serv_app/services/api_service.dart';
+import 'package:serv_app/utils/attendance_time.dart';
 
 // === Brand Colors (as per your purple/lavender theme) ===
 const Color kPrimaryBackgroundTop = Color(0xFFFFFFFF);
@@ -21,6 +22,7 @@ class MyAttendanceDetailPage extends StatefulWidget {
     this.shiftGroup, // date for which to show detail
     this.baseUrl, // date for which to show detail
     this.bearerToken, // optional: if you want to pass token explicitly
+    this.httpClient,
   });
 
   final String empId;
@@ -28,6 +30,7 @@ class MyAttendanceDetailPage extends StatefulWidget {
   final String? shiftGroup;
   final String? baseUrl;
   final String? bearerToken;
+  final http.Client? httpClient;
 
   @override
   State<MyAttendanceDetailPage> createState() => _MyAttendanceDetailPageState();
@@ -57,6 +60,9 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
   }
 
   // ---------- Networking ----------
+  Future<http.Response> _get(Uri uri, {Map<String, String>? headers}) =>
+      widget.httpClient?.get(uri, headers: headers) ?? http.get(uri, headers: headers);
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -75,7 +81,7 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
       // 0) Fetch current user info -> shiftGroup (no admin required)
       final meUri = Uri.parse("${widget.baseUrl}/auth/me");
 
-      final meRes = await http.get(
+      final meRes = await _get(
         meUri,
         headers: {
           'Content-Type': 'application/json',
@@ -93,7 +99,7 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
       // 1) summary (month) → pick the selected day
       final sumUri =
           Uri.parse('${widget.baseUrl}/attendance/summary/${widget.empId}/$y/$m2');
-      final sumRes = await http.get(
+      final sumRes = await _get(
         sumUri,
         headers: {
           'Content-Type': 'application/json',
@@ -157,10 +163,10 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
     DateTime? parseDT(dynamic v) {
       if (v == null) return null;
       try {
-        if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
+        if (v is int) return attendanceWallTime(DateTime.fromMillisecondsSinceEpoch(v));
         final s = v.toString().trim();
 
-        if (s.contains('T')) return DateTime.parse(s).toLocal();
+        if (s.contains('T')) return attendanceWallTime(DateTime.parse(s));
 
         // Accept HH:mm and HH:mm:ss (assume the selected date)
         final hhmm = RegExp(r'^\d{1,2}:\d{2}$');
@@ -168,10 +174,12 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
         if (hhmm.hasMatch(s) || hhmmss.hasMatch(s)) {
           final parts = s.split(':').map(int.parse).toList();
           final hh = parts[0], mm = parts[1], ss = parts.length > 2 ? parts[2] : 0;
-          return DateTime(widget.date.year, widget.date.month, widget.date.day, hh, mm, ss);
+          return parseAttendanceTime(null,
+              '${hh.toString().padLeft(2, '0')}:${mm.toString().padLeft(2, '0')}:${ss.toString().padLeft(2, '0')}',
+              '${widget.date.year.toString().padLeft(4, '0')}-${widget.date.month.toString().padLeft(2, '0')}-${widget.date.day.toString().padLeft(2, '0')}');
         }
 
-        return DateTime.parse(s).toLocal();
+        return attendanceWallTime(DateTime.parse(s));
       } catch (_) {
         return null;
       }
@@ -182,12 +190,28 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
     final shiftGroup = _shiftGroup; // from /api/attendance/me
 
     // Check-in/out (NO fallback to shift end)
-    final checkIn = parseDT(get(['checkIn', 'check_in', 'inTime', 'firstCheckIn']));
-    final checkOut = parseDT(get(['checkOut', 'check_out', 'outTime', 'lastCheckOut']));
+    final date = '${widget.date.year.toString().padLeft(4, '0')}-'
+        '${widget.date.month.toString().padLeft(2, '0')}-'
+        '${widget.date.day.toString().padLeft(2, '0')}';
+    final checkIn = parseAttendanceTime(get(['checkInTsUtc']),
+            get(['checkIn', 'check_in', 'inTime', 'firstCheckIn'])?.toString(), date) ??
+        parseDT(get(['checkIn', 'check_in', 'inTime', 'firstCheckIn']));
+    var checkOut = parseAttendanceTime(get(['checkOutTsUtc']),
+            get(['checkOut', 'check_out', 'outTime', 'lastCheckOut'])?.toString(),
+            get(['checkOutDate'])?.toString() ?? date) ??
+        parseDT(get(['checkOut', 'check_out', 'outTime', 'lastCheckOut']));
+    if (checkIn != null && checkOut != null && checkOut.isBefore(checkIn) &&
+        get(['checkOutTsUtc']) == null && get(['checkOutDate']) == null) {
+      checkOut = checkOut.add(const Duration(days: 1));
+    }
 
     // Status determination
     String status;
-    if (checkIn != null) {
+    final autoInactive = get(['sessionState']) == 'auto_inactive';
+    if (autoInactive) {
+      status = 'Auto-Inactivated';
+      checkOut = null;
+    } else if (checkIn != null) {
       // If there's a check-in, it's always Present
       status = 'Present';
     } else {
@@ -267,7 +291,7 @@ class _MyAttendanceDetailPageState extends State<MyAttendanceDetailPage> {
 
   static String _fmtTime(DateTime? t) {
     if (t == null) return '-';
-    final dt = t.toLocal();
+    final dt = t;
     final am = dt.hour < 12;
     int h12 = dt.hour % 12;
     if (h12 == 0) h12 = 12;
